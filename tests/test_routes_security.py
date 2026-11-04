@@ -89,6 +89,14 @@ def test_api_request_keeps_401_for_unauthenticated_user(client):
     assert response.json()["detail"]
 
 
+def test_expired_session_cookie_redirects_browser_to_login(client):
+    assert login(client).status_code == 303
+    client.cookies.delete("session")
+    response = client.get("/", headers={"accept": "text/html"})
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
 def test_anonymous_user_cannot_open_protected_pages_or_post(client):
     assert client.get("/").status_code == 401
     assert client.get("/employees").status_code == 401
