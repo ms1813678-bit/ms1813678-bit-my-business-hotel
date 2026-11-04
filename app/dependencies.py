@@ -13,7 +13,7 @@ def get_current_admin(
 ) -> AdminAccount:
     """Resolve the session username to an existing, active administrator account."""
     username = request.session.get("admin_username")
-    if not isinstance(username, str) or not username:
+    if not isinstance(username, str) or not username.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="يجب تسجيل الدخول أولاً.",
@@ -22,7 +22,7 @@ def get_current_admin(
 
     admin = (
         db.query(AdminAccount)
-        .filter(AdminAccount.username == username)
+        .filter(AdminAccount.username == username.strip())
         .one_or_none()
     )
     if admin is None or not admin.active:
