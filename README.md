@@ -4,7 +4,7 @@ A local-first, Arabic/English HR and payroll application for M.Y. Business Hotel
 
 ## Current status
 
-**Initial application scaffold — not production-ready.** The repository contains:
+**Application foundation in progress — not production-ready.** The repository contains:
 - FastAPI application shell and health endpoint.
 - PostgreSQL connection configuration through environment settings.
 - Initial SQLAlchemy models for departments, branches, employees, employee change history, audit logs, and the administrator account.
@@ -12,7 +12,7 @@ A local-first, Arabic/English HR and payroll application for M.Y. Business Hotel
 - Arabic RTL dashboard shell and responsive styling.
 - Starter security unit tests.
 
-Still required: database migrations and initialization, complete authentication/session flow, employee workflows, attendance import/reconciliation/approval, leave, advances, sanctions/rewards, payroll calculations and approval, reports, backup/restore, Windows packaging, and full testing.
+Implemented since the initial scaffold: SQLAlchemy employee-to-department relationship, database initialization command, default-department seeding command, payroll formula helpers, and unit tests for the agreed payroll rules. A login screen and employee-entry screen have been drafted, but the routes are not yet connected. Still required: production database migrations, complete authentication/session flow, employee workflows and validation, attendance import/reconciliation/approval, leave, advances, sanctions/rewards, payroll workflow and approval, reports, backup/restore, Windows packaging, and full testing.
 
 ## Requirements
 
