@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>الموظفون</title><link rel="stylesheet" href="/static/app.css"></head>
+<body><main class="shell"><header class="topbar"><div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة الموظفين</h1><p class="muted">قائمة الموظفين المسجلين</p></div><a href="/">لوحة التحكم</a></header>
+<section class="notice"><h2>إضافة موظف</h2><form method="post" action="/employees">
+<div class="form-grid">
+<label>الاسم بالكامل<input name="full_name" required maxlength="200"></label>
+<label>الرقم القومي<input name="national_id" maxlength="20"></label>
+<label>رقم الهاتف<input name="phone" maxlength="30"></label>
+<label>القسم<select name="department_id" required>{% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+<label>المسمى الوظيفي<input name="position" required maxlength="120"></label>
+<label>تاريخ التعيين<input name="hire_date" type="date" required></label>
+<label>الراتب الأساسي بالجنيه<input name="basic_salary" type="number" min="0" step="0.01" required></label>
+<label>ساعات العمل اليومية<input name="daily_hours" type="number" min="0.5" max="24" step="0.5" required></label>
+<label>رقم البصمة<input name="fingerprint_id" maxlength="50"></label>
+</div><button type="submit">حفظ الموظف</button></form></section>
+<section class="notice"><h2>السجل</h2><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>المسمى</th><th>الحالة</th></tr></thead><tbody>{% for e in employees %}<tr><td>{{ e.code }}</td><td>{{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{{ e.position }}</td><td>{{ e.status }}</td></tr>{% else %}<tr><td colspan="5">لا يوجد موظفون مسجلون بعد.</td></tr>{% endfor %}</tbody></table></div></section>
+</main></body></html>
