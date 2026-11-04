@@ -90,6 +90,7 @@ def test_api_request_keeps_401_for_unauthenticated_user(client):
 
 
 def test_missing_session_cookie_redirects_browser_to_login(client):
+    """A removed cookie tests an absent session, not natural cookie expiration."""
     assert login(client).status_code == 303
     # Removing the cookie tests an absent session, not expiration of a still-present cookie.
     client.cookies.delete("session")
