@@ -2,6 +2,7 @@
 <html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>الموظفون</title><link rel="stylesheet" href="/static/app.css"></head>
 <body><main class="shell"><header class="topbar"><div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة الموظفين</h1><p class="muted">قائمة الموظفين المسجلين</p></div><a href="/">لوحة التحكم</a></header>
 <section class="notice"><h2>إضافة موظف</h2><form method="post" action="/employees">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <div class="form-grid">
 <label>الاسم بالكامل<input name="full_name" required maxlength="200"></label>
 <label>الرقم القومي<input name="national_id" maxlength="20"></label>
