@@ -62,3 +62,23 @@ def test_csrf_dependency_reads_form_field():
     )
 
     asyncio.run(csrf_protect(request))
+
+
+@pytest.mark.parametrize(
+    "form_data",
+    [
+        {},
+        {CSRF_FORM_FIELD: "wrong-test-csrf-token"},
+    ],
+    ids=["missing-token", "wrong-token"],
+)
+def test_csrf_protect_rejects_missing_or_wrong_form_token(form_data):
+    request = make_request(
+        {CSRF_SESSION_KEY: "expected-test-csrf-token"},
+        form_data,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(csrf_protect(request))
+
+    assert exc.value.status_code == 403
