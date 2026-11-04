@@ -76,6 +76,19 @@ def login(client):
     return response
 
 
+def test_anonymous_browser_is_redirected_to_login_for_protected_pages(client):
+    for path in ("/", "/employees"):
+        response = client.get(path, headers={"accept": "text/html"})
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login"
+
+
+def test_api_request_keeps_401_for_unauthenticated_user(client):
+    response = client.get("/", headers={"accept": "application/json"})
+    assert response.status_code == 401
+    assert response.json()["detail"]
+
+
 def test_anonymous_user_cannot_open_protected_pages_or_post(client):
     assert client.get("/").status_code == 401
     assert client.get("/employees").status_code == 401
@@ -142,9 +155,11 @@ def test_inactive_or_deleted_admin_invalidates_existing_session(client, change):
             db.delete(admin)
         db.commit()
 
-    assert client.get("/").status_code == 401
+    expired_session_response = client.get("/", headers={"accept": "text/html"})
+    assert expired_session_response.status_code == 303
+    assert expired_session_response.headers["location"] == "/login"
     # get_current_admin clears the invalid session rather than preserving it.
-    assert client.get("/").status_code == 401
+    assert client.get("/", headers={"accept": "text/html"}).status_code == 303
 
 
 def test_employee_creation_requires_auth_and_valid_csrf(client):
