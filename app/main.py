@@ -17,6 +17,7 @@ from app.models import Department, Employee
 
 app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs")
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=False)
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=False)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
