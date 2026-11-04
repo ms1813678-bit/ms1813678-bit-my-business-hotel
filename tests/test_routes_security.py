@@ -121,7 +121,8 @@ def test_login_and_dashboard_require_valid_credentials_and_csrf(client):
     assert "integration-admin" in dashboard.text
 
 
-def test_inactive_or_deleted_admin_invalidates_existing_session(client):
+@pytest.mark.parametrize("change", ["deactivate", "delete"])
+def test_inactive_or_deleted_admin_invalidates_existing_session(client, change):
     assert login(client).status_code == 303
 
     # Change the account in the same isolated test database behind the active session.
@@ -129,7 +130,10 @@ def test_inactive_or_deleted_admin_invalidates_existing_session(client):
 
     with SessionLocal() as db:
         admin = db.get(AdminAccount, client.test_admin_id)
-        admin.active = False
+        if change == "deactivate":
+            admin.active = False
+        else:
+            db.delete(admin)
         db.commit()
 
     assert client.get("/").status_code == 401
@@ -155,6 +159,12 @@ def test_employee_creation_requires_auth_and_valid_csrf(client):
         "daily_hours": "8",
         "fingerprint_id": "",
     }
+    rejected = client.post(
+        "/employees",
+        data={**data, "csrf_token": "wrong-integration-csrf-token"},
+    )
+    assert rejected.status_code == 403
+
     response = client.post("/employees", data=data, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/employees"
