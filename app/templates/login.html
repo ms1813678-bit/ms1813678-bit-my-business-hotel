@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>تسجيل الدخول</title><link rel="stylesheet" href="/static/app.css"></head>
+<body><main class="login-shell"><form class="login-card" method="post" action="/login">
+<p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>تسجيل دخول الإدارة</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<label>اسم المستخدم<input name="username" autocomplete="username" required maxlength="80"></label>
+<label>كلمة المرور<input name="password" type="password" autocomplete="current-password" required></label>
+<button type="submit">دخول</button><p class="muted small">حساب واحد مخصص لمسؤول النظام.</p>
+</form></main></body></html>
