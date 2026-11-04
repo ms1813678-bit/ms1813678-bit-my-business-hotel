@@ -89,8 +89,9 @@ def test_api_request_keeps_401_for_unauthenticated_user(client):
     assert response.json()["detail"]
 
 
-def test_expired_session_cookie_redirects_browser_to_login(client):
+def test_missing_session_cookie_redirects_browser_to_login(client):
     assert login(client).status_code == 303
+    # Removing the cookie tests an absent session, not expiration of a still-present cookie.
     client.cookies.delete("session")
     response = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
     assert response.status_code == 303
@@ -163,9 +164,11 @@ def test_inactive_or_deleted_admin_invalidates_existing_session(client, change):
             db.delete(admin)
         db.commit()
 
-    expired_session_response = client.get("/", headers={"accept": "text/html"})
-    assert expired_session_response.status_code == 303
-    assert expired_session_response.headers["location"] == "/login"
+    invalidated_account_response = client.get(
+        "/", headers={"accept": "text/html"}, follow_redirects=False
+    )
+    assert invalidated_account_response.status_code == 303
+    assert invalidated_account_response.headers["location"] == "/login"
     # get_current_admin clears the invalid session rather than preserving it.
     assert client.get("/", headers={"accept": "text/html"}, follow_redirects=False).status_code == 303
 
