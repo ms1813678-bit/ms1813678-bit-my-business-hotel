@@ -78,7 +78,7 @@ def login(client):
 
 def test_anonymous_browser_is_redirected_to_login_for_protected_pages(client):
     for path in ("/", "/employees"):
-        response = client.get(path, headers={"accept": "text/html"})
+        response = client.get(path, headers={"accept": "text/html"}, follow_redirects=False)
         assert response.status_code == 303
         assert response.headers["location"] == "/login"
 
@@ -92,7 +92,7 @@ def test_api_request_keeps_401_for_unauthenticated_user(client):
 def test_expired_session_cookie_redirects_browser_to_login(client):
     assert login(client).status_code == 303
     client.cookies.delete("session")
-    response = client.get("/", headers={"accept": "text/html"})
+    response = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
 
@@ -167,7 +167,7 @@ def test_inactive_or_deleted_admin_invalidates_existing_session(client, change):
     assert expired_session_response.status_code == 303
     assert expired_session_response.headers["location"] == "/login"
     # get_current_admin clears the invalid session rather than preserving it.
-    assert client.get("/", headers={"accept": "text/html"}).status_code == 303
+    assert client.get("/", headers={"accept": "text/html"}, follow_redirects=False).status_code == 303
 
 
 def test_employee_creation_requires_auth_and_valid_csrf(client):
