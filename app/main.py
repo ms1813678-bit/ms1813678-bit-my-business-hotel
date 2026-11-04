@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import Depends, FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -28,6 +28,22 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+
+@app.exception_handler(HTTPException)
+async def authentication_exception_handler(request: Request, exc: HTTPException):
+    """Redirect browser page requests to login while preserving API 401 responses."""
+    accept = request.headers.get("accept", "").lower()
+    wants_html = "text/html" in accept and "application/json" not in accept
+    if exc.status_code == 401 and request.method in {"GET", "HEAD"} and wants_html:
+        return RedirectResponse("/login", status_code=303)
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
 
 
 @app.get("/health")
