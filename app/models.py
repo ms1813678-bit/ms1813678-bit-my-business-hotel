@@ -12,6 +12,7 @@ class Department(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    employees: Mapped[list["Employee"]] = relationship(back_populates="department")
 
 
 class Branch(Base):
@@ -41,6 +42,7 @@ class Employee(Base):
     basic_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     daily_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    department: Mapped[Department] = relationship(back_populates="employees")
 
 
 class EmployeeChange(Base):
