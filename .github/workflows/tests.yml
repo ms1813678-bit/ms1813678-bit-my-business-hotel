@@ -1,0 +1,50 @@
+name: Python test suite
+
+on:
+  push:
+    branches:
+      - feature/auth-security
+  pull_request:
+    branches:
+      - feature/auth-security
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run pytest (Python 3.11)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: hotel_test
+          POSTGRES_USER: hotel_test
+          POSTGRES_PASSWORD: test-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hotel_test -d hotel_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://hotel_test:test-only-password@localhost:5432/hotel_test
+      SESSION_SECRET: ci-test-only-session-secret-not-for-production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project and development dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run complete test suite
+        run: python -m pytest -v
