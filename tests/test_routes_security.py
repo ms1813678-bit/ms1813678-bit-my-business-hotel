@@ -80,6 +80,12 @@ def test_anonymous_user_cannot_open_protected_pages_or_post(client):
     assert client.get("/").status_code == 401
     assert client.get("/employees").status_code == 401
     assert client.post("/employees", data={}).status_code == 403
+    anonymous_page = client.get("/login")
+    anonymous_token = csrf_from(anonymous_page)
+    assert client.post(
+        "/employees",
+        data={"csrf_token": anonymous_token},
+    ).status_code == 401
     assert client.post("/logout", data={}).status_code == 403
 
 
