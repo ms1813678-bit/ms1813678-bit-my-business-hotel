@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -72,8 +72,19 @@ class AuditLog(Base):
 
 class AdminAccount(Base):
     __tablename__ = "admin_accounts"
+    __table_args__ = (
+        UniqueConstraint("singleton_key", name="uq_admin_accounts_singleton_key"),
+        CheckConstraint("singleton_key = 1", name="ck_admin_accounts_singleton_key"),
+        CheckConstraint("active IS TRUE", name="ck_admin_accounts_must_remain_active"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
+    singleton_key: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     username: Mapped[str] = mapped_column(String(80), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+@event.listens_for(AdminAccount, "before_delete")
+def prevent_admin_deletion(mapper, connection, target):
+    raise ValueError("The sole administrator account cannot be deleted.")

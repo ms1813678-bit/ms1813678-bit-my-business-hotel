@@ -32,18 +32,13 @@ templates = Jinja2Templates(directory="app/templates")
 
 @app.exception_handler(HTTPException)
 async def authentication_exception_handler(request: Request, exc: HTTPException):
-    """Redirect browser page requests to login while preserving API 401 responses."""
+    """Redirect browser page requests to login while preserving API error responses."""
     accept = request.headers.get("accept", "").lower()
     wants_html = "text/html" in accept and "application/json" not in accept
     if exc.status_code == 401 and request.method in {"GET", "HEAD"} and wants_html:
         return RedirectResponse("/login", status_code=303)
     from fastapi.responses import JSONResponse
-
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail},
-        headers=exc.headers,
-    )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
 
 
 @app.get("/health")
@@ -53,14 +48,13 @@ def health():
             connection.execute(text("SELECT 1"))
         return {"status": "ok", "database": "connected"}
     except SQLAlchemyError:
-        return {"status": "degraded", "database": "unavailable"}
+        raise HTTPException(status_code=503, detail={"status": "degraded", "database": "unavailable"})
 
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     return templates.TemplateResponse(
-        request=request,
-        name="login.html",
+        request=request, name="login.html",
         context={"error": None, "csrf_token": get_csrf_token(request)},
     )
 
@@ -71,18 +65,13 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         admin = authenticate(db, username.strip(), password)
         if admin is None:
             return templates.TemplateResponse(
-                request=request,
-                name="login.html",
-                context={
-                    "error": "اسم المستخدم أو كلمة المرور غير صحيحة.",
-                    "csrf_token": get_csrf_token(request),
-                },
+                request=request, name="login.html",
+                context={"error": "اسم المستخدم أو كلمة المرور غير صحيحة.", "csrf_token": get_csrf_token(request)},
                 status_code=401,
             )
         request.session.clear()
         request.session["admin_username"] = admin.username
-        # Rotate the CSRF token when the anonymous session becomes authenticated.
-        csrf_token = get_csrf_token(request)
+        get_csrf_token(request)
     return RedirectResponse("/", status_code=303)
 
 
@@ -93,41 +82,21 @@ def logout(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(
-    request: Request,
-    admin: AdminAccount = Depends(get_current_admin),
-):
+def dashboard(request: Request, admin: AdminAccount = Depends(get_current_admin)):
     return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html",
-        context={
-            "app_name": settings.app_name,
-            "admin": admin.username,
-            "csrf_token": get_csrf_token(request),
-        },
+        request=request, name="dashboard.html",
+        context={"app_name": settings.app_name, "admin": admin.username, "csrf_token": get_csrf_token(request)},
     )
 
 
 @app.get("/employees", response_class=HTMLResponse)
-def employees_page(
-    request: Request,
-    admin: AdminAccount = Depends(get_current_admin),
-):
+def employees_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
     with SessionLocal() as db:
-        departments = db.scalars(
-            select(Department)
-            .where(Department.active.is_(True))
-            .order_by(Department.name)
-        ).all()
+        departments = db.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all()
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
         return templates.TemplateResponse(
-            request=request,
-            name="employees.html",
-            context={
-                "departments": departments,
-                "employees": employees,
-                "csrf_token": get_csrf_token(request),
-            },
+            request=request, name="employees.html",
+            context={"departments": departments, "employees": employees, "csrf_token": get_csrf_token(request)},
         )
 
 
@@ -154,17 +123,11 @@ def create_employee(
         last_code = db.scalar(select(Employee.code).order_by(Employee.id.desc()).limit(1))
         next_number = int(last_code.split("-")[1]) + 1 if last_code and last_code.startswith("MY-") else 1
         employee = Employee(
-            code=f"MY-{next_number:04d}",
-            full_name=full_name.strip(),
-            national_id=national_id.strip() or None,
-            phone=phone.strip() or None,
-            department_id=department_id,
-            position=position.strip(),
-            hire_date=hire_date,
-            basic_salary=basic_salary,
-            daily_hours=daily_hours,
-            fingerprint_id=fingerprint_id.strip() or None,
-            status="active",
+            code=f"MY-{next_number:04d}", full_name=full_name.strip(),
+            national_id=national_id.strip() or None, phone=phone.strip() or None,
+            department_id=department_id, position=position.strip(), hire_date=hire_date,
+            basic_salary=basic_salary, daily_hours=daily_hours,
+            fingerprint_id=fingerprint_id.strip() or None, status="active",
         )
         db.add(employee)
         db.commit()

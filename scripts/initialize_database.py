@@ -1,10 +1,11 @@
-from app.db import Base, engine
-from app import models  # noqa: F401
+"""Apply the versioned schema using Alembic."""
+from alembic import command
+from alembic.config import Config
 
 
-def main() -> None:
-    Base.metadata.create_all(bind=engine)
-    print("Database tables created or already present.")
+def main():
+    command.upgrade(Config("alembic.ini"), "head")
+    print("Database migrations applied successfully.")
 
 
 if __name__ == "__main__":
