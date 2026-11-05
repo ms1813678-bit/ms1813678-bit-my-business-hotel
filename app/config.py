@@ -17,8 +17,8 @@ class Settings(BaseSettings):
         url = self.database_url.strip()
         if not url or "change_me" in url.lower():
             raise ValueError("DATABASE_URL must be explicitly configured; CHANGE_ME placeholders are forbidden.")
-        if not url.startswith(("postgresql://", "postgresql+psycopg://")):
-            raise ValueError("DATABASE_URL must use PostgreSQL.")
+        if not url.startswith("postgresql+psycopg://"):
+            raise ValueError("DATABASE_URL must use the installed PostgreSQL psycopg driver.")
         self.database_url = url
         secret = self.session_secret.strip()
         if len(secret) < 32 or secret == "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET" or secret.lower().startswith("change_me"):
