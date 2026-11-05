@@ -20,8 +20,8 @@ See [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the agreed product scope an
 6. Install: `python -m pip install -e ".[dev]"`.
 7. Apply schema migrations: `python -m scripts.initialize_database`.
 8. Create the only administrator from the local terminal: `python -m scripts.create_admin`. The password is entered invisibly and is never configured through a public signup page.
-9. Run: `uvicorn app.main:app --host 127.0.0.1 --port 8000`.
-10. Open `http://127.0.0.1:8000`. The `/health` endpoint returns HTTP 503 if PostgreSQL cannot be reached.
+10. Run: `uvicorn app.main:app --host 127.0.0.1 --port 8000`.
+11. Open `http://127.0.0.1:8000`. The `/health` endpoint returns HTTP 503 if PostgreSQL cannot be reached.
 
 The session cookie uses an eight-hour lifetime, HttpOnly, and SameSite=Lax. Secure cookies are enabled automatically when `APP_ENV=production`; local HTTP development keeps Secure disabled. Keep the server bound to `127.0.0.1`; never expose it to the public internet.
 
