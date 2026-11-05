@@ -244,16 +244,24 @@ def test_session_cookie_has_expected_lifetime_and_security_attributes(client):
     assert options["same_site"] == "lax"
 
 
-def test_session_cookie_secure_flag_follows_production_environment(client, monkeypatch):
+def test_session_cookie_secure_flag_follows_production_environment(monkeypatch):
     import importlib
+    import os
 
+    from app import config as config_module
     from app import main as main_module
-    from app.config import settings
 
-    original_app_env = settings.app_env
+    original_app_env = os.environ.get("APP_ENV")
+    monkeypatch.setenv("APP_ENV", "production")
+
     try:
-        monkeypatch.setattr(settings, "app_env", "production")
+        # Reload settings so Pydantic reads APP_ENV from the real process environment.
+        production_config = importlib.reload(config_module)
+        assert production_config.settings.app_env.lower() == "production"
+
+        # Rebuild the actual application using the freshly loaded production settings.
         production_main = importlib.reload(main_module)
+        assert production_main.settings is production_config.settings
 
         middleware = next(
             item
@@ -271,7 +279,13 @@ def test_session_cookie_secure_flag_follows_production_environment(client, monke
         assert "samesite=lax" in production_cookie
         assert "max-age=28800" in production_cookie
     finally:
-        monkeypatch.setattr(settings, "app_env", original_app_env)
+        if original_app_env is None:
+            monkeypatch.delenv("APP_ENV", raising=False)
+        else:
+            monkeypatch.setenv("APP_ENV", original_app_env)
+
+        # Restore module-level settings and app construction for other tests.
+        importlib.reload(config_module)
         importlib.reload(main_module)
 
 
