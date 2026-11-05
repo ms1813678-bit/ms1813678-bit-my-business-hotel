@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
-from app.models import AdminAccount, Department, Employee
+from app.models import AdminAccount, Department, Employee, EmployeeCodeCounter
 from app.security import hash_password
 
 
@@ -32,7 +32,7 @@ def client(monkeypatch):
             active=True,
         )
         department = Department(name="Test Department", active=True)
-        db.add_all([admin, department])
+        db.add_all([admin, department, EmployeeCodeCounter(id=1, last_number=0)])
         db.commit()
         db.refresh(admin)
         db.refresh(department)
