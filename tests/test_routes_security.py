@@ -221,3 +221,89 @@ def test_logout_requires_csrf_and_clears_session(client):
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
     assert client.get("/").status_code == 401
+
+
+def _session_middleware_options():
+    middleware = next(
+        item for item in app.user_middleware if item.cls.__name__ == "SessionMiddleware"
+    )
+    return middleware.options
+
+
+def test_session_cookie_has_expected_lifetime_and_security_attributes(client):
+    response = client.get("/login")
+    cookie = response.headers["set-cookie"]
+    options = _session_middleware_options()
+
+    assert options["max_age"] == 8 * 60 * 60 == 28800
+    assert "session=" in cookie
+    assert "Max-Age=28800" in cookie
+    assert "httponly" in cookie.lower()
+    assert "samesite=lax" in cookie.lower()
+    assert options["same_site"] == "lax"
+
+
+def test_session_cookie_secure_flag_follows_production_environment(client):
+    from app.config import settings
+
+    options = _session_middleware_options()
+    assert options["https_only"] is (settings.app_env.lower() == "production")
+
+    # Exercise Starlette's production cookie behavior without changing application files.
+    from fastapi import FastAPI
+    from starlette.middleware.sessions import SessionMiddleware
+
+    production_app = FastAPI()
+    production_app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.session_secret,
+        session_cookie="session",
+        max_age=28800,
+        path="/",
+        same_site="lax",
+        https_only=True,
+    )
+
+    @production_app.get("/")
+    def production_session(request):
+        request.session["probe"] = "value"
+        return {"ok": True}
+
+    with TestClient(production_app) as production_client:
+        production_cookie = production_client.get("/").headers["set-cookie"]
+
+    assert "secure" in production_cookie.lower()
+    assert "httponly" in production_cookie.lower()
+    assert "samesite=lax" in production_cookie.lower()
+    assert "max-age=28800" in production_cookie.lower()
+
+
+def test_login_rotates_csrf_token_and_rejects_pre_login_token(client):
+    anonymous_page = client.get("/login")
+    old_token = csrf_from(anonymous_page)
+
+    successful_login = client.post(
+        "/login",
+        data={
+            "username": "integration-admin",
+            "password": "Integration-Test-Password-123!",
+            "csrf_token": old_token,
+        },
+        follow_redirects=False,
+    )
+    assert successful_login.status_code == 303
+
+    dashboard = client.get("/")
+    new_token = csrf_from(dashboard)
+    assert new_token != old_token
+
+    old_token_response = client.post("/logout", data={"csrf_token": old_token})
+    assert old_token_response.status_code == 403
+
+    new_token_response = client.post(
+        "/logout",
+        data={"csrf_token": new_token},
+        follow_redirects=False,
+    )
+    assert new_token_response.status_code == 303
+    assert new_token_response.headers["location"] == "/login"
