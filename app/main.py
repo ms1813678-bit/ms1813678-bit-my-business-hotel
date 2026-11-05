@@ -14,6 +14,7 @@ from app.config import settings
 from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
+from app.employee_codes import allocate_employee_code
 from app.models import AdminAccount, Department, Employee
 
 app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs")
@@ -121,10 +122,8 @@ def create_employee(
         department = db.get(Department, department_id)
         if department is None or not department.active:
             return HTMLResponse("القسم المحدد غير متاح.", status_code=400)
-        last_code = db.scalar(select(Employee.code).order_by(Employee.id.desc()).limit(1))
-        next_number = int(last_code.split("-")[1]) + 1 if last_code and last_code.startswith("MY-") else 1
         employee = Employee(
-            code=f"MY-{next_number:04d}", full_name=full_name.strip(),
+            code=allocate_employee_code(db), full_name=full_name.strip(),
             national_id=national_id.strip() or None, phone=phone.strip() or None,
             department_id=department_id, position=position.strip(), hire_date=hire_date,
             basic_salary=basic_salary, daily_hours=daily_hours,
