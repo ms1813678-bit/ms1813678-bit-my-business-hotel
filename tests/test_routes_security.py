@@ -320,3 +320,30 @@ def test_login_rotates_csrf_token_and_rejects_pre_login_token(client):
     )
     assert new_token_response.status_code == 303
     assert new_token_response.headers["location"] == "/login"
+
+
+
+def test_admin_session_is_invalidated_when_session_version_changes(client):
+    assert login(client).status_code == 303
+    from app.main import SessionLocal
+
+    with SessionLocal.begin() as db:
+        admin = db.get(AdminAccount, client.test_admin_id)
+        admin.session_version += 1
+
+    response = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_employee_code_counter_is_persistent_and_never_reuses_reserved_number(client):
+    from app.employee_codes import allocate_employee_code
+    from app.main import SessionLocal
+
+    with SessionLocal.begin() as db:
+        assert allocate_employee_code(db) == "MY-0001"
+    with SessionLocal.begin() as db:
+        assert allocate_employee_code(db) == "MY-0002"
+    # A fresh database session observes the committed counter value.
+    with SessionLocal.begin() as db:
+        assert allocate_employee_code(db) == "MY-0003"
