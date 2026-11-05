@@ -244,39 +244,35 @@ def test_session_cookie_has_expected_lifetime_and_security_attributes(client):
     assert options["same_site"] == "lax"
 
 
-def test_session_cookie_secure_flag_follows_production_environment(client):
+def test_session_cookie_secure_flag_follows_production_environment(client, monkeypatch):
+    import importlib
+
+    from app import main as main_module
     from app.config import settings
 
-    options = _session_middleware_options()
-    assert options["https_only"] is (settings.app_env.lower() == "production")
+    original_app_env = settings.app_env
+    try:
+        monkeypatch.setattr(settings, "app_env", "production")
+        production_main = importlib.reload(main_module)
 
-    # Exercise Starlette's production cookie behavior without changing application files.
-    from fastapi import FastAPI
-    from starlette.middleware.sessions import SessionMiddleware
+        middleware = next(
+            item
+            for item in production_main.app.user_middleware
+            if item.cls.__name__ == "SessionMiddleware"
+        )
+        assert middleware.kwargs["https_only"] is True
 
-    production_app = FastAPI()
-    production_app.add_middleware(
-        SessionMiddleware,
-        secret_key=settings.session_secret,
-        session_cookie="session",
-        max_age=28800,
-        path="/",
-        same_site="lax",
-        https_only=True,
-    )
+        with TestClient(production_main.app) as production_client:
+            response = production_client.get("/login")
 
-    @production_app.get("/")
-    def production_session(request: Request):
-        request.session["probe"] = "value"
-        return {"ok": True}
-
-    with TestClient(production_app) as production_client:
-        production_cookie = production_client.get("/").headers["set-cookie"]
-
-    assert "secure" in production_cookie.lower()
-    assert "httponly" in production_cookie.lower()
-    assert "samesite=lax" in production_cookie.lower()
-    assert "max-age=28800" in production_cookie.lower()
+        production_cookie = response.headers["set-cookie"].lower()
+        assert "secure" in production_cookie
+        assert "httponly" in production_cookie
+        assert "samesite=lax" in production_cookie
+        assert "max-age=28800" in production_cookie
+    finally:
+        monkeypatch.setattr(settings, "app_env", original_app_env)
+        importlib.reload(main_module)
 
 
 def test_login_rotates_csrf_token_and_rejects_pre_login_token(client):
