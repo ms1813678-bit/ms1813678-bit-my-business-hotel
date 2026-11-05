@@ -83,6 +83,7 @@ class AdminAccount(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 @event.listens_for(AdminAccount, "before_delete")
