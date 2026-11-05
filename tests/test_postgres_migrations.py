@@ -116,9 +116,21 @@ def test_fresh_postgres_install_repeated_upgrade_rollback_and_admin_guards(postg
     migrate(test_engine, "head")
     migrate(test_engine, "head")
     with test_engine.connect() as connection:
+        assert "employee_service_periods" in inspect(connection).get_table_names()
+        assert connection.execute(
+            text("SELECT to_regclass('employee_code_number_seq') IS NOT NULL")
+        ).scalar_one() is True
         assert connection.execute(
             text("SELECT COUNT(*) FROM employee_service_periods")
         ).scalar_one() == 1
+        with pytest.raises(IntegrityError):
+            with connection.begin_nested():
+                connection.execute(text("""
+                    INSERT INTO employee_service_periods
+                        (employee_id, start_date, end_date, start_reason)
+                    SELECT id, DATE '2020-01-02', NULL, 'Duplicate open period'
+                    FROM employees WHERE code = 'MY-0009'
+                """))
         assert connection.execute(
             text("""
                 SELECT e.code, p.start_date, p.end_date
@@ -266,6 +278,15 @@ def test_legacy_postgres_database_upgrade_preserves_rows_and_seeds_highest_code(
                 INSERT INTO admin_accounts (username, password_hash, active)
                 VALUES ('legacy-admin', 'existing-hash', TRUE)
             """)
+        )
+        connection.execute(text("""
+            CREATE TABLE employee_code_counters (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                last_number INTEGER NOT NULL CHECK (last_number >= 0)
+            )
+        """))
+        connection.execute(
+            text("INSERT INTO employee_code_counters (id, last_number) VALUES (1, 45)")
         )
 
     migrate(test_engine, "head")
