@@ -33,7 +33,7 @@ def upgrade():
     codes = connection.execute(sa.text("SELECT code FROM employees")).scalars()
     highest = 0
     for code in codes:
-        match = re.fullmatch(r"MY-(\\d+)", code or "")
+        match = re.fullmatch(r"MY-(\d+)", code or "")
         if match:
             highest = max(highest, int(match.group(1)))
     counter_exists = connection.execute(
