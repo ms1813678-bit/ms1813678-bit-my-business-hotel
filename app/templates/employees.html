@@ -14,5 +14,11 @@
 <label>ساعات العمل اليومية<input name="daily_hours" type="number" min="0.5" max="24" step="0.5" required></label>
 <label>رقم البصمة<input name="fingerprint_id" maxlength="50"></label>
 </div><button type="submit">حفظ الموظف</button></form></section>
-<section class="notice"><h2>السجل</h2><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>المسمى</th><th>الحالة</th></tr></thead><tbody>{% for e in employees %}<tr><td>{{ e.code }}</td><td>{{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{{ e.position }}</td><td>{{ e.status }}</td></tr>{% else %}<tr><td colspan="5">لا يوجد موظفون مسجلون بعد.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="notice"><h2>السجل</h2><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>المسمى</th><th>الحالة</th></tr></thead><tbody>{% for e in employees %}<tr><td>{{ e.code }}</td><td>{{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{{ e.position }}</td><td>{{ e.status }}
+{% if e.status == "active" %}
+<form method="post" action="/employees/{{ e.id }}/archive" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" required placeholder="سبب الأرشفة"><button type="submit">أرشفة</button></form>
+{% elif e.status == "archived" %}
+<form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="date" name="new_hire_date" required><input name="reason" required placeholder="سبب إعادة التعيين"><button type="submit">إعادة تعيين</button></form>
+{% endif %}
+</td></tr>{% else %}<tr><td colspan="5">لا يوجد موظفون مسجلون بعد.</td></tr>{% endfor %}</tbody></table></div></section>
 </main></body></html>
