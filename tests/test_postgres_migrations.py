@@ -82,9 +82,8 @@ def insert_employee(connection, code, name, status):
 def test_fresh_postgres_install_repeated_upgrade_rollback_and_admin_guards(postgres_schema):
     test_engine = postgres_schema
 
-    # A completely empty PostgreSQL schema can be migrated, and repeated upgrade is safe.
-    migrate(test_engine, "head")
-    migrate(test_engine, "head")
+    # Build a fresh schema through the base/platform migrations first.
+    migrate(test_engine, "0002_platform_state")
 
     inspector = inspect(test_engine)
     assert {
@@ -113,6 +112,8 @@ def test_fresh_postgres_install_repeated_upgrade_rollback_and_admin_guards(postg
             text("UPDATE employee_code_counters SET last_number = 12 WHERE id = 1")
         )
 
+    # The remaining migrations backfill active employees and establish the sequence.
+    migrate(test_engine, "head")
     migrate(test_engine, "head")
     with test_engine.connect() as connection:
         assert connection.execute(
