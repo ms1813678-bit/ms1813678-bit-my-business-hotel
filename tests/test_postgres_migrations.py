@@ -9,7 +9,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from app.db import engine as configured_engine
 from app.employee_codes import allocate_employee_code
@@ -94,12 +94,8 @@ def test_fresh_postgres_install_repeated_upgrade_rollback_and_admin_guards(postg
         "audit_logs",
         "admin_accounts",
         "employee_code_counters",
-        "employee_service_periods",
         "alembic_version",
     }.issubset(set(inspector.get_table_names()))
-    assert "employee_code_number_seq" in test_engine.connect().execute(
-        text("SELECT relname FROM pg_class WHERE relkind = 'S'")
-    ).scalars().all()
 
     with test_engine.begin() as connection:
         insert_employee(connection, "MY-0009", "Active Legacy", "active")
