@@ -152,27 +152,29 @@ def test_login_and_dashboard_require_valid_credentials_and_csrf(client):
 
 
 @pytest.mark.parametrize("change", ["deactivate", "delete"])
-def test_inactive_or_deleted_admin_invalidates_existing_session(client, change):
-    assert login(client).status_code == 303
+def test_sole_admin_cannot_be_deactivated_or_deleted(client, change):
+    from sqlalchemy.exc import IntegrityError
 
-    # Change the account in the same isolated test database behind the active session.
+    assert login(client).status_code == 303
     from app.main import SessionLocal
 
     with SessionLocal() as db:
         admin = db.get(AdminAccount, client.test_admin_id)
         if change == "deactivate":
             admin.active = False
+            with pytest.raises(IntegrityError):
+                db.commit()
+            db.rollback()
         else:
             db.delete(admin)
-        db.commit()
+            with pytest.raises(ValueError, match="cannot be deleted"):
+                db.flush()
+            db.rollback()
 
-    invalidated_account_response = client.get(
-        "/", headers={"accept": "text/html"}, follow_redirects=False
-    )
-    assert invalidated_account_response.status_code == 303
-    assert invalidated_account_response.headers["location"] == "/login"
-    # get_current_admin clears the invalid session rather than preserving it.
-    assert client.get("/", headers={"accept": "text/html"}, follow_redirects=False).status_code == 303
+    # A failed destructive operation must not lock the only administrator out.
+    response = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+    assert response.status_code == 200
+    assert "integration-admin" in response.text
 
 
 def test_employee_creation_requires_auth_and_valid_csrf(client):
