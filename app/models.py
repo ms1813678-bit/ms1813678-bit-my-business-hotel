@@ -45,6 +45,12 @@ class Employee(Base):
     department: Mapped[Department] = relationship(back_populates="employees")
 
 
+class EmployeeCodeCounter(Base):
+    __tablename__ = "employee_code_counters"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class EmployeeChange(Base):
     __tablename__ = "employee_changes"
     id: Mapped[int] = mapped_column(primary_key=True)
