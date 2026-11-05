@@ -228,7 +228,7 @@ def _session_middleware_options():
     middleware = next(
         item for item in app.user_middleware if item.cls.__name__ == "SessionMiddleware"
     )
-    return middleware.options
+    return middleware.kwargs
 
 
 def test_session_cookie_has_expected_lifetime_and_security_attributes(client):
