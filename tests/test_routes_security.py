@@ -327,9 +327,11 @@ def test_admin_session_is_invalidated_when_session_version_changes(client):
     assert login(client).status_code == 303
     from app.main import SessionLocal
 
+    from app.auth import change_admin_password
+
     with SessionLocal.begin() as db:
         admin = db.get(AdminAccount, client.test_admin_id)
-        admin.session_version += 1
+        change_admin_password(db, admin, "Changed-Integration-Password-789!")
 
     response = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
     assert response.status_code == 303
