@@ -185,11 +185,11 @@ def test_fresh_postgres_install_repeated_upgrade_rollback_and_admin_guards(postg
         ).scalar_one() == 1
         assert connection.execute(
             text("SELECT last_number FROM employee_code_counters WHERE id = 1")
-        ).scalar_one() == 36
+        ).scalar_one() == 38
     migrate(test_engine, "head")
     with factory.begin() as session:
         after_reupgrade = allocate_employee_code(session)
-    assert after_reupgrade == "MY-0037"
+    assert after_reupgrade == "MY-0039"
 
 
 def test_legacy_postgres_database_upgrade_preserves_rows_and_seeds_highest_code(postgres_schema):
