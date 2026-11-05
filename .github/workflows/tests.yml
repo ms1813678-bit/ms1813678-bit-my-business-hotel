@@ -49,7 +49,7 @@ jobs:
         run: python -m pytest -v
 
   windows:
-    name: Windows 11 compatibility (Python 3.11)
+    name: Windows runner compatibility (Python 3.11)
     runs-on: windows-latest
     env:
       DATABASE_URL: postgresql+psycopg://ci_placeholder:ci_placeholder@127.0.0.1:5432/ci_placeholder
