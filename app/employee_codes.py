@@ -1,18 +1,23 @@
-"""Atomic, database-backed employee code allocation."""
-from sqlalchemy import update
+"""Allocate employee codes from a non-transactional PostgreSQL sequence."""
+from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-from app.models import EmployeeCodeCounter
 
 
 def allocate_employee_code(db: Session) -> str:
-    """Reserve the next never-reused MY code inside the caller's transaction."""
+    """Reserve the next never-reused MY code inside the caller's transaction.
+
+    PostgreSQL sequences are intentionally non-transactional: a later rollback
+    does not make a reserved number available again.
+    """
     number = db.execute(
-        update(EmployeeCodeCounter)
-        .where(EmployeeCodeCounter.id == 1)
-        .values(last_number=EmployeeCodeCounter.last_number + 1)
-        .returning(EmployeeCodeCounter.last_number)
-    ).scalar_one_or_none()
-    if number is None:
-        raise RuntimeError("Employee code counter is missing; apply database migrations first.")
+        text("SELECT nextval('employee_code_number_seq')")
+    ).scalar_one()
+    db.execute(
+        text("""
+            UPDATE employee_code_counters
+            SET last_number = GREATEST(last_number, :number)
+            WHERE id = 1
+        """),
+        {"number": number},
+    )
     return f"MY-{number:04d}"
