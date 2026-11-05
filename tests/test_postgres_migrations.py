@@ -314,3 +314,51 @@ def test_legacy_postgres_database_upgrade_preserves_rows_and_seeds_highest_code(
     factory = sessionmaker(bind=test_engine)
     with factory.begin() as session:
         assert allocate_employee_code(session) == "MY-0049"
+
+
+def test_migration_stops_when_active_employee_has_only_closed_service_history(postgres_schema):
+    test_engine = postgres_schema
+    migrate(test_engine, "0002_platform_state")
+
+    with test_engine.begin() as connection:
+        insert_employee(connection, "MY-0003", "Ambiguous Rehire", "active")
+        employee_id = connection.execute(
+            text("SELECT id FROM employees WHERE code = 'MY-0003'")
+        ).scalar_one()
+        connection.execute(text("""
+            CREATE TABLE employee_service_periods (
+                id SERIAL PRIMARY KEY,
+                employee_id INTEGER NOT NULL REFERENCES employees(id),
+                start_date DATE NOT NULL,
+                end_date DATE,
+                start_reason TEXT NOT NULL DEFAULT 'Initial employment',
+                end_reason TEXT,
+                CONSTRAINT ck_employee_service_period_dates
+                    CHECK (end_date IS NULL OR end_date >= start_date)
+            )
+        """))
+        connection.execute(
+            text("""
+                INSERT INTO employee_service_periods
+                    (employee_id, start_date, end_date, start_reason)
+                VALUES (:employee_id, DATE '2018-01-01', DATE '2020-01-01', 'Old employment')
+            """),
+            {"employee_id": employee_id},
+        )
+
+    with pytest.raises(RuntimeError, match="actual rehire/start date is unknown"):
+        migrate(test_engine, "head")
+
+    # The failed migration must leave the old employee and closed history untouched.
+    with test_engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one() == "0002_platform_state"
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM employee_service_periods WHERE employee_id = :id"),
+            {"id": employee_id},
+        ).scalar_one() == 1
+        assert connection.execute(
+            text("SELECT code FROM employees WHERE id = :id"),
+            {"id": employee_id},
+        ).scalar_one() == "MY-0003"
