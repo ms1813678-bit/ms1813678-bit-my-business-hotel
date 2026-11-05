@@ -73,8 +73,10 @@ def _ensure_admin_guards():
             END;
             $$ LANGUAGE plpgsql
         """)
+        op.execute(
+            "DROP TRIGGER IF EXISTS trg_prevent_admin_account_deletion ON admin_accounts"
+        )
         op.execute("""
-            DROP TRIGGER IF EXISTS trg_prevent_admin_account_deletion ON admin_accounts;
             CREATE TRIGGER trg_prevent_admin_account_deletion
             BEFORE DELETE ON admin_accounts FOR EACH ROW
             EXECUTE FUNCTION prevent_admin_account_deletion()
