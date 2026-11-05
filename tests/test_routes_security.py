@@ -1,5 +1,5 @@
 import re
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -389,7 +389,7 @@ def test_employee_archive_and_rehire_preserve_service_history(client):
         f"/employees/{employee_id}/rehire",
         data={
             "csrf_token": token,
-            "new_hire_date": "2026-01-05",
+            "new_hire_date": (date.today() + timedelta(days=1)).isoformat(),
             "reason": "Rehired after separation",
         },
         follow_redirects=False,
@@ -406,8 +406,8 @@ def test_employee_archive_and_rehire_preserve_service_history(client):
         )
         assert employee.code == employee_code
         assert employee.status == "active"
-        assert employee.hire_date == date(2026, 1, 5)
+        assert employee.hire_date == date.today() + timedelta(days=1)
         assert len(periods) == 2
         assert periods[0].end_date == date.today()
         assert periods[0].end_reason == "End of first service"
-        assert periods[1].start_date == date(2026, 1, 5)
+        assert periods[1].start_date == date.today() + timedelta(days=1)
