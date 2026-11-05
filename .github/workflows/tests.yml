@@ -6,7 +6,7 @@ on:
       - feature/auth-security
   pull_request:
     branches:
-      - feature/auth-security
+      - main
   workflow_dispatch:
 
 permissions:
