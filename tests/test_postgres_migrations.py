@@ -16,6 +16,9 @@ def test_postgresql_migration_upgrade_and_single_admin_guards():
 
     inspector = inspect(engine)
     assert "admin_accounts" in inspector.get_table_names()
+    assert "employee_code_counters" in inspector.get_table_names()
+    assert "employee_service_periods" in inspector.get_table_names()
+    assert "session_version" in {column["name"] for column in inspector.get_columns("admin_accounts")}
     assert "alembic_version" in inspector.get_table_names()
     assert "uq_admin_accounts_singleton_key" in {
         item["name"] for item in inspector.get_unique_constraints("admin_accounts")
@@ -33,7 +36,7 @@ def test_postgresql_migration_upgrade_and_single_admin_guards():
             revision = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-            assert revision == "0001_initial"
+            assert revision == "0003_employee_service_periods"
 
             connection.execute(
                 text(
