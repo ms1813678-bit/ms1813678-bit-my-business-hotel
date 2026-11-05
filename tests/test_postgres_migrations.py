@@ -30,8 +30,8 @@ def test_postgresql_migration_upgrade_and_single_admin_guards():
         connection.execute(
             text(
                 "INSERT INTO admin_accounts "
-                "(singleton_key, username, password_hash, active) "
-                "VALUES (1, 'migration-test-admin', 'test-hash', TRUE)"
+                "(singleton_key, username, password_hash, active, created_at) "
+                "VALUES (1, 'migration-test-admin', 'test-hash', TRUE, CURRENT_TIMESTAMP)"
             )
         )
 
