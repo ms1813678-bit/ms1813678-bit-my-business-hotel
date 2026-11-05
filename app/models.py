@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, event
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -61,6 +61,11 @@ class EmployeeServicePeriod(Base):
         CheckConstraint(
             "end_date IS NULL OR end_date >= start_date",
             name="ck_employee_service_period_dates",
+        ),
+        Index(
+            "uq_employee_one_open_service_period", "employee_id", unique=True,
+            postgresql_where=(__import__("sqlalchemy").text("end_date IS NULL")),
+            sqlite_where=(__import__("sqlalchemy").text("end_date IS NULL")),
         ),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
