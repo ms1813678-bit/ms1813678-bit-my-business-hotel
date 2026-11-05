@@ -1,10 +1,12 @@
 """Exercise Alembic against the isolated PostgreSQL service used by CI."""
+from concurrent.futures import ThreadPoolExecutor
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from app.db import engine
+from app.db import SessionLocal, engine
+from app.employee_codes import allocate_employee_code
 
 
 def test_postgresql_migration_upgrade_and_single_admin_guards():
@@ -87,3 +89,18 @@ def test_postgresql_migration_upgrade_and_single_admin_guards():
             assert remaining == 1
         finally:
             transaction.rollback()
+
+
+
+def test_postgresql_employee_code_allocation_is_concurrency_safe():
+    # Each worker commits an independent atomic UPDATE ... RETURNING operation.
+    def reserve(_):
+        with SessionLocal.begin() as db:
+            return allocate_employee_code(db)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        codes = list(executor.map(reserve, range(24)))
+
+    assert len(codes) == 24
+    assert len(set(codes)) == 24
+    assert all(code.startswith("MY-") for code in codes)
