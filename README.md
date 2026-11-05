@@ -19,7 +19,8 @@ See [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the agreed product scope an
 5. Generate a unique session key in PowerShell: `python -c "import secrets; print(secrets.token_urlsafe(48))"`, then set `SESSION_SECRET` in `.env`.
 6. Install: `python -m pip install -e ".[dev]"`.
 7. Apply schema migrations: `python -m scripts.initialize_database`.
-8. Create the only administrator from the local terminal: `python -m scripts.create_admin`. The password is entered invisibly and is never configured through a public signup page.
+8. Seed standard departments: `python -m scripts.seed_departments`.
+9. Create the only administrator from the local terminal: `python -m scripts.create_admin`. The password is entered invisibly and is never configured through a public signup page.
 10. Run: `uvicorn app.main:app --host 127.0.0.1 --port 8000`.
 11. Open `http://127.0.0.1:8000`. The `/health` endpoint returns HTTP 503 if PostgreSQL cannot be reached.
 
