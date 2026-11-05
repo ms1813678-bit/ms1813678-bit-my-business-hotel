@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -265,7 +266,7 @@ def test_session_cookie_secure_flag_follows_production_environment(client):
     )
 
     @production_app.get("/")
-    def production_session(request):
+    def production_session(request: Request):
         request.session["probe"] = "value"
         return {"ok": True}
 
