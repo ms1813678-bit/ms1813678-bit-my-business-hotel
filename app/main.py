@@ -160,6 +160,8 @@ def archive_employee(
         )
         if period is None:
             raise HTTPException(status_code=409, detail="لا توجد فترة خدمة مفتوحة لهذا الموظف.")
+        if date.today() < period.start_date:
+            raise HTTPException(status_code=400, detail="لا يمكن إنهاء فترة خدمة قبل تاريخ بدايتها.")
         period.end_date = date.today()
         period.end_reason = reason
         employee.status = "archived"
@@ -187,6 +189,14 @@ def rehire_employee(
             raise HTTPException(status_code=404, detail="الموظف غير موجود.")
         if employee.status != "archived":
             raise HTTPException(status_code=409, detail="لا يمكن إعادة تعيين موظف غير مؤرشف.")
+        previous_period = db.scalar(
+            select(EmployeeServicePeriod)
+            .where(EmployeeServicePeriod.employee_id == employee.id)
+            .order_by(EmployeeServicePeriod.id.desc())
+            .limit(1)
+        )
+        if previous_period is not None and new_hire_date <= previous_period.end_date:
+            raise HTTPException(status_code=400, detail="تاريخ إعادة التعيين يجب أن يكون بعد انتهاء فترة الخدمة السابقة.")
         employee.status = "active"
         employee.hire_date = new_hire_date
         db.add(EmployeeServicePeriod(
