@@ -47,6 +47,10 @@ class Employee(Base):
 
 class EmployeeCodeCounter(Base):
     __tablename__ = "employee_code_counters"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_employee_code_counter_singleton"),
+        CheckConstraint("last_number >= 0", name="ck_employee_code_counter_nonnegative"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     last_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
