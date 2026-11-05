@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from app.models import AdminAccount
-from app.security import verify_password
+from app.security import hash_password, verify_password
 
 
 def authenticate(db: Session, username: str, password: str) -> AdminAccount | None:
@@ -29,3 +29,11 @@ def authenticate(db: Session, username: str, password: str) -> AdminAccount | No
         return None
 
     return admin
+
+
+
+def change_admin_password(db: Session, admin: AdminAccount, new_password: str) -> None:
+    """Rotate credentials and invalidate every previously issued admin session."""
+    admin.password_hash = hash_password(new_password)
+    admin.session_version += 1
+    db.flush()
