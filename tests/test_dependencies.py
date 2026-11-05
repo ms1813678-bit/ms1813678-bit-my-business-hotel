@@ -18,8 +18,15 @@ def make_request(session):
 
 
 def test_get_current_admin_returns_active_account():
-    admin = SimpleNamespace(username="test-admin", active=True)
-    request = make_request({"admin_username": " test-admin "})
+    admin = SimpleNamespace(
+        username="test-admin",
+        active=True,
+        session_version=0,
+    )
+    request = make_request({
+        "admin_username": " test-admin ",
+        "admin_session_version": 0,
+    })
 
     assert get_current_admin(request, make_db(admin)) is admin
 
