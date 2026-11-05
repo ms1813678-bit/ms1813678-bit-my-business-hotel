@@ -1,4 +1,4 @@
-"""Exercise Alembic against the PostgreSQL service used by CI."""
+"""Exercise Alembic against the isolated PostgreSQL service used by CI."""
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
@@ -24,41 +24,63 @@ def test_postgresql_migration_upgrade_and_single_admin_guards():
         item["name"] for item in inspector.get_check_constraints("admin_accounts")
     }
 
-    with engine.begin() as connection:
-        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert revision == "0001_initial"
-        connection.execute(
-            text(
-                "INSERT INTO admin_accounts "
-                "(singleton_key, username, password_hash, active, created_at) "
-                "VALUES (1, 'migration-test-admin', 'test-hash', TRUE, CURRENT_TIMESTAMP)"
-            )
-        )
-
-    # PostgreSQL must enforce the active-account check independently of the ORM.
-    try:
-        with engine.begin() as connection:
-            connection.execute(
-                text("UPDATE admin_accounts SET active = FALSE WHERE username = 'migration-test-admin'")
-            )
-    except IntegrityError:
-        pass
-    else:
-        raise AssertionError("PostgreSQL allowed the only administrator to be deactivated")
-
-    # The database trigger must reject direct SQL deletion as well.
-    try:
-        with engine.begin() as connection:
-            connection.execute(
-                text("DELETE FROM admin_accounts WHERE username = 'migration-test-admin'")
-            )
-    except DBAPIError:
-        pass
-    else:
-        raise AssertionError("PostgreSQL allowed the only administrator to be deleted")
-
+    # Keep all fixture writes in one outer transaction. Nested transactions let us
+    # verify rejected statements without poisoning the outer transaction. The final
+    # rollback removes the test administrator even when an assertion fails.
     with engine.connect() as connection:
-        remaining = connection.execute(
-            text("SELECT COUNT(*) FROM admin_accounts WHERE username = 'migration-test-admin'")
-        ).scalar_one()
-        assert remaining == 1
+        transaction = connection.begin()
+        try:
+            revision = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+            assert revision == "0001_initial"
+
+            connection.execute(
+                text(
+                    "INSERT INTO admin_accounts "
+                    "(singleton_key, username, password_hash, active, created_at) "
+                    "VALUES (1, 'migration-test-admin', 'test-hash', TRUE, CURRENT_TIMESTAMP)"
+                )
+            )
+
+            # PostgreSQL must enforce the active-account check independently of the ORM.
+            try:
+                with connection.begin_nested():
+                    connection.execute(
+                        text(
+                            "UPDATE admin_accounts SET active = FALSE "
+                            "WHERE username = 'migration-test-admin'"
+                        )
+                    )
+            except IntegrityError:
+                pass
+            else:
+                raise AssertionError(
+                    "PostgreSQL allowed the only administrator to be deactivated"
+                )
+
+            # The database trigger must reject direct SQL deletion as well.
+            try:
+                with connection.begin_nested():
+                    connection.execute(
+                        text(
+                            "DELETE FROM admin_accounts "
+                            "WHERE username = 'migration-test-admin'"
+                        )
+                    )
+            except DBAPIError:
+                pass
+            else:
+                raise AssertionError(
+                    "PostgreSQL allowed the only administrator to be deleted"
+                )
+
+            remaining = connection.execute(
+                text(
+                    "SELECT COUNT(*) FROM admin_accounts "
+                    "WHERE username = 'migration-test-admin'"
+                )
+            ).scalar_one()
+            assert remaining == 1
+        finally:
+            transaction.rollback()
