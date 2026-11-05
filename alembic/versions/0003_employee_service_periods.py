@@ -50,6 +50,27 @@ def upgrade():
             "Resolve the conflicting history before applying this migration; no rows were changed."
         )
 
+    active_with_closed_only = connection.execute(sa.text("""
+        SELECT e.id
+        FROM employees AS e
+        WHERE lower(trim(coalesce(e.status, ''))) = 'active'
+          AND EXISTS (
+              SELECT 1 FROM employee_service_periods AS p
+              WHERE p.employee_id = e.id
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM employee_service_periods AS p
+              WHERE p.employee_id = e.id AND p.end_date IS NULL
+          )
+        LIMIT 1
+    """)).scalar_one_or_none()
+    if active_with_closed_only is not None:
+        raise RuntimeError(
+            f"Active employee {active_with_closed_only} has only closed service periods. "
+            "The actual rehire/start date is unknown, so this migration will not invent one. "
+            "Reconcile the service history before retrying; no employee data was changed."
+        )
+
     indexes = {item["name"] for item in sa.inspect(connection).get_indexes("employee_service_periods")}
     if "uq_employee_one_open_service_period" not in indexes:
         op.create_index(
