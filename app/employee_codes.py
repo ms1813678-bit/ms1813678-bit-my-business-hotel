@@ -1,5 +1,5 @@
 """Allocate employee codes safely for PostgreSQL and lightweight SQLite tests."""
-from sqlalchemy import update
+from sqlalchemy import text, update
 from sqlalchemy.orm import Session
 
 from app.models import EmployeeCodeCounter
@@ -15,16 +15,19 @@ def allocate_employee_code(db: Session) -> str:
     dialect = db.get_bind().dialect.name
     if dialect == "postgresql":
         number = db.execute(
-            update(EmployeeCodeCounter)
-            .where(EmployeeCodeCounter.id == 1)
-            .values(last_number=EmployeeCodeCounter.last_number + 1)
-            .returning(EmployeeCodeCounter.last_number)
-        ).scalar_one_or_none()
-        if number is None:
+            text("SELECT nextval('employee_code_number_seq')")
+        ).scalar_one()
+        mirrored = db.execute(
+            text("""
+                UPDATE employee_code_counters
+                SET last_number = GREATEST(last_number, :number)
+                WHERE id = 1
+            """),
+            {"number": number},
+        )
+        if mirrored.rowcount != 1:
             raise RuntimeError("Employee code counter is missing; apply database migrations first.")
-        # nextval() is deliberately outside transaction rollback semantics.
-        # The counter table mirrors the greatest committed reservation for migration safety.
-        return f"MY-{number:04d}" if _mirror_sequence_reservation(db, number) else f"MY-{number:04d}"
+        return f"MY-{number:04d}"
 
     if dialect == "sqlite":
         # SQLite is used by isolated route/unit tests only, never by PostgreSQL
@@ -40,17 +43,3 @@ def allocate_employee_code(db: Session) -> str:
         return f"MY-{number:04d}"
 
     raise RuntimeError(f"Unsupported database dialect for employee codes: {dialect}")
-
-
-def _mirror_sequence_reservation(db: Session, number: int) -> bool:
-    from sqlalchemy import text
-
-    result = db.execute(
-        text("""
-            UPDATE employee_code_counters
-            SET last_number = GREATEST(last_number, :number)
-            WHERE id = 1
-        """),
-        {"number": number},
-    )
-    return result.rowcount == 1
