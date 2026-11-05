@@ -195,7 +195,9 @@ def rehire_employee(
             .order_by(EmployeeServicePeriod.id.desc())
             .limit(1)
         )
-        if previous_period is not None and new_hire_date <= previous_period.end_date:
+        if previous_period is None or previous_period.end_date is None:
+            raise HTTPException(status_code=409, detail="سجل فترة الخدمة السابقة غير مكتمل؛ راجع بيانات الأرشفة أولاً.")
+        if new_hire_date <= previous_period.end_date:
             raise HTTPException(status_code=400, detail="تاريخ إعادة التعيين يجب أن يكون بعد انتهاء فترة الخدمة السابقة.")
         employee.status = "active"
         employee.hire_date = new_hire_date
