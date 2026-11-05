@@ -25,7 +25,13 @@ def get_current_admin(
         .filter(AdminAccount.username == username.strip())
         .one_or_none()
     )
-    if admin is None or not admin.active:
+    session_version = request.session.get("admin_session_version")
+    if (
+        admin is None
+        or not admin.active
+        or not isinstance(session_version, int)
+        or session_version != admin.session_version
+    ):
         request.session.clear()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
