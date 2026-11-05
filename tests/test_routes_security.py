@@ -347,3 +347,65 @@ def test_employee_code_counter_is_persistent_and_never_reuses_reserved_number(cl
     # A fresh database session observes the committed counter value.
     with SessionLocal.begin() as db:
         assert allocate_employee_code(db) == "MY-0003"
+
+
+
+def test_employee_archive_and_rehire_preserve_service_history(client):
+    assert login(client).status_code == 303
+    page = client.get("/employees")
+    token = csrf_from(page)
+    employee_data = {
+        "csrf_token": token,
+        "full_name": "Service History Test",
+        "national_id": "",
+        "phone": "",
+        "department_id": str(client.test_department_id),
+        "position": "Test Position",
+        "hire_date": "2025-01-10",
+        "basic_salary": "1000.00",
+        "daily_hours": "8",
+        "fingerprint_id": "",
+    }
+    assert client.post("/employees", data=employee_data, follow_redirects=False).status_code == 303
+
+    from app.main import SessionLocal
+    from app.models import EmployeeServicePeriod
+
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Service History Test").one()
+        employee_id = employee.id
+        employee_code = employee.code
+
+    archive = client.post(
+        f"/employees/{employee_id}/archive",
+        data={"csrf_token": token, "reason": "End of first service"},
+        follow_redirects=False,
+    )
+    assert archive.status_code == 303
+
+    rehire = client.post(
+        f"/employees/{employee_id}/rehire",
+        data={
+            "csrf_token": token,
+            "new_hire_date": "2026-01-05",
+            "reason": "Rehired after separation",
+        },
+        follow_redirects=False,
+    )
+    assert rehire.status_code == 303
+
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        periods = (
+            db.query(EmployeeServicePeriod)
+            .filter_by(employee_id=employee_id)
+            .order_by(EmployeeServicePeriod.id)
+            .all()
+        )
+        assert employee.code == employee_code
+        assert employee.status == "active"
+        assert employee.hire_date == date(2026, 1, 5)
+        assert len(periods) == 2
+        assert periods[0].end_date == date.today()
+        assert periods[0].end_reason == "End of first service"
+        assert periods[1].start_date == date(2026, 1, 5)
