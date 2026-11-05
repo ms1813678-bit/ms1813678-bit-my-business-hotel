@@ -15,7 +15,7 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, Department, Employee
+from app.models import AdminAccount, AuditLog, Department, Employee, EmployeeServicePeriod
 
 app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs")
 app.add_middleware(
@@ -130,5 +130,71 @@ def create_employee(
             fingerprint_id=fingerprint_id.strip() or None, status="active",
         )
         db.add(employee)
+        db.flush()
+        db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason="Initial employment"))
         db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
+
+@app.post("/employees/{employee_id}/archive", dependencies=[Depends(csrf_protect)])
+def archive_employee(
+    employee_id: int,
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    reason = reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="سبب الأرشفة مطلوب.")
+    with SessionLocal.begin() as db:
+        employee = db.get(Employee, employee_id)
+        if employee is None:
+            raise HTTPException(status_code=404, detail="الموظف غير موجود.")
+        if employee.status != "active":
+            raise HTTPException(status_code=409, detail="الموظف ليس على رأس العمل.")
+        period = db.scalar(
+            select(EmployeeServicePeriod).where(
+                EmployeeServicePeriod.employee_id == employee.id,
+                EmployeeServicePeriod.end_date.is_(None),
+            )
+        )
+        if period is None:
+            raise HTTPException(status_code=409, detail="لا توجد فترة خدمة مفتوحة لهذا الموظف.")
+        period.end_date = date.today()
+        period.end_reason = reason
+        employee.status = "archived"
+        db.add(AuditLog(
+            actor=admin.username, action="employee_archived",
+            entity_type="employee", entity_id=str(employee.id),
+            old_value="active", new_value="archived", reason=reason,
+        ))
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/employees/{employee_id}/rehire", dependencies=[Depends(csrf_protect)])
+def rehire_employee(
+    employee_id: int,
+    new_hire_date: date = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    reason = reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="سبب إعادة التعيين مطلوب.")
+    with SessionLocal.begin() as db:
+        employee = db.get(Employee, employee_id)
+        if employee is None:
+            raise HTTPException(status_code=404, detail="الموظف غير موجود.")
+        if employee.status != "archived":
+            raise HTTPException(status_code=409, detail="لا يمكن إعادة تعيين موظف غير مؤرشف.")
+        employee.status = "active"
+        employee.hire_date = new_hire_date
+        db.add(EmployeeServicePeriod(
+            employee_id=employee.id, start_date=new_hire_date, start_reason=reason,
+        ))
+        db.add(AuditLog(
+            actor=admin.username, action="employee_rehired",
+            entity_type="employee", entity_id=str(employee.id),
+            old_value="archived", new_value="active", reason=reason,
+        ))
     return RedirectResponse("/employees", status_code=303)
