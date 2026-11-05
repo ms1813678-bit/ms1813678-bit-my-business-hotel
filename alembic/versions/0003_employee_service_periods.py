@@ -36,6 +36,15 @@ def upgrade():
         )
 
     # Populate legacy employees once, without duplicating periods already created.
+    existing_indexes = {item["name"] for item in sa.inspect(connection).get_indexes("employee_service_periods")}
+    if "uq_employee_one_open_service_period" not in existing_indexes:
+        op.create_index(
+            "uq_employee_one_open_service_period",
+            "employee_service_periods", ["employee_id"], unique=True,
+            postgresql_where=sa.text("end_date IS NULL"),
+            sqlite_where=sa.text("end_date IS NULL"),
+        )
+
     connection.execute(sa.text("""
         INSERT INTO employee_service_periods
             (employee_id, start_date, end_date, start_reason)
@@ -54,4 +63,6 @@ def downgrade():
         indexes = {item["name"] for item in inspector.get_indexes("employee_service_periods")}
         if "ix_employee_service_periods_employee_id" in indexes:
             op.drop_index("ix_employee_service_periods_employee_id", table_name="employee_service_periods")
+        if "uq_employee_one_open_service_period" in indexes:
+            op.drop_index("uq_employee_one_open_service_period", table_name="employee_service_periods")
         op.drop_table("employee_service_periods")
