@@ -51,6 +51,22 @@ class EmployeeCodeCounter(Base):
     last_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class EmployeeServicePeriod(Base):
+    __tablename__ = "employee_service_periods"
+    __table_args__ = (
+        CheckConstraint(
+            "end_date IS NULL OR end_date >= start_date",
+            name="ck_employee_service_period_dates",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    start_reason: Mapped[str] = mapped_column(Text, default="Initial employment")
+    end_reason: Mapped[str | None] = mapped_column(Text)
+
+
 class EmployeeChange(Base):
     __tablename__ = "employee_changes"
     id: Mapped[int] = mapped_column(primary_key=True)
