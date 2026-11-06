@@ -11,7 +11,7 @@
 {% if issues %}<section class="notice"><h2>ملاحظات الاستيراد</h2><ul>{% for issue in issues %}<li>صف {{ issue.row if issue.row is defined else "غير محدد" }} — {{ issue.reason }} {% if issue.date is defined %}({{ issue.date }}){% endif %}</li>{% endfor %}</ul></section>{% endif %}
 {% if days %}<section><h2>مراجعة الأيام</h2><p>كل يوم يُراجع ويُعتمد منفصلًا.</p>
 {% for day in days %}<article class="tile"><h3>{{ day.work_date.strftime("%Y-%m-%d") }}</h3>
-{% if day.can_confirm %}<p>جاهز للاعتماد بعد المراجعة</p>{% else %}<p>يحتاج إلى مراجعة وتصحيح</p>{% endif %}
+{% if day.already_approved %}<p>تم اعتماد هذا اليوم بالفعل</p>{% elif day.can_confirm %}<p>جاهز للاعتماد بعد المراجعة</p>{% else %}<p>يحتاج إلى مراجعة وتصحيح</p>{% endif %}
 <table><thead><tr><th>الموظف</th><th>البداية</th><th>النهاية</th><th>المدة</th></tr></thead><tbody>
 {% for assignment in day.proposal.assignments %}<tr><td>{{ assignment.employee_name }}</td><td>{{ assignment.start_time.strftime("%H:%M") }}</td><td>{{ assignment.end_time.strftime("%H:%M") }}</td><td>{{ assignment.duration_hours }} ساعة</td></tr>{% endfor %}
 </tbody></table>
