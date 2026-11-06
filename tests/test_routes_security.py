@@ -1348,3 +1348,12 @@ def test_attendance_import_route_requires_admin_and_csrf(client):
     assert client.get("/attendance/import").status_code == 401
     response = client.post("/attendance/import", data={"source_type": "fingerprint"})
     assert response.status_code == 403
+
+
+def test_monthly_attendance_reconciliation_page_is_admin_protected(client):
+    assert client.get("/attendance/reconcile").status_code == 401
+    assert login(client).status_code == 303
+    page = client.get("/attendance/reconcile")
+    assert page.status_code == 200
+    assert "مطابقة الحضور الشهرية" in page.text
+    assert client.post("/attendance/reconcile", data={}).status_code == 403
