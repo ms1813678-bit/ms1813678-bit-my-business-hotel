@@ -98,3 +98,26 @@ def test_rejects_unknown_extension_and_empty_file():
         parse_attendance_workbook(b"", "x.xlsx", "fingerprint", ALIASES)
     with pytest.raises(ValueError, match="unsupported_attendance_file_extension"):
         parse_attendance_workbook(b"abc", "x.csv", "fingerprint", ALIASES)
+
+
+
+def test_auto_detection_skips_header_only_sheet_and_reads_later_data_sheet():
+    raw = workbook_bytes([
+        ("Instructions", [
+            ["AC-No.", "Name", "Date", "Clock In", "Clock Out"],
+        ]),
+        ("November", [
+            ["AC-No.", "Name", "Date", "Clock In", "Clock Out"],
+            ["SEC-01", "Fayez", date(2026, 11, 1), time(8, 2), time(16, 5)],
+        ]),
+    ])
+    parsed = parse_attendance_workbook(
+        raw, "program-multisheet.xlsx", "program_report", ALIASES
+    )
+
+    assert parsed["sheet_count"] == 2
+    assert len(parsed["events"]) == 2
+    assert {item["source_sheet"] for item in parsed["events"]} == {"November"}
+    assert parsed["period_start"] == date(2026, 11, 1)
+    assert parsed["period_end"] == date(2026, 11, 1)
+    assert parsed["issues"] == []
