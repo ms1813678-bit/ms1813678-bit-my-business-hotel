@@ -50,3 +50,13 @@ The repository now includes an initial, non-approving evidence layer:
 - `app.attendance_workflow.persist_attendance_import` stores parsed evidence and an immutable AuditLog event, rejects duplicate source-file hashes, and does not approve daily attendance.
 
 This is not yet the completed attendance workflow. Remaining work includes a protected upload/preview interface, program-report plus fingerprint reconciliation across the full month, shift-aware overnight pairing, review/adjustment screens, explicit monthly HR approval, and a payroll gate. Do not use imported evidence for payroll until those controls and end-to-end tests are implemented.
+
+
+### Reconciliation proposal rules
+
+- The approved program report remains the primary source for clock-in/out. Fingerprint punches fill a missing endpoint; when both sources disagree, both are retained and the day is marked `needs_review`.
+- Fingerprint timestamps are never rewritten. For an overnight shift, the work date is the date on which the shift started, not necessarily the calendar date of every punch.
+- Non-Security shift proposals use the first clock-in and the configured department patterns through `match_shift_by_clock`. An unmatched or ambiguous result remains in review.
+- Security never uses generic clock-in inference: the approved `SecurityShiftAssignment` for that employee and work date is authoritative. A missing or mismatched roster assignment remains in review.
+- Daily reconciliation proposals are saved as `ready_for_review` or `needs_review`; they are not approved records and cannot yet be used for payroll.
+- Individual import issues are retained in `AttendanceImportIssue`, rather than only incrementing a counter.
