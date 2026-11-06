@@ -93,3 +93,14 @@ def test_unconfigured_neighbor_still_limits_matching_window():
     }
     assert match(8, 29, [configured, unconfigured])["status"] == "matched"
     assert match(8, 30, [configured, unconfigured])["status"] == "unmatched"
+
+
+def test_duplicate_start_is_ambiguous_even_if_one_margin_is_unset():
+    configured = pattern("security-12h", "08:00")
+    unconfigured = {
+        "id": "security-8h", "name": "security-8h", "start_time": time(8, 0),
+        "match_before_minutes": None, "match_after_minutes": None,
+    }
+    result = match(8, 0, [configured, unconfigured])
+    assert result["status"] == "ambiguous"
+    assert result["shift"] is None
