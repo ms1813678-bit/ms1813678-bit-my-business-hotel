@@ -876,6 +876,9 @@ def test_employee_photo_upload_is_validated_and_served_only_to_admin(client, mon
     import app.main as main_module
 
     monkeypatch.setattr(main_module, "EMPLOYEE_PHOTO_DIR", tmp_path)
+    # Photo content must remain private even when the URL is known.
+    anonymous = client.get("/employees/1/photo")
+    assert anonymous.status_code == 401
     assert login(client).status_code == 303
     token = csrf_from(client.get("/employees"))
 
