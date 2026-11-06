@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, Time, UniqueConstraint, event
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text, Time, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -214,6 +214,7 @@ class AttendanceImportBatch(Base):
     period_end: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    original_file_bytes: Mapped[bytes | None] = mapped_column(LargeBinary)
     uploaded_by: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="uploaded", nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
