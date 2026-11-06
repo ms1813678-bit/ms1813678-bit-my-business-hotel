@@ -145,3 +145,43 @@ def test_normalized_alias_collision_is_rejected_before_parsing():
                 "Walid": 3,
             },
         )
+
+
+def test_auto_detection_skips_header_only_sheet_and_uses_later_roster_sheet():
+    workbook = Workbook()
+    first = workbook.active
+    first.title = "Instructions"
+    first.append(["Date", "Fayez", "Yasser", "Walid"])
+    second = workbook.create_sheet("November")
+    second.append(["Date", "Fayez", "Yasser", "Walid"])
+    second.append([date(2026, 11, 1), "OFF", time(20, 0), time(8, 0)])
+    output = BytesIO()
+    workbook.save(output)
+
+    parsed = parse_security_roster_xlsx(output.getvalue(), ALIASES)
+
+    assert parsed["sheet_name"] == "November"
+    assert parsed["status"] == "parsed_for_review"
+    assert len(parsed["records"]) == 1
+    assert parsed["records"][0]["work_date"] == date(2026, 11, 1)
+
+
+def test_explicit_header_only_sheet_is_not_silently_replaced():
+    workbook = Workbook()
+    first = workbook.active
+    first.title = "Instructions"
+    first.append(["Date", "Fayez", "Yasser", "Walid"])
+    second = workbook.create_sheet("November")
+    second.append(["Date", "Fayez", "Yasser", "Walid"])
+    second.append([date(2026, 11, 1), "OFF", time(20, 0), time(8, 0)])
+    output = BytesIO()
+    workbook.save(output)
+
+    parsed = parse_security_roster_xlsx(
+        output.getvalue(), ALIASES, sheet_name="Instructions"
+    )
+
+    assert parsed["sheet_name"] == "Instructions"
+    assert parsed["status"] == "needs_review"
+    assert parsed["records"] == []
+    assert parsed["issues"][0]["reason"] == "no_valid_roster_rows"
