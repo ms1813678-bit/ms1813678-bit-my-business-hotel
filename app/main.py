@@ -1,12 +1,15 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
+from PIL import Image, UnidentifiedImageError
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import authenticate
@@ -15,7 +18,37 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeServicePeriod
+from app.models import AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
+
+EMPLOYEE_PHOTO_DIR = Path("var") / "employee_photos"
+EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
+EMPLOYEE_PHOTO_FIELDS = {"full_name", "phone", "address", "position", "national_id"}
+
+
+def _store_employee_photo(upload: UploadFile | None) -> str | None:
+    if upload is None or not upload.filename:
+        return None
+    raw = upload.file.read(EMPLOYEE_PHOTO_MAX_BYTES + 1)
+    if not raw:
+        return None
+    if len(raw) > EMPLOYEE_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="حجم الصورة يجب ألا يتجاوز 5 ميجابايت.")
+    try:
+        import io
+        with Image.open(io.BytesIO(raw)) as image_file:
+            image_file.verify()
+            image_format = image_file.format
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+        raise HTTPException(status_code=400, detail="ملف الصورة غير صالح.")
+    extensions = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}
+    extension = extensions.get(image_format)
+    if extension is None:
+        raise HTTPException(status_code=400, detail="الصورة يجب أن تكون JPG أو PNG أو WEBP.")
+    EMPLOYEE_PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid4().hex}{extension}"
+    (EMPLOYEE_PHOTO_DIR / filename).write_bytes(raw)
+    return filename
+
 
 app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs")
 app.add_middleware(
@@ -123,6 +156,7 @@ def edit_department(
     name = name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="اسم القسم مطلوب.")
+    photo_path = _store_employee_photo(photo)
     with SessionLocal.begin() as db:
         department = db.get(Department, department_id)
         if department is None:
@@ -259,6 +293,7 @@ def create_employee(
     basic_salary: Decimal = Form(...),
     daily_hours: Decimal = Form(...),
     fingerprint_id: str = Form(""),
+    photo: UploadFile | None = File(None),
     admin: AdminAccount = Depends(get_current_admin),
 ):
     if basic_salary < 0 or daily_hours <= 0 or daily_hours > 24:
@@ -290,7 +325,7 @@ def create_employee(
             branch_id=branch_id, position=position, hire_date=hire_date,
             probation_start_date=probation_start_date, probation_end_date=probation_end_date,
             basic_salary=basic_salary, daily_hours=daily_hours,
-            fingerprint_id=fingerprint_id, status="active",
+            fingerprint_id=fingerprint_id, photo_path=photo_path, status="active",
         )
         db.add(employee)
         db.flush()
