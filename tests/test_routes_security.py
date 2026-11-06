@@ -925,3 +925,83 @@ def test_employee_photo_upload_is_validated_and_served_only_to_admin(client, mon
         follow_redirects=False,
     )
     assert invalid.status_code == 400
+
+
+def test_security_roster_upload_preview_and_explicit_day_approval(client, monkeypatch, tmp_path):
+    from datetime import time
+    from io import BytesIO
+    from openpyxl import Workbook
+    from sqlalchemy import func, select
+    from app.main import SECURITY_ROSTER_STAGING_DIR
+    from app.models import AuditLog, SecurityShiftAssignment, ShiftPattern
+
+    monkeypatch.setattr("app.main.SECURITY_ROSTER_STAGING_DIR", tmp_path / "staging")
+    with app.dependency_overrides.get(get_db, lambda: None)() if False else __import__("contextlib").nullcontext():
+        pass
+
+    # The fixture's SessionLocal is replaced with its isolated SQLite database.
+    from app.main import SessionLocal
+    with SessionLocal() as db:
+        department = Department(name="Security", active=True)
+        db.add(department)
+        db.flush()
+        employees = []
+        for index, name in enumerate(("Fayez", "Yasser", "Walid"), start=1):
+            employee = Employee(
+                code=f"SEC-{index}", full_name=name, department_id=department.id,
+                position="Security", hire_date=date(2024, 1, 1),
+                basic_salary=Decimal("5000"), daily_hours=Decimal("8"), status="active",
+            )
+            db.add(employee)
+            employees.append(employee)
+        for code, start, end in (
+            ("MIDNIGHT", time(0, 0), time(8, 0)),
+            ("MORNING", time(8, 0), time(16, 0)),
+            ("EVENING", time(16, 0), time(0, 0)),
+        ):
+            db.add(ShiftPattern(
+                department_id=department.id, code=code, name=code,
+                start_time=start, end_time=end, active=True,
+                match_before_minutes=60, match_after_minutes=60,
+            ))
+        db.commit()
+
+    assert login(client).status_code == 303
+    page = client.get("/security-roster")
+    token = csrf_from(page)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Date", "Fayez", "Yasser", "Walid"])
+    sheet.append([date(2026, 11, 1), "00:00", "08:00", "16:00"])
+    output = BytesIO()
+    workbook.save(output)
+    preview = client.post(
+        "/security-roster/preview",
+        data={"csrf_token": token},
+        files={"file": ("security.xlsx", output.getvalue(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert preview.status_code == 200
+    assert "جاهز للاعتماد بعد المراجعة" in preview.text
+    stage_match = re.search(r'name="stage_token" value="([^"]+)"', preview.text)
+    assert stage_match
+
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
+        assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
+
+    approved = client.post(
+        "/security-roster/confirm",
+        data={
+            "csrf_token": token,
+            "work_date": "2026-11-01",
+            "stage_token": stage_match.group(1),
+        },
+    )
+    assert approved.status_code == 200
+    assert "تم اعتماد جدول يوم 2026-11-01 بنجاح" in approved.text
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 3
+        assert db.scalar(select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "security_roster_day_approved"
+        )) == 1
