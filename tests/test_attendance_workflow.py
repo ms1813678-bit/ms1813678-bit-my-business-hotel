@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import (persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation)
+from app.attendance_workflow import (approve_attendance_day, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation)
 from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
 
 
@@ -379,3 +379,98 @@ def test_monthly_reconciliation_with_import_issues_forces_review(db_session):
     assert summary["import_issue_count"] == 1
     assert summary["ready_for_review"] == 0
     assert summary["needs_review"] == summary["total"]
+
+
+def test_hr_approval_preserves_source_evidence_and_writes_audit(db_session):
+    record = persist_daily_attendance_proposal(
+        db_session,
+        employee_id=1,
+        proposal={
+            "work_date": date(2026, 11, 1),
+            "program_clock_in": datetime(2026, 11, 1, 8, 3),
+            "program_clock_out": datetime(2026, 11, 1, 16, 1),
+            "first_clock_in": datetime(2026, 11, 1, 8, 5),
+            "last_clock_out": datetime(2026, 11, 1, 16, 0),
+            "worked_minutes": 475,
+            "status": "needs_review",
+            "issues": ["source_disagreement"],
+        },
+        actor="hr-admin",
+    )
+    approved = approve_attendance_day(
+        db_session,
+        record_id=record.id,
+        clock_in=datetime(2026, 11, 1, 8, 4),
+        clock_out=datetime(2026, 11, 1, 16, 2),
+        actor="hr-admin",
+        reason="Reviewed source discrepancy against original documents",
+    )
+    db_session.commit()
+
+    assert approved.status == "approved"
+    assert approved.approved_by == "hr-admin"
+    assert approved.approved_at is not None
+    assert approved.approved_clock_in == datetime(2026, 11, 1, 8, 4)
+    assert approved.approved_clock_out == datetime(2026, 11, 1, 16, 2)
+    assert approved.worked_minutes == 478
+    assert approved.program_clock_in == datetime(2026, 11, 1, 8, 3)
+    assert approved.program_clock_out == datetime(2026, 11, 1, 16, 1)
+    assert approved.first_clock_in == datetime(2026, 11, 1, 8, 5)
+    assert approved.last_clock_out == datetime(2026, 11, 1, 16, 0)
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "attendance_day_approved")
+    )
+    assert audit is not None
+    assert audit.actor == "hr-admin"
+    assert "Reviewed source discrepancy" in audit.reason
+
+
+def test_hr_approval_cannot_be_applied_twice(db_session):
+    record = persist_daily_attendance_proposal(
+        db_session, employee_id=1,
+        proposal={
+            "work_date": date(2026, 11, 1),
+            "status": "ready_for_review",
+            "issues": [],
+        },
+        actor="hr-admin",
+    )
+    approve_attendance_day(
+        db_session, record_id=record.id,
+        clock_in=datetime(2026, 11, 1, 8, 0),
+        clock_out=datetime(2026, 11, 1, 16, 0),
+        actor="hr-admin", reason="Verified",
+    )
+    with pytest.raises(ValueError, match="attendance_daily_record_already_approved"):
+        approve_attendance_day(
+            db_session, record_id=record.id,
+            clock_in=datetime(2026, 11, 1, 8, 0),
+            clock_out=datetime(2026, 11, 1, 16, 0),
+            actor="hr-admin", reason="Second approval attempt",
+        )
+
+
+def test_hr_approval_requires_reason_and_positive_duration(db_session):
+    record = persist_daily_attendance_proposal(
+        db_session, employee_id=1,
+        proposal={
+            "work_date": date(2026, 11, 1),
+            "status": "ready_for_review",
+            "issues": [],
+        },
+        actor="hr-admin",
+    )
+    with pytest.raises(ValueError, match="attendance_approval_reason_required"):
+        approve_attendance_day(
+            db_session, record_id=record.id,
+            clock_in=datetime(2026, 11, 1, 8, 0),
+            clock_out=datetime(2026, 11, 1, 16, 0),
+            actor="hr-admin", reason=" ",
+        )
+    with pytest.raises(ValueError, match="attendance_clock_out_must_follow_clock_in"):
+        approve_attendance_day(
+            db_session, record_id=record.id,
+            clock_in=datetime(2026, 11, 1, 16, 0),
+            clock_out=datetime(2026, 11, 1, 8, 0),
+            actor="hr-admin", reason="Invalid interval",
+        )
