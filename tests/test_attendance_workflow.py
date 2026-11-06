@@ -315,24 +315,8 @@ def test_monthly_reconciliation_refuses_duplicate_period_records(db_session):
         )
 
 
-def test_monthly_reconciliation_with_import_issues_forces_review(db_session):
+def test_monthly_reconciliation_is_blocked_until_both_source_imports_are_clean(db_session):
     work_date = date(2026, 11, 1)
-    department = db_session.scalar(select(Department).where(Department.name == "Attendance Test"))
-    db_session.add(ShiftPattern(
-        department_id=department.id, code="DAY", name="Day",
-        start_time=time(8, 0), end_time=time(16, 0),
-        match_before_minutes=60, match_after_minutes=60, active=True,
-    ))
-    security = Department(name="Security", active=True)
-    db_session.add(security)
-    db_session.flush()
-    for index in range(3):
-        db_session.add(Employee(
-            code=f"SEC-ISSUE-{index}", full_name=f"Security Issue {index}",
-            department_id=security.id, position="Security",
-            hire_date=date(2024, 1, 1), status="active",
-            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
-        ))
     program = AttendanceImportBatch(
         source_type="program_report", period_start=work_date, period_end=work_date,
         original_filename="program.xlsx", file_sha256="e" * 64,
@@ -345,40 +329,35 @@ def test_monthly_reconciliation_with_import_issues_forces_review(db_session):
     )
     db_session.add_all([program, fingerprint])
     db_session.flush()
-    normal = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
-    db_session.add_all([
-        AttendancePunch(
-            import_batch_id=program.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
-            event_type="IN", source_sheet="Sheet1", source_row=2, event_index=0,
-        ),
-        AttendancePunch(
-            import_batch_id=program.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
-            event_type="OUT", source_sheet="Sheet1", source_row=2, event_index=1,
-        ),
-        AttendancePunch(
-            import_batch_id=fingerprint.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
-            event_type="PUNCH", source_sheet="Att.log report", source_row=2, event_index=0,
-        ),
-        AttendancePunch(
-            import_batch_id=fingerprint.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
-            event_type="PUNCH", source_sheet="Att.log report", source_row=3, event_index=0,
-        ),
-    ])
-    summary = prepare_and_persist_monthly_reconciliation(
-        db_session, program_batch_id=program.id, fingerprint_batch_id=fingerprint.id,
-        period_start=work_date, period_end=work_date, actor="hr-admin",
+
+    with pytest.raises(ValueError, match="attendance_import_batch_has_unresolved_issues"):
+        prepare_and_persist_monthly_reconciliation(
+            db_session, program_batch_id=program.id, fingerprint_batch_id=fingerprint.id,
+            period_start=work_date, period_end=work_date, actor="hr-admin",
+        )
+    assert db_session.scalar(select(func.count()).select_from(AttendanceDailyRecord)) == 0
+
+
+def test_unresolved_source_batch_can_be_replaced_before_reconciliation(db_session):
+    payload = parsed_payload()
+    payload["issues"] = [{"sheet": "Sheet1", "row": 2, "reason": "invalid_time_value", "value": "bad"}]
+    old_batch = persist_attendance_import(
+        db_session, file_bytes=b"bad-source-version", filename="program.xlsx",
+        parsed={**payload, "source_type": "program_report"}, actor="hr-admin",
     )
-    assert summary["import_issue_count"] == 1
-    assert summary["ready_for_review"] == 0
-    assert summary["needs_review"] == summary["total"]
+    new_payload = {**parsed_payload(), "source_type": "program_report"}
+    new_batch = persist_attendance_import(
+        db_session, file_bytes=b"corrected-source-version", filename="program-corrected.xlsx",
+        parsed=new_payload, actor="hr-admin",
+    )
+
+    month = db_session.scalar(select(AttendanceMonth))
+    assert old_batch.status == "rejected"
+    assert new_batch.status == "parsed"
+    assert month.program_import_batch_id == new_batch.id
+    assert db_session.scalar(select(func.count()).select_from(AuditLog).where(
+        AuditLog.action == "attendance_import_batch_replaced"
+    )) == 1
 
 
 def test_hr_approval_preserves_source_evidence_and_writes_audit(db_session):
