@@ -5,7 +5,7 @@ or infers employee identities by fuzzy matching.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from io import BytesIO
 from pathlib import Path
 import re
