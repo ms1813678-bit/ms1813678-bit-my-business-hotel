@@ -77,13 +77,47 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
             header_row = None
             for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
                 normalized = [_norm(v) for v in row]
-                found = {name: idx for idx, name in enumerate(normalized) if name in aliases}
-                date_candidates = [idx for idx, value in enumerate(normalized)
-                                   if value in {"date", "day", "التاريخ", "اليوم"}]
-                if len(found) == 3 and len(date_candidates) == 1:
+                employee_positions = [
+                    (idx, name) for idx, name in enumerate(normalized) if name in aliases
+                ]
+                date_candidates = [
+                    idx for idx, value in enumerate(normalized)
+                    if value in {"date", "day", "التاريخ", "اليوم"}
+                ]
+                if len(date_candidates) != 1:
+                    continue
+
+                # Do not collapse repeated employee headers into a dict: doing so
+                # silently discards one of the columns and can misassign shifts.
+                positions_by_name = {}
+                for idx, name in employee_positions:
+                    positions_by_name.setdefault(name, []).append(idx)
+                duplicate_headers = [
+                    {"row": row_idx, "column": idx + 1,
+                     "employee_header": str(row[idx]).strip(),
+                     "reason": "duplicate_employee_header"}
+                    for name, indexes in positions_by_name.items()
+                    if len(indexes) > 1
+                    for idx in indexes[1:]
+                ]
+                if duplicate_headers:
+                    return {
+                        "sheet_name": sheet.title,
+                        "employee_headers": {},
+                        "records": [],
+                        "issues": duplicate_headers,
+                        "status": "needs_review",
+                    }
+
+                found = {name: indexes[0] for name, indexes in positions_by_name.items()}
+                if len(found) == 3:
                     header = row
-                    employee_cols = {aliases[name]: idx for name, idx in found.items()}
-                    employee_headers = {aliases[name]: str(row[idx]).strip() for name, idx in found.items()}
+                    employee_cols = {
+                        aliases[name]: idx for name, idx in found.items()
+                    }
+                    employee_headers = {
+                        aliases[name]: str(row[idx]).strip() for name, idx in found.items()
+                    }
                     date_col = date_candidates[0]
                     header_row = row_idx
                     break
