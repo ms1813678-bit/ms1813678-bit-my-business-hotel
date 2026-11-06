@@ -364,3 +364,55 @@ def test_migration_stops_when_active_employee_has_only_closed_service_history(po
             text("SELECT code FROM employees WHERE id = :id"),
             {"id": employee_id},
         ).scalar_one() == "MY-0003"
+
+
+def test_shift_matching_margins_migration_backfills_and_reupgrades(postgres_schema):
+    test_engine = postgres_schema
+    migrate(test_engine, "0007_attendance_shift_foundation")
+
+    with test_engine.begin() as connection:
+        department_id = connection.execute(
+            text("INSERT INTO departments (name, active) VALUES ('Shift Migration', TRUE) RETURNING id")
+        ).scalar_one()
+        connection.execute(
+            text("""
+                INSERT INTO shift_patterns
+                    (department_id, code, name, start_time, end_time, match_window_minutes, active)
+                VALUES
+                    (:department_id, 'LEGACY-150', 'Legacy 150', TIME '09:00', TIME '17:00', 150, TRUE),
+                    (:department_id, 'LEGACY-NULL', 'Legacy unset', TIME '10:00', TIME '18:00', NULL, TRUE)
+            """),
+            {"department_id": department_id},
+        )
+
+    migrate(test_engine, "head")
+    with test_engine.connect() as connection:
+        values = connection.execute(
+            text("""
+                SELECT code, match_before_minutes, match_after_minutes
+                FROM shift_patterns ORDER BY code
+            """)
+        ).all()
+        assert values == [
+            ("LEGACY-150", 120, 120),
+            ("LEGACY-NULL", None, None),
+        ]
+        with pytest.raises(IntegrityError):
+            with connection.begin_nested():
+                connection.execute(
+                    text("""
+                        UPDATE shift_patterns SET match_before_minutes = 121
+                        WHERE code = 'LEGACY-150'
+                    """)
+                )
+
+    # The downgrade policy retains HR settings; re-upgrade must be idempotent.
+    downgrade(test_engine, "base")
+    migrate(test_engine, "head")
+    with test_engine.connect() as connection:
+        assert connection.execute(
+            text("""
+                SELECT match_before_minutes, match_after_minutes
+                FROM shift_patterns WHERE code = 'LEGACY-150'
+            """)
+        ).one() == (120, 120)
