@@ -148,16 +148,19 @@ def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens()
 
     assert parsed["period_start"] == date(2026, 10, 1)
     assert parsed["period_end"] == date(2026, 10, 31)
-    assert len(parsed["events"]) == 6
+    assert len(parsed["events"]) == 10
     assert [event["punch_at"].time() for event in parsed["events"][:5]] == [
         time(0, 25), time(7, 50), time(16, 9), time(15, 48), time(23, 54)
     ]
     assert [event["punch_at"] for event in parsed["events"][3:5]] == [
         datetime(2026, 10, 2, 15, 48), datetime(2026, 10, 2, 23, 54)
     ]
-    assert [event["punch_at"].time() for event in parsed["events"][5:]] == [time(8, 0)]
+    assert [event["punch_at"].time() for event in parsed["events"][5:9]] == [
+        time(8, 2), time(8, 2), time(16, 58), time(16, 58)
+    ]
+    assert [event["punch_at"].time() for event in parsed["events"][9:]] == [time(8, 0)]
     assert [event["employee_id"] for event in parsed["events"]] == [
-        101, 101, 101, 105, 105, None
+        101, 101, 101, 101, 101, 105, 105, 105, 105, None
     ]
     assert parsed["events"][0]["source_sheet"] == "Att.log report"
     assert parsed["events"][0]["source_row"] == 6
