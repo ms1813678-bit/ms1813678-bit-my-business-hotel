@@ -153,6 +153,10 @@ def security_roster_page(
 
 def _stage_security_roster(raw: bytes, request: Request) -> str:
     SECURITY_ROSTER_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        SECURITY_ROSTER_STAGING_DIR.chmod(0o700)
+    except OSError:
+        pass
     now = time_module.time()
     for candidate in SECURITY_ROSTER_STAGING_DIR.glob("*.xlsx"):
         try:
@@ -163,6 +167,10 @@ def _stage_security_roster(raw: bytes, request: Request) -> str:
     token = secrets.token_urlsafe(32)
     path = SECURITY_ROSTER_STAGING_DIR / f"{token}.xlsx"
     path.write_bytes(raw)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
     request.session["security_roster_stage"] = token
     return token
 
@@ -235,11 +243,11 @@ def security_roster_preview(
 ):
     try:
         raw = _read_security_roster_upload(file)
-        stage_token = _stage_security_roster(raw, request)
         with SessionLocal() as db:
             aliases = _security_roster_aliases(db)
             parsed = parse_security_roster_xlsx(raw, aliases)
             prepared = prepare_security_roster(db, parsed)
+        stage_token = _stage_security_roster(raw, request)
         return templates.TemplateResponse(
             request=request,
             name="security_roster.html",
