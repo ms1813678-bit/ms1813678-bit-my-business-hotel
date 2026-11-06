@@ -138,12 +138,13 @@ def test_matching_pattern_in_another_department_is_not_accepted(roster_db):
     assert prepared["days"][0]["can_confirm"] is False
 
 
-def test_inactive_admin_cannot_confirm_roster(roster_db):
+def test_forged_admin_identity_cannot_confirm_roster(roster_db):
     db, employees, admin = roster_db
     parsed = _parsed(employees)
     day = prepare_security_roster(db, parsed)["days"][0]
-    admin.active = False
-    db.commit()
+    forged_admin = AdminAccount(
+        id=admin.id, username="forged-admin", password_hash="not-used", active=True
+    )
     with pytest.raises(ValueError, match="authenticated_active_admin_required"):
-        confirm_security_roster_day(db, day["work_date"], day["roster"], admin, [])
+        confirm_security_roster_day(db, day["work_date"], day["roster"], forged_admin, [])
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
