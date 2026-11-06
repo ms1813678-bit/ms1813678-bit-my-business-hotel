@@ -22,6 +22,15 @@
       <p>بعد إنشاء مسودة المطابقة ستظهر هنا الأيام التي تحتاج مراجعة الموارد البشرية.</p>
     </section>
     {% endif %}
+    {% if total_records %}
+    <section class="notice">
+      <p>عرض {{ records|length }} سجلًا من إجمالي {{ total_records }} سجلًا معلقًا — الصفحة {{ page }} من {{ total_pages }}</p>
+      <nav aria-label="صفحات مراجعة الحضور">
+        {% if page > 1 %}<a href="/attendance/review?page={{ page - 1 }}">السابق</a>{% endif %}
+        {% if page < total_pages %}<a href="/attendance/review?page={{ page + 1 }}">التالي</a>{% endif %}
+      </nav>
+    </section>
+    {% endif %}
     {% for record in records %}
     <section class="notice">
       <h2>{{ record.employee }} — {{ record.employee_code }}</h2>
