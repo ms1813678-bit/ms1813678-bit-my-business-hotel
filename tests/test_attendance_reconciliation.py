@@ -410,3 +410,39 @@ def test_next_day_fingerprint_is_not_attached_to_non_overnight_15_to_23_shift():
     assert by_date[date(2026, 11, 1)]["last_clock_out"] == datetime(2026, 11, 1, 23, 0)
     assert by_date[date(2026, 11, 2)]["shift_pattern_id"] is None
     assert by_date[date(2026, 11, 2)]["status"] == "needs_review"
+
+
+
+def test_monthly_builder_respects_service_period_start_and_end_dates():
+    day = pattern("day", "08:00", "16:00", 60, 60)
+    day["id"] = 91
+    result = build_monthly_reconciliation_proposals(
+        employees=[{
+            "id": 1,
+            "department_id": 2,
+            "hire_date": date(2026, 11, 1),
+            "service_periods": [{
+                "start_date": date(2026, 11, 2),
+                "end_date": date(2026, 11, 3),
+            }],
+        }],
+        period_start=date(2026, 11, 1),
+        period_end=date(2026, 11, 4),
+        program_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 8, 0), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 2, 8, 0), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 3, 16, 0), "event_type": "OUT"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 4, 8, 0), "event_type": "IN"},
+        ],
+        fingerprint_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 2, 8, 0)},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 3, 16, 0)},
+        ],
+        patterns_by_department={2: [day]},
+        security_assignments=[],
+        security_department_id=99,
+        security_approved_dates=set(),
+    )
+    assert {item["proposal"]["work_date"] for item in result} == {
+        date(2026, 11, 2), date(2026, 11, 3)
+    }
