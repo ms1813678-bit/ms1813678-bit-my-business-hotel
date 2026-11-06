@@ -4,8 +4,8 @@
 
 - Security uses the monthly security roster supplied by HR. Security shifts are not inferred from clock events.
 - Other departments use the first actual clock-in event to identify a shift, but only against that department's configured shift patterns.
-- HR configures the matching window in minutes. A missing window disables automatic matching; no default tolerance is silently assumed.
-- If more than one shift is within its configured window, or none is within range, the result is sent for human review. The application does not choose the nearest shift when multiple patterns qualify.
+- Matching uses separate before/after margins, each capped at 120 minutes. Effective windows are trimmed around neighboring shift starts to prevent overlap; the exact midpoint minute is deliberately unmatched.
+- Duplicate shift start times remain ambiguous and require the security roster or HR review; the matcher never chooses between two shifts that start at the same time.
 - Overnight shifts remain associated with the work date on which the shift starts.
 - Missing or uncertain fingerprint events are never fabricated.
 
@@ -21,11 +21,15 @@
 
 ## Current code scope
 
-- `ShiftPattern` stores department-specific shift definitions and optional matching windows.
+- `ShiftPattern` stores department-specific shift definitions, separate before/after matching margins, and the legacy `match_window_minutes` field for migration compatibility. The matcher ignores the legacy field.
 - `SecurityShiftAssignment` stores one security employee's shift per work date.
-- Alembic revision `0007_attendance_shift_foundation` creates these tables without modifying prior migrations.
-- `scripts/seed_shifts.py` inserts the approved shift definitions idempotently. It deliberately leaves matching windows unset until HR configures them.
+- Alembic revision `0007_attendance_shift_foundation` creates the shift foundation; `0008_shift_matching_margins` adds bounded before/after margins and migrates explicitly configured legacy windows.
+- `scripts/seed_shifts.py` inserts the approved shift definitions idempotently. New matching margins default to the approved 120-minute maximum and are trimmed by the matcher to prevent overlap.
 - `app.shift_matching.match_shift_by_clock` is a pure matching helper. It returns matched, unmatched, or ambiguous; it does not alter raw fingerprint timestamps.
+
+## AI-assisted review principle
+
+AI may analyze attendance evidence and prepare shift suggestions with explanations. Clear cases can be prepared under approved rules; uncertain cases are presented to HR with the proposed result and reason. The administrator must confirm before consequential attendance records are approved or saved as final. AI is optional and must not block normal operation.
 
 ## Not yet implemented in this stage
 
