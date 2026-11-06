@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -451,18 +451,33 @@ def attendance_review_page(
             .order_by(AttendanceDailyRecord.work_date, Employee.full_name)
             .limit(500)
         ).all()
-        records = [{
-            "id": record.id, "employee": employee.full_name,
-            "employee_code": employee.code, "work_date": record.work_date,
-            "scheduled_start_at": record.scheduled_start_at,
-            "scheduled_end_at": record.scheduled_end_at,
-            "program_clock_in": record.program_clock_in,
-            "program_clock_out": record.program_clock_out,
-            "fingerprint_in": record.first_clock_in,
-            "fingerprint_out": record.last_clock_out,
-            "worked_minutes": record.worked_minutes,
-            "status": record.status, "review_notes": record.review_notes,
-        } for record, employee in rows]
+        records = []
+        for record, employee in rows:
+            suggested_in = record.program_clock_in or record.first_clock_in
+            suggested_out = record.program_clock_out or record.last_clock_out
+            if (
+                suggested_in is not None and suggested_out is not None
+                and suggested_out <= suggested_in
+                and record.scheduled_start_at is not None
+                and record.scheduled_end_at is not None
+                and record.scheduled_end_at.date() > record.scheduled_start_at.date()
+                and suggested_out.date() == record.work_date
+            ):
+                suggested_out += timedelta(days=1)
+            records.append({
+                "id": record.id, "employee": employee.full_name,
+                "employee_code": employee.code, "work_date": record.work_date,
+                "scheduled_start_at": record.scheduled_start_at,
+                "scheduled_end_at": record.scheduled_end_at,
+                "program_clock_in": record.program_clock_in,
+                "program_clock_out": record.program_clock_out,
+                "fingerprint_in": record.first_clock_in,
+                "fingerprint_out": record.last_clock_out,
+                "suggested_clock_in": suggested_in,
+                "suggested_clock_out": suggested_out,
+                "worked_minutes": record.worked_minutes,
+                "status": record.status, "review_notes": record.review_notes,
+            })
     return templates.TemplateResponse(
         request=request, name="attendance_review.html",
         context={"admin": admin.username, "csrf_token": get_csrf_token(request),
