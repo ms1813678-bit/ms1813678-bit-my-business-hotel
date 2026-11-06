@@ -15,6 +15,7 @@ dependencies = [
   "pydantic-settings>=2.5,<3",
   "alembic>=1.13,<2",
   "Pillow>=10,<13",
+  "openpyxl>=3.1,<4",
 ]
 
 [project.optional-dependencies]
