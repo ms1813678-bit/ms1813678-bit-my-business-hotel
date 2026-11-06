@@ -19,6 +19,10 @@ from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.models import AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
+from app.security_roster_import import parse_security_roster_xlsx
+from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
+
+SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
 
 EMPLOYEE_PHOTO_DIR = Path("var") / "employee_photos"
 EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
@@ -122,6 +126,156 @@ def dashboard(request: Request, admin: AdminAccount = Depends(get_current_admin)
         request=request, name="dashboard.html",
         context={"app_name": settings.app_name, "admin": admin.username, "csrf_token": get_csrf_token(request)},
     )
+
+
+@app.get("/security-roster", response_class=HTMLResponse)
+def security_roster_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="security_roster.html",
+        context={
+            "admin": admin.username,
+            "csrf_token": get_csrf_token(request),
+            "days": [],
+            "issues": [],
+            "error": None,
+            "filename": None,
+        },
+    )
+
+
+def _read_security_roster_upload(upload: UploadFile) -> bytes:
+    filename = (upload.filename or "").strip()
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="يرجى رفع ملف Excel بصيغة .xlsx.")
+    raw = upload.file.read(SECURITY_ROSTER_MAX_BYTES + 1)
+    if not raw:
+        raise HTTPException(status_code=400, detail="الملف فارغ.")
+    if len(raw) > SECURITY_ROSTER_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="حجم ملف جدول الأمن يجب ألا يتجاوز 5 ميجابايت.")
+    return raw
+
+
+def _security_roster_aliases(db):
+    from sqlalchemy import select
+    from app.models import Department, Employee
+    department = db.scalar(select(Department).where(
+        Department.name == "Security", Department.active.is_(True)
+    ))
+    if department is None:
+        raise ValueError("security_department_not_configured")
+    employees = db.scalars(select(Employee).where(
+        Employee.department_id == department.id,
+        Employee.status == "active",
+    ).order_by(Employee.id)).all()
+    if len(employees) != 3:
+        raise ValueError("security_department_must_have_exactly_three_active_employees")
+    names = [employee.full_name for employee in employees]
+    normalized = [" ".join(name.casefold().split()) for name in names]
+    if len(set(normalized)) != 3:
+        raise ValueError("security_employee_names_must_be_unique_for_excel_mapping")
+    return {employee.full_name: employee.id for employee in employees}
+
+
+@app.post("/security-roster/preview", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def security_roster_preview(
+    request: Request,
+    file: UploadFile = File(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        raw = _read_security_roster_upload(file)
+        with SessionLocal() as db:
+            aliases = _security_roster_aliases(db)
+            parsed = parse_security_roster_xlsx(raw, aliases)
+            prepared = prepare_security_roster(db, parsed)
+        return templates.TemplateResponse(
+            request=request,
+            name="security_roster.html",
+            context={
+                "admin": admin.username,
+                "csrf_token": get_csrf_token(request),
+                "days": prepared["days"],
+                "issues": prepared["import_issues"],
+                "error": None,
+                "filename": file.filename,
+                "workbook_bytes": raw.hex(),
+            },
+        )
+    except (ValueError, KeyError) as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="security_roster.html",
+            context={
+                "admin": admin.username,
+                "csrf_token": get_csrf_token(request),
+                "days": [],
+                "issues": [],
+                "error": str(exc),
+                "filename": file.filename,
+            },
+            status_code=400,
+        )
+
+
+@app.post("/security-roster/confirm", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def security_roster_confirm(
+    request: Request,
+    work_date: str = Form(...),
+    file: UploadFile = File(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    from datetime import date
+    try:
+        raw = _read_security_roster_upload(file)
+        selected_date = date.fromisoformat(work_date)
+        with SessionLocal.begin() as db:
+            aliases = _security_roster_aliases(db)
+            parsed = parse_security_roster_xlsx(raw, aliases)
+            prepared = prepare_security_roster(db, parsed)
+            selected = next(
+                (item for item in prepared["days"] if item["work_date"] == selected_date),
+                None,
+            )
+            if selected is None or not selected["can_confirm"]:
+                raise ValueError("security_roster_day_not_ready_for_approval")
+            confirm_security_roster_day(
+                db,
+                selected_date,
+                selected["roster"],
+                admin,
+                import_issues=parsed.get("issues", []),
+            )
+        return templates.TemplateResponse(
+            request=request,
+            name="security_roster.html",
+            context={
+                "admin": admin.username,
+                "csrf_token": get_csrf_token(request),
+                "days": [],
+                "issues": [],
+                "error": None,
+                "success": f"تم اعتماد جدول يوم {selected_date.isoformat()} بنجاح.",
+                "filename": file.filename,
+            },
+        )
+    except (ValueError, KeyError) as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="security_roster.html",
+            context={
+                "admin": admin.username,
+                "csrf_token": get_csrf_token(request),
+                "days": [],
+                "issues": [],
+                "error": str(exc),
+                "filename": file.filename,
+            },
+            status_code=400,
+        )
 
 
 @app.post("/departments", dependencies=[Depends(csrf_protect)])
