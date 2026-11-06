@@ -548,3 +548,123 @@ def test_employee_edit_rejects_branch_from_another_department(client):
         follow_redirects=False,
     )
     assert response.status_code == 400
+
+
+def test_department_branch_management_and_employee_transfer_history(client):
+    from app.main import SessionLocal
+    from app.models import AuditLog, Branch, EmployeeChange
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+
+    created_department = client.post(
+        "/departments",
+        data={"csrf_token": token, "name": "Transfer Destination"},
+        follow_redirects=False,
+    )
+    assert created_department.status_code == 303
+
+    with SessionLocal() as db:
+        destination = db.query(Department).filter_by(name="Transfer Destination").one()
+        destination_id = destination.id
+
+    created_branch = client.post(
+        "/branches",
+        data={"csrf_token": token, "department_id": destination_id, "name": "Destination Branch"},
+        follow_redirects=False,
+    )
+    assert created_branch.status_code == 303
+
+    with SessionLocal() as db:
+        branch = db.query(Branch).filter_by(name="Destination Branch").one()
+        branch_id = branch.id
+
+    created_employee = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Transfer History Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created_employee.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Transfer History Test").one()
+        employee_id = employee.id
+
+    moved = client.post(
+        f"/employees/{employee_id}/transfer",
+        data={
+            "csrf_token": token,
+            "department_id": destination_id,
+            "branch_id": branch_id,
+            "effective_date": "2025-03-01",
+            "reason": "Approved department transfer",
+        },
+        follow_redirects=False,
+    )
+    assert moved.status_code == 303
+
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        changes = db.query(EmployeeChange).filter_by(employee_id=employee_id).all()
+        audit = db.query(AuditLog).filter_by(
+            entity_type="employee",
+            entity_id=str(employee_id),
+            action="employee_transferred",
+        ).one()
+        assert employee.department_id == destination_id
+        assert employee.branch_id == branch_id
+        assert {item.field_name for item in changes} == {"department_id", "branch_id"}
+        assert all(item.effective_date == date(2025, 3, 1) for item in changes)
+        assert all(item.reason == "Approved department transfer" for item in changes)
+        assert audit.reason == "Approved department transfer"
+
+
+def test_branch_cannot_be_deactivated_while_active_employee_is_assigned(client):
+    from app.main import SessionLocal
+    from app.models import Branch
+
+    assert login(client).status_code == 303
+    with SessionLocal.begin() as db:
+        branch = Branch(
+            department_id=client.test_department_id,
+            name="Occupied Branch",
+            active=True,
+        )
+        db.add(branch)
+        db.flush()
+        branch_id = branch.id
+
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Occupied Branch Employee",
+            "department_id": client.test_department_id,
+            "branch_id": branch_id,
+            "position": "Test Position",
+            "hire_date": date.today().isoformat(),
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+
+    response = client.post(
+        f"/branches/{branch_id}/edit",
+        data={
+            "csrf_token": token,
+            "department_id": client.test_department_id,
+            "name": "Occupied Branch",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 409
