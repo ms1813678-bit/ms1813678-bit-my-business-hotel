@@ -254,6 +254,8 @@ def create_employee(
     branch_id: int | None = Form(None),
     position: str = Form(...),
     hire_date: date = Form(...),
+    probation_start_date: date | None = Form(None),
+    probation_end_date: date | None = Form(None),
     basic_salary: Decimal = Form(...),
     daily_hours: Decimal = Form(...),
     fingerprint_id: str = Form(""),
@@ -261,6 +263,8 @@ def create_employee(
 ):
     if basic_salary < 0 or daily_hours <= 0 or daily_hours > 24:
         return HTMLResponse("بيانات الراتب أو ساعات العمل غير صحيحة.", status_code=400)
+    if probation_start_date and probation_end_date and probation_end_date < probation_start_date:
+        raise HTTPException(status_code=400, detail="نهاية فترة الاختبار لا يمكن أن تسبق بدايتها.")
     full_name = full_name.strip()
     position = position.strip()
     national_id = national_id.strip() or None
@@ -284,6 +288,7 @@ def create_employee(
             national_id=national_id, phone=phone.strip() or None,
             address=address.strip() or None, department_id=department_id,
             branch_id=branch_id, position=position, hire_date=hire_date,
+            probation_start_date=probation_start_date, probation_end_date=probation_end_date,
             basic_salary=basic_salary, daily_hours=daily_hours,
             fingerprint_id=fingerprint_id, status="active",
         )
@@ -312,6 +317,8 @@ def edit_employee(
     basic_salary: Decimal = Form(...),
     daily_hours: Decimal = Form(...),
     fingerprint_id: str = Form(""),
+    probation_start_date: date | None = Form(None),
+    probation_end_date: date | None = Form(None),
     effective_date: date = Form(...),
     reason: str = Form(...),
     admin: AdminAccount = Depends(get_current_admin),
@@ -323,6 +330,8 @@ def edit_employee(
         raise HTTPException(status_code=400, detail="الاسم والمسمى وسبب التعديل حقول مطلوبة.")
     if basic_salary < 0 or daily_hours <= 0 or daily_hours > 24:
         raise HTTPException(status_code=400, detail="بيانات الراتب أو ساعات العمل غير صحيحة.")
+    if probation_start_date and probation_end_date and probation_end_date < probation_start_date:
+        raise HTTPException(status_code=400, detail="نهاية فترة الاختبار لا يمكن أن تسبق بدايتها.")
 
     with SessionLocal.begin() as db:
         employee = db.get(Employee, employee_id)
@@ -347,6 +356,8 @@ def edit_employee(
             "basic_salary": basic_salary,
             "daily_hours": daily_hours,
             "fingerprint_id": fingerprint_id.strip() or None,
+            "probation_start_date": probation_start_date,
+            "probation_end_date": probation_end_date,
         }
         for field_name in ("national_id", "fingerprint_id"):
             value = normalized[field_name]
