@@ -993,6 +993,7 @@ def test_security_roster_upload_preview_and_explicit_day_approval(client, monkey
             "csrf_token": token,
             "work_date": "2026-11-01",
             "stage_token": stage_match.group(1),
+            "reviewed": "yes",
         },
     )
     assert approved.status_code == 200
@@ -1012,6 +1013,7 @@ def test_security_roster_upload_preview_and_explicit_day_approval(client, monkey
             "csrf_token": token,
             "work_date": "2026-11-02",
             "stage_token": stage_match.group(1),
+            "reviewed": "yes",
         },
     )
     assert approved_second_day.status_code == 200
