@@ -493,3 +493,52 @@ def test_missing_security_roster_day_requires_review_even_without_any_punches():
     assert result[0]["employee_id"] == 7
     assert result[0]["proposal"]["status"] == "needs_review"
     assert "security_roster_assignment_missing" in result[0]["proposal"]["issues"]
+
+
+def test_department_transfer_uses_effective_department_shift_patterns_per_day():
+    old_department_id, new_department_id, security_department_id = 10, 20, 99
+    day_one, day_two = date(2026, 11, 1), date(2026, 11, 2)
+    patterns = {
+        old_department_id: [pattern("old-morning", "08:00", "16:00", 60, 60)],
+        new_department_id: [pattern("new-evening", "15:00", "23:00", 60, 60)],
+    }
+    employee = {
+        "id": 7,
+        "department_id": new_department_id,
+        "hire_date": day_one,
+        "department_by_date": {
+            day_one: old_department_id,
+            day_two: new_department_id,
+        },
+    }
+    program_events = [
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 1, 8, 0), "event_type": "IN"},
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 1, 16, 0), "event_type": "OUT"},
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 2, 15, 0), "event_type": "IN"},
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 2, 23, 0), "event_type": "OUT"},
+    ]
+    fingerprint_events = [
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 1, 8, 0)},
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 1, 16, 0)},
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 2, 15, 0)},
+        {"employee_id": 7, "punch_at": datetime(2026, 11, 2, 23, 0)},
+    ]
+
+    proposals = build_monthly_reconciliation_proposals(
+        employees=[employee],
+        period_start=day_one,
+        period_end=day_two,
+        program_events=program_events,
+        fingerprint_events=fingerprint_events,
+        patterns_by_department=patterns,
+        security_assignments=[],
+        security_department_id=security_department_id,
+        security_approved_dates=set(),
+    )
+
+    assert [(item["proposal"]["work_date"], item["proposal"]["shift_pattern_id"])
+            for item in proposals] == [
+        (day_one, "old-morning"),
+        (day_two, "new-evening"),
+    ]
+    assert all(item["proposal"]["status"] == "ready_for_review" for item in proposals)
