@@ -1379,3 +1379,42 @@ def test_attendance_approval_endpoint_requires_csrf_and_admin(client):
         data={"clock_in": "2026-11-01T08:00", "clock_out": "2026-11-01T16:00", "reason": "reviewed"},
     )
     assert response.status_code == 403
+
+
+def test_overnight_attendance_review_prefills_clock_out_on_next_date(client):
+    from datetime import datetime, time
+    from app.main import SessionLocal
+    from app.models import AttendanceDailyRecord, ShiftPattern
+
+    with SessionLocal.begin() as db:
+        employee = Employee(
+            code="ATT-NIGHT-01", full_name="Night Shift Employee",
+            department_id=client.test_department_id, position="Test",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        db.add(employee)
+        db.flush()
+        shift = ShiftPattern(
+            department_id=client.test_department_id, code="NIGHT-TEST",
+            name="Night Test", start_time=time(23, 0), end_time=time(7, 0),
+            match_before_minutes=60, match_after_minutes=60, active=True,
+        )
+        db.add(shift)
+        db.flush()
+        db.add(AttendanceDailyRecord(
+            employee_id=employee.id, work_date=date(2026, 11, 1),
+            shift_pattern_id=shift.id,
+            scheduled_start_at=datetime(2026, 11, 1, 23, 0),
+            scheduled_end_at=datetime(2026, 11, 2, 7, 0),
+            program_clock_in=datetime(2026, 11, 1, 23, 5),
+            program_clock_out=datetime(2026, 11, 1, 7, 3),
+            first_clock_in=datetime(2026, 11, 1, 23, 5),
+            last_clock_out=datetime(2026, 11, 2, 7, 3),
+            worked_minutes=478, status="ready_for_review",
+        ))
+
+    assert login(client).status_code == 303
+    page = client.get("/attendance/review")
+    assert page.status_code == 200
+    assert 'value="2026-11-02T07:03"' in page.text
