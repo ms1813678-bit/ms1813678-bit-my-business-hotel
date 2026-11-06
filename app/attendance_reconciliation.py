@@ -404,7 +404,17 @@ def build_monthly_reconciliation_proposals(
                         and previous_shift_window[0] <= punch <= previous_shift_window[1]
                     )
                 ]
-                if not unassigned_program_day and not unmatched_fingerprint and not unassigned_fingerprint:
+                missing_security_roster_day = (
+                    department_id == security_department_id
+                    and security_assignment is None
+                    and work_date not in security_approved_dates
+                )
+                if (
+                    not unassigned_program_day
+                    and not unmatched_fingerprint
+                    and not unassigned_fingerprint
+                    and not missing_security_roster_day
+                ):
                     continue
                 program_day = unassigned_program_day
                 program_ins = [
