@@ -47,17 +47,17 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - No employee master Excel file currently exists; initial records are entered manually. Provide an import template later.
 
 ## Attendance imports and review
-- Monthly inputs: ZKTeco LX50 fingerprint export and a department-prepared attendance Excel file.
-- Preserve original imported files and raw fingerprint events.
-- Fingerprint export may include fingerprint ID, date, time, and entry/exit marker.
-- Department Excel includes employee names, dates, weekly rest, and codes: H=official holiday, W=weekly rest, S=sick, A=annual, U=absence.
-- A blank cell is not proof of presence or absence.
-- Match by fingerprint ID or employee code. Detect missing, duplicate, unknown, and conflicting events.
-- Flag entry-without-exit, exit-without-entry, missing fingerprints, duplicate events, unknown IDs, and conflicts with leave/absence.
-- Never invent missing fingerprint times. Keep source-file references for later retrieval from the device.
+- Monthly inputs: the attendance program's one-sheet report is the primary source; the ZKTeco LX50 fingerprint export supplements missing days/events and is checked across the full month. Preserve the user's source priority: program report first, fingerprint report second.
+- Preserve the exact original uploaded workbooks, SHA-256 hashes, raw event values, employee identifiers, sheet names, and row positions; authorized HR users can retrieve the original source file later.
+- Fingerprint exports may contain multiple time tokens in one cell; preserve every token and its original cell value.
+- Non-Security departments infer the shift from the first fingerprint within that department's configured shift windows. Security alone uses the separate three-person monthly roster Excel.
+- A blank cell or missing row is not proof of presence, absence, or a weekly rest day.
+- Match employee identities only by exact registered employee code/fingerprint ID/name aliases. Unknown identities remain unresolved until HR explicitly maps them to an employee; preserve the original identity and audit who resolved it.
+- Flag entry-without-exit, exit-without-entry, missing fingerprints, duplicate events, unknown IDs, and conflicts with leave/absence. Never invent missing fingerprint times.
+- An import batch with unresolved parsing/identity issues cannot enter monthly reconciliation. HR may resolve an unknown identity explicitly; otherwise replace a rejected/unresolved source batch with a corrected workbook before reconciliation. Keep the superseded batch and its source evidence for audit.
 - Monthly status: Imported → Under Review → Approved. Payroll cannot be finalized until attendance is approved.
 - A monthly attendance record is created when the first source file for an exact period is imported; the program and fingerprint batches must both be linked to the same exact period before reconciliation.
-- Reconciliation moves the month to Under Review. Monthly approval is a separate HR action and is blocked while any generated daily record is not approved, either source batch has import issues, or either source is missing.
+- Reconciliation moves the month to Under Review. Monthly approval is a separate HR action and is blocked while any generated daily record is not approved, either source batch has unresolved import issues, or either source is missing.
 - Monthly approval requires an explicit administrator attestation that all employee/day coverage gaps were checked against both source reports. Because blank source cells are not proof of absence, missing rows must never be silently converted to absences.
 - Unresolved absence is never classified as final absence.
 - No mobile/GPS attendance, no employee self-check-in, and no individual advance shift roster.
