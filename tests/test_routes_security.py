@@ -932,13 +932,9 @@ def test_security_roster_upload_preview_and_explicit_day_approval(client, monkey
     from io import BytesIO
     from openpyxl import Workbook
     from sqlalchemy import func, select
-    from app.main import SECURITY_ROSTER_STAGING_DIR
     from app.models import AuditLog, SecurityShiftAssignment, ShiftPattern
 
     monkeypatch.setattr("app.main.SECURITY_ROSTER_STAGING_DIR", tmp_path / "staging")
-    with app.dependency_overrides.get(get_db, lambda: None)() if False else __import__("contextlib").nullcontext():
-        pass
-
     # The fixture's SessionLocal is replaced with its isolated SQLite database.
     from app.main import SessionLocal
     with SessionLocal() as db:
