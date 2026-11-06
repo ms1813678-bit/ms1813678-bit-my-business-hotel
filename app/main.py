@@ -2,6 +2,8 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
+import secrets
+import time as time_module
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -23,6 +25,8 @@ from app.security_roster_import import parse_security_roster_xlsx
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
+SECURITY_ROSTER_STAGING_DIR = Path("var") / "security_roster_staging"
+SECURITY_ROSTER_STAGING_TTL_SECONDS = 60 * 60
 
 EMPLOYEE_PHOTO_DIR = Path("var") / "employee_photos"
 EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
@@ -147,6 +151,49 @@ def security_roster_page(
     )
 
 
+def _stage_security_roster(raw: bytes, request: Request) -> str:
+    SECURITY_ROSTER_STAGING_DIR.mkdir(parents=True, exist_ok=True)
+    now = time_module.time()
+    for candidate in SECURITY_ROSTER_STAGING_DIR.glob("*.xlsx"):
+        try:
+            if now - candidate.stat().st_mtime > SECURITY_ROSTER_STAGING_TTL_SECONDS:
+                candidate.unlink(missing_ok=True)
+        except OSError:
+            continue
+    token = secrets.token_urlsafe(32)
+    path = SECURITY_ROSTER_STAGING_DIR / f"{token}.xlsx"
+    path.write_bytes(raw)
+    request.session["security_roster_stage"] = token
+    return token
+
+
+def _load_staged_security_roster(token: str, request: Request) -> bytes:
+    expected = request.session.get("security_roster_stage")
+    if not isinstance(expected, str) or not secrets.compare_digest(expected, token):
+        raise HTTPException(status_code=403, detail="انتهت صلاحية معاينة الملف. ارفع الملف مرة أخرى.")
+    if not token or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in token):
+        raise HTTPException(status_code=400, detail="رمز المعاينة غير صالح.")
+    path = SECURITY_ROSTER_STAGING_DIR / f"{token}.xlsx"
+    try:
+        if time_module.time() - path.stat().st_mtime > SECURITY_ROSTER_STAGING_TTL_SECONDS:
+            path.unlink(missing_ok=True)
+            raise HTTPException(status_code=410, detail="انتهت صلاحية معاينة الملف. ارفع الملف مرة أخرى.")
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(status_code=410, detail="ملف المعاينة غير موجود. ارفع الملف مرة أخرى.")
+    if len(raw) > SECURITY_ROSTER_MAX_BYTES:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=413, detail="حجم ملف جدول الأمن غير صالح.")
+    return raw
+
+
+def _clear_staged_security_roster(token: str, request: Request) -> None:
+    if request.session.get("security_roster_stage") == token:
+        request.session.pop("security_roster_stage", None)
+    if token and all(ch in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in token):
+        (SECURITY_ROSTER_STAGING_DIR / f"{token}.xlsx").unlink(missing_ok=True)
+
+
 def _read_security_roster_upload(upload: UploadFile) -> bytes:
     filename = (upload.filename or "").strip()
     if not filename.lower().endswith(".xlsx"):
@@ -188,6 +235,7 @@ def security_roster_preview(
 ):
     try:
         raw = _read_security_roster_upload(file)
+        stage_token = _stage_security_roster(raw, request)
         with SessionLocal() as db:
             aliases = _security_roster_aliases(db)
             parsed = parse_security_roster_xlsx(raw, aliases)
@@ -202,7 +250,7 @@ def security_roster_preview(
                 "issues": prepared["import_issues"],
                 "error": None,
                 "filename": file.filename,
-                "workbook_bytes": raw.hex(),
+                "stage_token": stage_token,
             },
         )
     except (ValueError, KeyError) as exc:
@@ -225,12 +273,12 @@ def security_roster_preview(
 def security_roster_confirm(
     request: Request,
     work_date: str = Form(...),
-    file: UploadFile = File(...),
+    stage_token: str = Form(...),
     admin: AdminAccount = Depends(get_current_admin),
 ):
     from datetime import date
     try:
-        raw = _read_security_roster_upload(file)
+        raw = _load_staged_security_roster(stage_token, request)
         selected_date = date.fromisoformat(work_date)
         with SessionLocal.begin() as db:
             aliases = _security_roster_aliases(db)
@@ -249,6 +297,7 @@ def security_roster_confirm(
                 admin,
                 import_issues=parsed.get("issues", []),
             )
+        _clear_staged_security_roster(stage_token, request)
         return templates.TemplateResponse(
             request=request,
             name="security_roster.html",
@@ -259,7 +308,7 @@ def security_roster_confirm(
                 "issues": [],
                 "error": None,
                 "success": f"تم اعتماد جدول يوم {selected_date.isoformat()} بنجاح.",
-                "filename": file.filename,
+                "filename": "ملف جدول الأمن",
             },
         )
     except (ValueError, KeyError) as exc:
@@ -272,7 +321,7 @@ def security_roster_confirm(
                 "days": [],
                 "issues": [],
                 "error": str(exc),
-                "filename": file.filename,
+                "filename": "ملف جدول الأمن",
             },
             status_code=400,
         )
