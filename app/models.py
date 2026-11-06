@@ -56,6 +56,14 @@ class ShiftPattern(Base):
             "match_window_minutes IS NULL OR match_window_minutes >= 0",
             name="ck_shift_patterns_match_window_nonnegative",
         ),
+        CheckConstraint(
+            "match_before_minutes BETWEEN 0 AND 120",
+            name="ck_shift_patterns_match_before_range",
+        ),
+        CheckConstraint(
+            "match_after_minutes BETWEEN 0 AND 120",
+            name="ck_shift_patterns_match_after_range",
+        ),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"), index=True)
@@ -63,8 +71,10 @@ class ShiftPattern(Base):
     name: Mapped[str] = mapped_column(String(100))
     start_time: Mapped[time] = mapped_column(Time)
     end_time: Mapped[time] = mapped_column(Time)
-    # HR must configure this explicitly; no unapproved matching window is assumed.
+    # Legacy symmetric margin retained for migration compatibility; new matching uses the separate bounds.
     match_window_minutes: Mapped[int | None] = mapped_column(Integer)
+    match_before_minutes: Mapped[int] = mapped_column(Integer, default=120, server_default="120", nullable=False)
+    match_after_minutes: Mapped[int] = mapped_column(Integer, default=120, server_default="120", nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
