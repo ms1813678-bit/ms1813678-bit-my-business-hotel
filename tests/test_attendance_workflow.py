@@ -8,7 +8,7 @@ import pytest
 
 from app.db import Base
 from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation, resolve_unknown_attendance_employee, summarize_attendance_month_coverage)
-from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
+from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
 
 
 @pytest.fixture
@@ -517,6 +517,22 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     )
     db_session.add_all([program, fingerprint])
     db_session.flush()
+    future_rehire = Employee(
+        code="ATT-FUTURE-REHIRE", full_name="Future Rehire",
+        department_id=program.id if False else db_session.scalar(
+            select(Department.id).where(Department.name == "Attendance Test")
+        ),
+        position="Test", hire_date=date(2020, 1, 1), status="active",
+        basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+    )
+    db_session.add(future_rehire)
+    db_session.flush()
+    db_session.add(EmployeeServicePeriod(
+        employee_id=future_rehire.id,
+        start_date=date(2026, 12, 1),
+        end_date=None,
+        start_reason="Future rehire",
+    ))
     month = AttendanceMonth(
         period_start=work_date, period_end=work_date,
         program_import_batch_id=program.id,
