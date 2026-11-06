@@ -73,8 +73,8 @@ class ShiftPattern(Base):
     end_time: Mapped[time] = mapped_column(Time)
     # Legacy symmetric margin retained for migration compatibility; new matching uses the separate bounds.
     match_window_minutes: Mapped[int | None] = mapped_column(Integer)
-    match_before_minutes: Mapped[int] = mapped_column(Integer, default=120, server_default="120", nullable=False)
-    match_after_minutes: Mapped[int] = mapped_column(Integer, default=120, server_default="120", nullable=False)
+    match_before_minutes: Mapped[int | None] = mapped_column(Integer)
+    match_after_minutes: Mapped[int | None] = mapped_column(Integer)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
