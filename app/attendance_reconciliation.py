@@ -75,6 +75,8 @@ def reconcile_attendance_day(
     selected_in = program_clock_in or first_fingerprint
     selected_out = program_clock_out or last_fingerprint
     issues = []
+    if len(relevant) != len(set(relevant)):
+        issues.append("duplicate_fingerprint_events")
     if len(relevant) == 1 and (program_clock_in is None or program_clock_out is None):
         issues.append("only_one_fingerprint_event")
     if not relevant and (program_clock_in is None or program_clock_out is None):
