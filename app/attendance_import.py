@@ -158,13 +158,16 @@ def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str
             employee_id = aliases.get(employee_key)
             raw_date = cell("date")
             work_date = _date_value(raw_date, datemode)
-            if employee_id is None:
-                issues.append({"sheet": sheet_name, "row": row_index + 1, "reason": "unknown_employee", "value": str(employee_key)})
-                continue
             if work_date is None:
                 issues.append({"sheet": sheet_name, "row": row_index + 1, "reason": "invalid_or_missing_date", "value": str(raw_date)})
                 continue
+            # Keep valid source dates even when the employee cannot be resolved.
+            # Otherwise an all-unknown-employee file loses its period and cannot
+            # enter the HR review workflow as an import batch.
             dates.append(work_date)
+            if employee_id is None:
+                issues.append({"sheet": sheet_name, "row": row_index + 1, "reason": "unknown_employee", "value": str(employee_key)})
+                continue
 
             values = []
             if source_type == "program_report":
