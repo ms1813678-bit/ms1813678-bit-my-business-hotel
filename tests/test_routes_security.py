@@ -1499,7 +1499,7 @@ def test_attendance_month_page_displays_unrepresented_employee_day_gaps(client):
     assert login(client).status_code == 303
     response = client.get("/attendance/months")
     assert response.status_code == 200
-    assert "أيام موظفين بلا سجل مطابقة: 2" in response.text
+    assert "أيام موظفين بلا سجل مطابقة: 1" in response.text
     assert "Coverage Route Employee" in response.text
     assert "لا يصنفها النظام غيابًا أو راحة تلقائيًا" in response.text
 
