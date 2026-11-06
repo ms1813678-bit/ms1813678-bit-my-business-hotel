@@ -270,10 +270,11 @@ def employees_page(request: Request, admin: AdminAccount = Depends(get_current_a
         all_departments = db.scalars(select(Department).order_by(Department.name)).all()
         all_branches = db.scalars(select(Branch).order_by(Branch.name)).all()
         employee_changes = db.scalars(select(EmployeeChange).order_by(EmployeeChange.effective_date.desc(), EmployeeChange.id.desc())).all()
+        data_change_requests = db.scalars(select(EmployeeDataChangeRequest).order_by(EmployeeDataChangeRequest.recorded_at.desc())).all()
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
         return templates.TemplateResponse(
             request=request, name="employees.html",
-            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employee_changes": employee_changes, "employees": employees, "csrf_token": get_csrf_token(request)},
+            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employee_changes": employee_changes, "data_change_requests": data_change_requests, "employees": employees, "csrf_token": get_csrf_token(request)},
         )
 
 
@@ -434,6 +435,97 @@ def edit_employee(
             ))
     return RedirectResponse("/employees", status_code=303)
 
+
+
+
+
+@app.post("/employees/{employee_id}/data-change-requests", dependencies=[Depends(csrf_protect)])
+def create_employee_data_change_request(
+    employee_id: int,
+    field_name: str = Form(...),
+    requested_value: str = Form(...),
+    request_reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    requested_value = requested_value.strip()
+    request_reason = request_reason.strip()
+    if field_name not in EMPLOYEE_PHOTO_FIELDS:
+        raise HTTPException(status_code=400, detail="نوع البيانات المطلوب تغييره غير مسموح.")
+    if not requested_value or not request_reason:
+        raise HTTPException(status_code=400, detail="القيمة المطلوبة وسبب الطلب مطلوبان.")
+    with SessionLocal.begin() as db:
+        employee = db.get(Employee, employee_id)
+        if employee is None:
+            raise HTTPException(status_code=404, detail="الموظف غير موجود.")
+        db.add(EmployeeDataChangeRequest(
+            employee_id=employee_id, field_name=field_name,
+            requested_value=requested_value, request_reason=request_reason,
+            status="pending",
+        ))
+        db.add(AuditLog(
+            actor=admin.username, action="employee_data_change_requested",
+            entity_type="employee", entity_id=str(employee_id),
+            new_value=f"{field_name}={requested_value}", reason=request_reason,
+        ))
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/employee-data-change-requests/{request_id}/review", dependencies=[Depends(csrf_protect)])
+def review_employee_data_change_request(
+    request_id: int,
+    decision: str = Form(...),
+    decision_reason: str = Form(...),
+    effective_date: date | None = Form(None),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    decision_reason = decision_reason.strip()
+    if decision not in {"apply", "reject"} or not decision_reason:
+        raise HTTPException(status_code=400, detail="قرار المراجعة وسببه مطلوبان.")
+    with SessionLocal.begin() as db:
+        change_request = db.get(EmployeeDataChangeRequest, request_id)
+        if change_request is None:
+            raise HTTPException(status_code=404, detail="طلب التعديل غير موجود.")
+        if change_request.status != "pending":
+            raise HTTPException(status_code=409, detail="تمت مراجعة هذا الطلب من قبل.")
+        employee = db.get(Employee, change_request.employee_id)
+        if employee is None:
+            raise HTTPException(status_code=404, detail="الموظف المرتبط بالطلب غير موجود.")
+        old_value = None
+        new_value = None
+        if decision == "apply":
+            if effective_date is None:
+                raise HTTPException(status_code=400, detail="تاريخ سريان التعديل مطلوب عند الموافقة.")
+            if change_request.field_name not in EMPLOYEE_PHOTO_FIELDS:
+                raise HTTPException(status_code=400, detail="حقل التعديل غير مسموح.")
+            old_value = getattr(employee, change_request.field_name)
+            new_value = change_request.requested_value
+            if change_request.field_name == "national_id":
+                duplicate = db.scalar(select(Employee.id).where(
+                    Employee.national_id == new_value, Employee.id != employee.id
+                ).limit(1))
+                if duplicate is not None:
+                    raise HTTPException(status_code=409, detail="الرقم القومي مستخدم لموظف آخر.")
+            setattr(employee, change_request.field_name, new_value)
+            db.add(EmployeeChange(
+                employee_id=employee.id, field_name=change_request.field_name,
+                old_value=str(old_value) if old_value is not None else None,
+                new_value=new_value, effective_date=effective_date,
+                reason=f"Approved request #{request_id}: {decision_reason}",
+            ))
+            change_request.status = "applied"
+            change_request.effective_date = effective_date
+        else:
+            change_request.status = "rejected"
+        change_request.decision_reason = decision_reason
+        change_request.reviewed_at = datetime.now(timezone.utc)
+        change_request.reviewed_by = admin.username
+        db.add(AuditLog(
+            actor=admin.username, action=f"employee_data_change_{change_request.status}",
+            entity_type="employee_data_change_request", entity_id=str(request_id),
+            old_value=str(old_value) if old_value is not None else None,
+            new_value=new_value, reason=decision_reason,
+        ))
+    return RedirectResponse("/employees", status_code=303)
 
 
 @app.post("/employees/{employee_id}/transfer", dependencies=[Depends(csrf_protect)])
