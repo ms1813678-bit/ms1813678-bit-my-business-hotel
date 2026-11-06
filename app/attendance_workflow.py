@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -309,3 +309,61 @@ def prepare_and_persist_monthly_reconciliation(
         "period_start": period_start,
         "period_end": period_end,
     }
+
+
+def approve_attendance_day(
+    db,
+    *,
+    record_id: int,
+    clock_in: datetime,
+    clock_out: datetime,
+    actor: str,
+    reason: str,
+):
+    """Apply explicit HR approval while preserving the original imported evidence."""
+    if not actor or not actor.strip():
+        raise ValueError("attendance_approving_admin_required")
+    if not isinstance(clock_in, datetime) or not isinstance(clock_out, datetime):
+        raise ValueError("attendance_clock_values_must_be_datetimes")
+    if clock_out <= clock_in:
+        raise ValueError("attendance_clock_out_must_follow_clock_in")
+    if not reason or not reason.strip():
+        raise ValueError("attendance_approval_reason_required")
+
+    record = db.scalar(
+        select(AttendanceDailyRecord)
+        .where(AttendanceDailyRecord.id == record_id)
+        .with_for_update()
+    )
+    if record is None:
+        raise ValueError("attendance_daily_record_not_found")
+    if record.status == "approved":
+        raise ValueError("attendance_daily_record_already_approved")
+    if record.status not in {"ready_for_review", "needs_review"}:
+        raise ValueError("attendance_daily_record_not_reviewable")
+
+    old_value = (
+        f"program_in={record.program_clock_in}; program_out={record.program_clock_out}; "
+        f"fingerprint_in={record.first_clock_in}; fingerprint_out={record.last_clock_out}"
+    )
+    record.approved_clock_in = clock_in
+    record.approved_clock_out = clock_out
+    record.approved_by = actor
+    record.approved_at = datetime.now(timezone.utc)
+    record.status = "approved"
+    record.review_notes = (
+        f"{record.review_notes}; " if record.review_notes else ""
+    ) + f"HR decision: {reason.strip()}"
+    record.worked_minutes = int((clock_out - clock_in).total_seconds() // 60)
+
+    db.add(AuditLog(
+        actor=actor,
+        action="attendance_day_approved",
+        entity_type="attendance_daily_record",
+        entity_id=str(record.id),
+        old_value=old_value,
+        new_value=f"clock_in={clock_in.isoformat()}; clock_out={clock_out.isoformat()}",
+        reason=reason.strip(),
+    ))
+    db.flush()
+    return record
