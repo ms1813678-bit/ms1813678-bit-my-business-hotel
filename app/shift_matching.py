@@ -29,6 +29,8 @@ def _effective_bounds(pattern: dict, starts: list[int]) -> tuple[int, int]:
 
     # Duplicate starts are intentionally not split by the matcher.
     distinct = sorted(set(starts))
+    if len(distinct) == 1:
+        return min(before, MAX_MATCH_MINUTES), min(after, MAX_MATCH_MINUTES)
     index = distinct.index(start)
     previous_start = distinct[index - 1]
     next_start = distinct[(index + 1) % len(distinct)]
