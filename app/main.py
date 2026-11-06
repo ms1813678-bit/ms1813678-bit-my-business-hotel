@@ -204,12 +204,13 @@ def edit_branch(
         ))
         if duplicate:
             raise HTTPException(status_code=409, detail="اسم الفرع مستخدم داخل هذا القسم.")
-        if not active:
-            assigned = db.scalar(select(Employee.id).where(
-                Employee.branch_id == branch_id, Employee.status == "active"
-            ).limit(1))
-            if assigned is not None:
-                raise HTTPException(status_code=409, detail="انقل الموظفين النشطين من هذا الفرع قبل إيقافه.")
+        assigned = db.scalar(select(Employee.id).where(
+            Employee.branch_id == branch_id, Employee.status == "active"
+        ).limit(1))
+        if assigned is not None and department_id != branch.department_id:
+            raise HTTPException(status_code=409, detail="انقل الموظفين النشطين من هذا الفرع قبل تغيير القسم التابع له.")
+        if not active and assigned is not None:
+            raise HTTPException(status_code=409, detail="انقل الموظفين النشطين من هذا الفرع قبل إيقافه.")
         old_value = f"department_id={branch.department_id}; name={branch.name}; active={branch.active}"
         branch.department_id = department_id
         branch.name = name
