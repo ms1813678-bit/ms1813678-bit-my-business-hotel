@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>مطابقة الحضور الشهرية</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>مطابقة الحضور الشهرية</h1>
+        <p>المسؤول: {{ admin }}</p>
+      </div>
+      <a href="/">الرئيسية</a>
+    </header>
+
+    <section class="notice">
+      <h2>إنشاء مسودة مراجعة الشهر</h2>
+      <p>اختر تقرير البرنامج باعتباره المصدر الأساسي، وملف البصمة لاستكمال النواقص. يجب أن تكون دفعتا الاستيراد خاليتين من أخطاء الاستيراد غير المحسومة.</p>
+      <p>يُنشئ النظام سجلات مقترحة لكل موظف وأيام الفترة، ويحدد الورديات الليلية بتاريخ بداية الوردية. أيام الأمن المعتمدة التي يظهر فيها الموظف OFF لا تُسجل كغياب.</p>
+      <form method="post" action="/attendance/reconcile">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="program_batch_id">دفعة تقرير البرنامج</label>
+        <select id="program_batch_id" name="program_batch_id" required>
+          <option value="">اختر ملف البرنامج</option>
+          {% for batch in batches if batch.source_type == "program_report" %}
+          <option value="{{ batch.id }}">#{{ batch.id }} — {{ batch.original_filename }} — {{ batch.period_start }} إلى {{ batch.period_end }}</option>
+          {% endfor %}
+        </select>
+        <label for="fingerprint_batch_id">دفعة جهاز البصمة</label>
+        <select id="fingerprint_batch_id" name="fingerprint_batch_id" required>
+          <option value="">اختر ملف البصمة</option>
+          {% for batch in batches if batch.source_type == "fingerprint" %}
+          <option value="{{ batch.id }}">#{{ batch.id }} — {{ batch.original_filename }} — {{ batch.period_start }} إلى {{ batch.period_end }}</option>
+          {% endfor %}
+        </select>
+        <label for="period_start">بداية الفترة</label>
+        <input id="period_start" name="period_start" type="date" required>
+        <label for="period_end">نهاية الفترة</label>
+        <input id="period_end" name="period_end" type="date" required>
+        <button type="submit">إنشاء مسودة المطابقة</button>
+      </form>
+    </section>
+
+    {% if error %}
+    <section class="notice"><strong>تعذر إنشاء المطابقة:</strong> {{ error }}</section>
+    {% endif %}
+
+    {% if summary %}
+    <section class="notice">
+      <h2>تم إنشاء مسودة المراجعة</h2>
+      <p>الفترة: {{ summary.period_start }} إلى {{ summary.period_end }}</p>
+      <p>إجمالي سجلات الأيام: {{ summary.total }}</p>
+      <p>جاهزة لمراجعة الموارد البشرية: {{ summary.ready_for_review }}</p>
+      <p>تحتاج مراجعة أو استكمال: {{ summary.needs_review }}</p>
+      <p>لم يتم اعتماد أي يوم أو استخدامه في الرواتب.</p>
+      <p><a href="/attendance/review">فتح قائمة مراجعة الحضور</a></p>
+    </section>
+    {% endif %}
+    <footer>لا تُعتمد النتائج تلقائيًا. يجب على الموارد البشرية مراجعة كل حالة واعتمادها صراحة.</footer>
+  </main>
+</body>
+</html>
