@@ -8,7 +8,7 @@ import secrets
 import time as time_module
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text, func
@@ -319,6 +319,35 @@ def _read_attendance_upload(upload: UploadFile) -> bytes:
     if len(raw) > SECURITY_ROSTER_MAX_BYTES:
         raise HTTPException(status_code=413, detail="حجم ملف الحضور يجب ألا يتجاوز 5 ميجابايت.")
     return raw
+
+
+@app.get("/attendance/import/{batch_id}/download")
+def attendance_import_download(
+    batch_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    """Return the exact original workbook retained with an attendance import batch."""
+    with SessionLocal() as db:
+        batch = db.get(AttendanceImportBatch, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="ملف الاستيراد غير موجود.")
+        if not batch.original_file_bytes:
+            raise HTTPException(
+                status_code=410,
+                detail="الملف الأصلي لهذه الدفعة لم يُحفظ في النسخة القديمة من النظام.",
+            )
+        suffix = Path(batch.original_filename).suffix.casefold()
+        media_type = (
+            "application/vnd.ms-excel" if suffix == ".xls"
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        from urllib.parse import quote
+        filename = quote(Path(batch.original_filename).name)
+        return Response(
+            content=bytes(batch.original_file_bytes),
+            media_type=media_type,
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+        )
 
 
 @app.get("/attendance/import", response_class=HTMLResponse)
