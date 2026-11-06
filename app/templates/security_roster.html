@@ -13,7 +13,7 @@
 {% for day in days %}<article class="tile"><h3>{{ day.work_date.strftime("%Y-%m-%d") }}</h3>
 {% if day.can_confirm %}<p>جاهز للاعتماد بعد المراجعة</p>{% else %}<p>يحتاج إلى مراجعة وتصحيح</p>{% endif %}
 <table><thead><tr><th>الموظف</th><th>البداية</th><th>النهاية</th><th>المدة</th></tr></thead><tbody>
-{% for assignment in day.proposal.assignments %}<tr><td>{{ assignment.employee_id }}</td><td>{{ assignment.start_time.strftime("%H:%M") }}</td><td>{{ assignment.end_time.strftime("%H:%M") }}</td><td>{{ assignment.duration_hours }} ساعة</td></tr>{% endfor %}
+{% for assignment in day.proposal.assignments %}<tr><td>{{ assignment.employee_name }}</td><td>{{ assignment.start_time.strftime("%H:%M") }}</td><td>{{ assignment.end_time.strftime("%H:%M") }}</td><td>{{ assignment.duration_hours }} ساعة</td></tr>{% endfor %}
 </tbody></table>
 {% if day.proposal.issues %}<ul>{% for issue in day.proposal.issues %}<li>{{ issue }}</li>{% endfor %}</ul>{% endif %}
 {% if day.can_confirm %}<form method="post" action="/security-roster/confirm"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="work_date" value="{{ day.work_date.isoformat() }}"><input type="hidden" name="stage_token" value="{{ stage_token }}"><label><input type="checkbox" required> راجعت ورديات هذا اليوم</label><button type="submit">اعتماد اليوم</button></form>{% else %}<p>لن يتم حفظ تعيينات هذا اليوم.</p>{% endif %}</article>{% endfor %}</section>{% endif %}
