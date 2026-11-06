@@ -225,12 +225,16 @@ def build_monthly_reconciliation_proposals(
                         previous_start, previous_end = shift_window(
                             calendar_date - timedelta(days=1), previous_shift
                         )
-                        previous_window_start = previous_start - timedelta(minutes=120)
-                        previous_window_end = previous_end + timedelta(minutes=120)
-                        belongs_to_previous_shift = all(
-                            previous_window_start <= punch <= previous_window_end
-                            for punch in day_punches
-                        )
+                        # Only a shift that actually crosses midnight may own
+                        # next-calendar-day punches. A 15:00–23:00 shift must
+                        # never absorb the following day's 00:xx events.
+                        if previous_end.date() > previous_start.date():
+                            previous_window_start = previous_start - timedelta(minutes=120)
+                            previous_window_end = previous_end + timedelta(minutes=120)
+                            belongs_to_previous_shift = all(
+                                previous_window_start <= punch <= previous_window_end
+                                for punch in day_punches
+                            )
                     if not belongs_to_previous_shift:
                         non_security_unmatched_dates.add(calendar_date)
                     continue
@@ -312,11 +316,12 @@ def build_monthly_reconciliation_proposals(
                     previous_start, previous_end = shift_window(
                         work_date - timedelta(days=1), previous_shift
                     )
-                    previous_shift_punches = [
-                        punch for punch in all_punches
-                        if previous_start - timedelta(minutes=120)
-                        <= punch <= previous_end + timedelta(minutes=120)
-                    ]
+                    if previous_end.date() > previous_start.date():
+                        previous_shift_punches = [
+                            punch for punch in all_punches
+                            if previous_start - timedelta(minutes=120)
+                            <= punch <= previous_end + timedelta(minutes=120)
+                        ]
                 unassigned_fingerprint_punches = [
                     punch for punch in all_punches
                     if punch not in previous_shift_punches
@@ -350,10 +355,11 @@ def build_monthly_reconciliation_proposals(
                     previous_start, previous_end = shift_window(
                         work_date - timedelta(days=1), previous_shift
                     )
-                    previous_shift_window = (
-                        previous_start - timedelta(minutes=120),
-                        previous_end + timedelta(minutes=120),
-                    )
+                    if previous_end.date() > previous_start.date():
+                        previous_shift_window = (
+                            previous_start - timedelta(minutes=120),
+                            previous_end + timedelta(minutes=120),
+                        )
                     previous_day_events = [
                         item for item in calendar_program_day
                         if previous_shift_window[0]
@@ -414,6 +420,10 @@ def build_monthly_reconciliation_proposals(
                 if item.get("employee_id") == employee_id
                 and isinstance(item.get("punch_at"), datetime)
                 and evidence_start <= item["punch_at"] <= evidence_end
+                and (
+                    scheduled_end.date() > scheduled_start.date()
+                    or item["punch_at"].date() == work_date
+                )
             ]
             program_ins = [
                 item["punch_at"] for item in program_day
@@ -428,6 +438,10 @@ def build_monthly_reconciliation_proposals(
             day_fingerprint = [
                 punch for punch in all_punches
                 if evidence_start <= punch <= evidence_end
+                and (
+                    scheduled_end.date() > scheduled_start.date()
+                    or punch.date() == work_date
+                )
             ]
             proposal = reconcile_attendance_day(
                 work_date=work_date,
