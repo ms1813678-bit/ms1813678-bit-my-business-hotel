@@ -35,10 +35,10 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label for="in-{{ record.id }}">وقت الدخول المعتمد بعد المراجعة</label>
         <input id="in-{{ record.id }}" name="clock_in" type="datetime-local"
-          value="{{ record.program_clock_in.strftime('%Y-%m-%dT%H:%M') if record.program_clock_in else (record.fingerprint_in.strftime('%Y-%m-%dT%H:%M') if record.fingerprint_in else '') }}" required>
+          value="{{ record.suggested_clock_in.strftime('%Y-%m-%dT%H:%M') if record.suggested_clock_in else '' }}" required>
         <label for="out-{{ record.id }}">وقت الخروج المعتمد بعد المراجعة</label>
         <input id="out-{{ record.id }}" name="clock_out" type="datetime-local"
-          value="{{ record.program_clock_out.strftime('%Y-%m-%dT%H:%M') if record.program_clock_out else (record.fingerprint_out.strftime('%Y-%m-%dT%H:%M') if record.fingerprint_out else '') }}" required>
+          value="{{ record.suggested_clock_out.strftime('%Y-%m-%dT%H:%M') if record.suggested_clock_out else '' }}" required>
         <label for="reason-{{ record.id }}">سبب المراجعة والاعتماد</label>
         <input id="reason-{{ record.id }}" name="reason" type="text" minlength="3" maxlength="500" required>
         <button type="submit">اعتماد هذا اليوم</button>
