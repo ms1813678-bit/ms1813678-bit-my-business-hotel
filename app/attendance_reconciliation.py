@@ -208,7 +208,31 @@ def build_monthly_reconciliation_proposals(
             for calendar_date, day_punches in by_calendar_date.items():
                 first_result = infer_non_security_shift(day_punches[0], patterns)
                 if first_result["status"] != "ready_for_review":
-                    non_security_unmatched_dates.add(calendar_date)
+                    # A calendar day's first event can be the OUT (or an
+                    # intermediate punch) of the previous day's overnight shift.
+                    # If every event fits that already identified shift window,
+                    # it is evidence for the previous work date, not an unmatched day.
+                    previous_candidate = non_security_candidates.get(
+                        calendar_date - timedelta(days=1)
+                    )
+                    previous_shift = (
+                        previous_candidate.get("shift")
+                        if previous_candidate and not previous_candidate.get("conflict")
+                        else None
+                    )
+                    belongs_to_previous_shift = False
+                    if previous_shift:
+                        previous_start, previous_end = shift_window(
+                            calendar_date - timedelta(days=1), previous_shift
+                        )
+                        previous_window_start = previous_start - timedelta(minutes=120)
+                        previous_window_end = previous_end + timedelta(minutes=120)
+                        belongs_to_previous_shift = all(
+                            previous_window_start <= punch <= previous_window_end
+                            for punch in day_punches
+                        )
+                    if not belongs_to_previous_shift:
+                        non_security_unmatched_dates.add(calendar_date)
                     continue
                 work_date = first_result["work_date"]
                 if period_start <= work_date <= period_end:
