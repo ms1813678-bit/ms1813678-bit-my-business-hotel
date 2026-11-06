@@ -354,3 +354,31 @@ def test_multiple_program_clock_out_events_require_review():
     proposal = result[0]["proposal"]
     assert proposal["status"] == "needs_review"
     assert "multiple_program_clock_out_events" in proposal["issues"]
+
+
+def test_next_day_fingerprint_is_not_attached_to_non_overnight_15_to_23_shift():
+    evening = pattern("evening", "15:00", "23:00", 60, 60)
+    evening["id"] = 70
+    result = build_monthly_reconciliation_proposals(
+        employees=[{"id": 1, "department_id": 2}],
+        period_start=date(2026, 11, 1),
+        period_end=date(2026, 11, 2),
+        program_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 15, 5), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 23, 0), "event_type": "OUT"},
+        ],
+        fingerprint_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 15, 5)},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 23, 0)},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 2, 0, 30)},
+        ],
+        patterns_by_department={2: [evening]},
+        security_assignments=[],
+        security_department_id=99,
+        security_approved_dates=set(),
+    )
+    by_date = {item["proposal"]["work_date"]: item["proposal"] for item in result}
+    assert set(by_date) == {date(2026, 11, 1), date(2026, 11, 2)}
+    assert by_date[date(2026, 11, 1)]["last_clock_out"] == datetime(2026, 11, 1, 23, 0)
+    assert by_date[date(2026, 11, 2)]["shift_pattern_id"] is None
+    assert by_date[date(2026, 11, 2)]["status"] == "needs_review"
