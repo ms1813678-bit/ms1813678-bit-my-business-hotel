@@ -541,7 +541,7 @@ def test_attendance_schema_migration_creates_raw_and_reconciliation_tables(postg
     batch_columns = {column["name"] for column in inspector.get_columns("attendance_import_batches")}
     assert {
         "source_type", "period_start", "period_end", "file_sha256",
-        "uploaded_by", "status", "row_count", "issue_count",
+        "original_file_bytes", "uploaded_by", "status", "row_count", "issue_count",
     }.issubset(batch_columns)
 
     punch_columns = {column["name"] for column in inspector.get_columns("attendance_punches")}
