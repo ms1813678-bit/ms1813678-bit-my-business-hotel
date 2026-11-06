@@ -292,9 +292,12 @@ def security_roster_confirm(
     request: Request,
     work_date: str = Form(...),
     stage_token: str = Form(...),
+    reviewed: str = Form(...),
     admin: AdminAccount = Depends(get_current_admin),
 ):
     from datetime import date
+    if reviewed != "yes":
+        raise HTTPException(status_code=400, detail="يجب تأكيد مراجعة ورديات اليوم قبل الاعتماد.")
     try:
         raw = _load_staged_security_roster(stage_token, request)
         selected_date = date.fromisoformat(work_date)
