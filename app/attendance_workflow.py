@@ -247,11 +247,14 @@ def prepare_and_persist_monthly_reconciliation(
         })
     employees = [
         employee for employee in all_employees
-        if employee.status == "active"
-        or any(
-            period["start_date"] <= period_end
-            and (period["end_date"] is None or period["end_date"] >= period_start)
-            for period in service_periods_by_employee.get(employee.id, [])
+        if (
+            any(
+                period["start_date"] <= period_end
+                and (period["end_date"] is None or period["end_date"] >= period_start)
+                for period in service_periods_by_employee.get(employee.id, [])
+            )
+            if service_periods_by_employee.get(employee.id)
+            else employee.status == "active"
         )
     ]
     if not employees:
