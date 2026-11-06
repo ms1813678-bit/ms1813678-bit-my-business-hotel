@@ -668,3 +668,46 @@ def test_branch_cannot_be_deactivated_while_active_employee_is_assigned(client):
         follow_redirects=False,
     )
     assert response.status_code == 409
+
+
+def test_employee_creation_audits_record_and_rejects_duplicate_identifiers(client):
+    from app.main import SessionLocal
+    from app.models import AuditLog
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    data = {
+        "csrf_token": token,
+        "full_name": "Unique Employee",
+        "national_id": "UNIQUE-NID-2001",
+        "phone": "01000000001",
+        "address": "Hotel address",
+        "department_id": str(client.test_department_id),
+        "position": "Receptionist",
+        "hire_date": "2025-01-01",
+        "basic_salary": "5000.00",
+        "daily_hours": "8",
+        "fingerprint_id": "UNIQUE-FP-2001",
+    }
+    created = client.post("/employees", data=data, follow_redirects=False)
+    assert created.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(national_id="UNIQUE-NID-2001").one()
+        employee_id = employee.id
+        code = employee.code
+        audit = db.query(AuditLog).filter_by(
+            entity_type="employee", entity_id=str(employee_id), action="employee_created"
+        ).one()
+        assert audit.actor == "integration-admin"
+        assert code == "MY-0001"
+
+    duplicate = dict(data, full_name="Duplicate National ID", fingerprint_id="UNIQUE-FP-2002")
+    response = client.post("/employees", data=duplicate, follow_redirects=False)
+    assert response.status_code == 409
+
+    duplicate_fp = dict(data, full_name="Duplicate Fingerprint", national_id="UNIQUE-NID-2002")
+    response = client.post("/employees", data=duplicate_fp, follow_redirects=False)
+    assert response.status_code == 409
+
+    with SessionLocal() as db:
+        assert db.query(Employee).count() == 1
