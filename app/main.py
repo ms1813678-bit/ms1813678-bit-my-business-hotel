@@ -315,7 +315,8 @@ def security_roster_confirm(
                 admin,
                 import_issues=parsed.get("issues", []),
             )
-        _clear_staged_security_roster(stage_token, request)
+        # Keep the staged workbook available so the administrator can approve
+        # each clean date independently; TTL cleanup removes it after one hour.
         return templates.TemplateResponse(
             request=request,
             name="security_roster.html",
