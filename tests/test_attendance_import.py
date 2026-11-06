@@ -140,12 +140,28 @@ def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens()
         ["ID:", None, "999", None, None, None, None, None, "Name:", None, "Unknown Employee"],
         ["08:00"] + [None] * 30,
     ]
-    raw = workbook_bytes([("Att.log report", rows)])
+    report_range = "2026-10-01 ~ 2026-10-31"
+    raw = workbook_bytes([
+        ("Schedule Infor.", [
+            ["Schedule Information Report"], ["Stat.Date:", report_range],
+            ["ID", "Name", "Department"] + days,
+        ]),
+        ("Att. Stat.", [
+            ["Statistical Report of Attendance"], ["Stat.Date:", report_range],
+            ["ID", "Name", "Department"],
+        ]),
+        ("Att.log report", rows),
+        ("Exception Stat.", [
+            ["Exception Statistic Report"], ["Stat.Date:", report_range],
+            ["ID", "Name", "Department", "Date"],
+        ]),
+    ])
     parsed = parse_attendance_workbook(
         raw, "1_StandardReport.xlsx", "fingerprint",
         {"1": 101, "Employee One": 101, "5": 105, "Employee Two": 105},
     )
 
+    assert parsed["sheet_count"] == 4
     assert parsed["period_start"] == date(2026, 10, 1)
     assert parsed["period_end"] == date(2026, 10, 31)
     assert len(parsed["events"]) == 10
