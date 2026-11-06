@@ -127,6 +127,14 @@ def _matrix_time_tokens(value):
 
 def _parse_att_log_matrix(sheet_name: str, rows: list, aliases: dict):
     """Parse the fingerprint terminal's day-columns / employee-block report layout."""
+    # The same workbook contains summary and schedule sheets with date ranges;
+    # only the raw Att. Time matrix is an event source.
+    has_att_time_marker = any(
+        normalize(value) in {"att. time", "att time"}
+        for row in rows[:8] for value in row
+    )
+    if not has_att_time_marker:
+        return None
     period_match = None
     for row in rows[:8]:
         for value in row:
