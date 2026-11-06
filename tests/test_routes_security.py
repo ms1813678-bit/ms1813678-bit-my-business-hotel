@@ -1465,8 +1465,13 @@ def test_attendance_unknown_identity_can_be_resolved_only_by_authenticated_admin
 def test_attendance_import_route_requires_admin_and_csrf(client):
     assert client.get("/attendance/import").status_code == 401
     assert client.get("/attendance/import/1/download").status_code == 401
+    assert client.get("/attendance/import/1/issues").status_code == 401
     response = client.post("/attendance/import", data={"source_type": "fingerprint"})
     assert response.status_code == 403
+    resolution = client.post(
+        "/attendance/import/1/issues/1/resolve", data={"employee_id": "1"}
+    )
+    assert resolution.status_code == 403
 
 
 def test_monthly_attendance_reconciliation_page_is_admin_protected(client):
