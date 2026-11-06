@@ -1462,6 +1462,48 @@ def test_attendance_unknown_identity_can_be_resolved_only_by_authenticated_admin
         ).count() == 1
 
 
+def test_attendance_month_page_displays_unrepresented_employee_day_gaps(client):
+    from app.main import SessionLocal
+    from app.models import AttendanceImportBatch, AttendanceMonth
+
+    with SessionLocal.begin() as db:
+        employee = Employee(
+            code="ATT-COVERAGE-ROUTE", full_name="Coverage Route Employee",
+            department_id=client.test_department_id, position="Test",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        db.add(employee)
+        db.flush()
+        program = AttendanceImportBatch(
+            source_type="program_report", period_start=date(2026, 11, 1),
+            period_end=date(2026, 11, 1), original_filename="program.xlsx",
+            file_sha256="3" * 64, uploaded_by="integration-admin",
+            status="parsed", row_count=0, issue_count=0,
+        )
+        fingerprint = AttendanceImportBatch(
+            source_type="fingerprint", period_start=date(2026, 11, 1),
+            period_end=date(2026, 11, 1), original_filename="fingerprint.xlsx",
+            file_sha256="4" * 64, uploaded_by="integration-admin",
+            status="parsed", row_count=0, issue_count=0,
+        )
+        db.add_all([program, fingerprint])
+        db.flush()
+        db.add(AttendanceMonth(
+            period_start=date(2026, 11, 1), period_end=date(2026, 11, 1),
+            program_import_batch_id=program.id,
+            fingerprint_import_batch_id=fingerprint.id,
+            status="under_review", created_by="integration-admin",
+        ))
+
+    assert login(client).status_code == 303
+    response = client.get("/attendance/months")
+    assert response.status_code == 200
+    assert "أيام موظفين بلا سجل مطابقة: 2" in response.text
+    assert "Coverage Route Employee" in response.text
+    assert "لا يصنفها النظام غيابًا أو راحة تلقائيًا" in response.text
+
+
 def test_attendance_import_route_requires_admin_and_csrf(client):
     assert client.get("/attendance/import").status_code == 401
     assert client.get("/attendance/import/1/download").status_code == 401
