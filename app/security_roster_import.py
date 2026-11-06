@@ -71,6 +71,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
 
     try:
         sheets = [workbook[sheet_name]] if sheet_name else workbook.worksheets
+        empty_header_result = None
         for sheet in sheets:
             header = None
             date_col = None
@@ -159,10 +160,22 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 if len(roster) == 3:
                     records.append({"work_date": work_date, "roster": roster})
             if not records and not issues:
-                issues.append({
-                    "row": header_row,
-                    "reason": "no_valid_roster_rows",
-                })
+                empty_header_result = {
+                    "sheet_name": sheet.title,
+                    "employee_headers": employee_headers,
+                    "records": [],
+                    "issues": [{
+                        "row": header_row,
+                        "reason": "no_valid_roster_rows",
+                    }],
+                    "status": "needs_review",
+                }
+                # A header-only worksheet is not necessarily the roster sheet.
+                # When auto-detecting, keep looking for a later worksheet with
+                # actual rows; an explicitly selected worksheet remains final.
+                if sheet_name:
+                    return empty_header_result
+                continue
             return {
                 "sheet_name": sheet.title,
                 "employee_headers": employee_headers,
@@ -170,6 +183,8 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 "issues": issues,
                 "status": "needs_review" if issues else "parsed_for_review",
             }
+        if empty_header_result is not None:
+            return empty_header_result
         raise ValueError("security_roster_header_not_found")
     finally:
         workbook.close()
