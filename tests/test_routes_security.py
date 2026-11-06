@@ -1395,6 +1395,73 @@ def test_attendance_import_route_saves_raw_evidence_but_not_daily_approval(clien
     assert "attachment" in download.headers["content-disposition"]
 
 
+def test_attendance_unknown_identity_can_be_resolved_only_by_authenticated_admin(client):
+    from datetime import datetime
+    from app.main import SessionLocal
+    from app.models import (
+        AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog,
+    )
+
+    with SessionLocal.begin() as db:
+        employee = Employee(
+            code="ATT-IDENTITY-01", full_name="Identity Target",
+            department_id=client.test_department_id, position="Test",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        db.add(employee)
+        db.flush()
+        batch = AttendanceImportBatch(
+            source_type="fingerprint", period_start=date(2026, 11, 1),
+            period_end=date(2026, 11, 1), original_filename="fingerprint.xlsx",
+            file_sha256="a" * 64, original_file_bytes=b"source-file",
+            uploaded_by="integration-admin", status="needs_review",
+            row_count=1, issue_count=1,
+        )
+        db.add(batch)
+        db.flush()
+        issue = AttendanceImportIssue(
+            import_batch_id=batch.id, source_sheet="Att.log report",
+            source_row=8, reason="unknown_employee", raw_value="FP-UNKNOWN",
+        )
+        db.add(issue)
+        db.flush()
+        db.add(AttendancePunch(
+            import_batch_id=batch.id, employee_id=None,
+            raw_employee_code="FP-UNKNOWN", raw_employee_name="Unknown",
+            punch_at=datetime(2026, 11, 1, 7, 50), raw_timestamp="07:50",
+            event_type="PUNCH", source_sheet="Att.log report",
+            source_row=8, event_index=0,
+        ))
+        batch_id, issue_id, employee_id = batch.id, issue.id, employee.id
+
+    assert login(client).status_code == 303
+    page = client.get(f"/attendance/import/{batch_id}/issues")
+    assert page.status_code == 200
+    token = csrf_from(page)
+    assert "FP-UNKNOWN" in page.text
+
+    response = client.post(
+        f"/attendance/import/{batch_id}/issues/{issue_id}/resolve",
+        data={"csrf_token": token, "employee_id": str(employee_id)},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with SessionLocal() as db:
+        batch = db.get(AttendanceImportBatch, batch_id)
+        issue = db.get(AttendanceImportIssue, issue_id)
+        punch = db.query(AttendancePunch).filter_by(import_batch_id=batch_id).one()
+        assert batch.status == "parsed"
+        assert batch.issue_count == 0
+        assert issue.resolved_employee_id == employee_id
+        assert punch.employee_id == employee_id
+        assert punch.raw_employee_code == "FP-UNKNOWN"
+        assert db.query(AuditLog).filter_by(
+            action="attendance_import_unknown_employee_resolved"
+        ).count() == 1
+
+
 def test_attendance_import_route_requires_admin_and_csrf(client):
     assert client.get("/attendance/import").status_code == 401
     assert client.get("/attendance/import/1/download").status_code == 401
