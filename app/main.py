@@ -408,7 +408,7 @@ def _attendance_import_batch_options():
     with SessionLocal() as db:
         return db.scalars(
             select(AttendanceImportBatch)
-            .where(AttendanceImportBatch.status.in_(["parsed", "needs_review"]))
+            .where(AttendanceImportBatch.status == "parsed")
             .order_by(AttendanceImportBatch.created_at.desc(), AttendanceImportBatch.id.desc())
             .limit(50)
         ).all()
