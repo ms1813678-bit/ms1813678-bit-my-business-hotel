@@ -73,6 +73,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
             header = None
             date_col = None
             employee_cols = {}
+            employee_headers = {}
             header_row = None
             for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
                 normalized = [_norm(v) for v in row]
@@ -82,6 +83,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 if len(found) == 3 and len(date_candidates) == 1:
                     header = row
                     employee_cols = {aliases[name]: idx for name, idx in found.items()}
+                    employee_headers = {aliases[name]: str(row[idx]).strip() for name, idx in found.items()}
                     date_col = date_candidates[0]
                     header_row = row_idx
                     break
@@ -122,6 +124,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                     records.append({"work_date": work_date, "roster": roster})
             return {
                 "sheet_name": sheet.title,
+                "employee_headers": employee_headers,
                 "records": records,
                 "issues": issues,
                 "status": "needs_review" if issues else "parsed_for_review",
