@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>استيراد الحضور والانصراف</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>استيراد الحضور والانصراف</h1>
+        <p>المسؤول: {{ admin }}</p>
+      </div>
+      <a href="/">الرئيسية</a>
+    </header>
+
+    <section class="notice">
+      <h2>رفع تقرير الحضور أو البصمة</h2>
+      <p>ارفع ملف البرنامج أولًا باعتباره المصدر الأساسي، ثم ارفع ملف البصمة لاستكمال النواقص. يدعم النظام XLS وXLSX، ويقرأ كل أوراق الملف وكل أوقات البصمة الموجودة في الخلية الواحدة.</p>
+      <p>الاستيراد يحفظ الأدلة الخام وملاحظات المطابقة فقط. لا يعتمد الحضور ولا يرسل بيانات إلى الرواتب.</p>
+      <form method="post" action="/attendance/import" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="source_type">نوع الملف</label>
+        <select id="source_type" name="source_type" required>
+          <option value="program_report">تقرير برنامج الحضور (المصدر الأساسي)</option>
+          <option value="fingerprint">تقرير جهاز البصمة (استكمال النواقص)</option>
+        </select>
+        <label for="file">ملف Excel</label>
+        <input id="file" type="file" name="file" accept=".xls,.xlsx" required>
+        <button type="submit">استيراد وحفظ الأدلة للمراجعة</button>
+      </form>
+      <p class="muted">الحد الأقصى لحجم الملف 5 ميجابايت. لا يتم تخمين هوية موظف غير معروف.</p>
+    </section>
+
+    {% if error %}
+    <section class="notice">
+      <strong>تعذر الاستيراد:</strong> {{ error }}
+    </section>
+    {% endif %}
+
+    {% if batch %}
+    <section class="notice">
+      <h2>تم تسجيل دفعة الاستيراد</h2>
+      <p>رقم الدفعة: {{ batch.id }}</p>
+      <p>الفترة: {{ batch.period_start }} إلى {{ batch.period_end }}</p>
+      <p>عدد أحداث الدخول/الخروج المستخرجة: {{ batch.row_count }}</p>
+      <p>عدد الملاحظات التي تحتاج مراجعة: {{ batch.issue_count }}</p>
+      <p>الحالة: {{ "تحتاج مراجعة" if batch.status == "needs_review" else "تم الاستيراد وتنتظر المطابقة" }}</p>
+    </section>
+    {% endif %}
+
+    {% if issues %}
+    <section class="notice">
+      <h2>ملاحظات الملف</h2>
+      <ul>
+        {% for issue in issues %}
+        <li>ورقة {{ issue.sheet or "غير محددة" }} — صف {{ issue.row or "غير محدد" }} — {{ issue.reason }}{% if issue.value %}: {{ issue.value }}{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+    <footer>لا تستخدم هذه البيانات في حساب الرواتب قبل إكمال المطابقة ومراجعة واعتماد الموارد البشرية.</footer>
+  </main>
+</body>
+</html>
