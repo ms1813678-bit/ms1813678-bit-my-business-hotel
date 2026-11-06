@@ -30,11 +30,6 @@ def match_shift_by_clock(
 
     if not matches:
         return {"status": "unmatched", "shift": None, "reason": "no_shift_within_configured_window"}
-    matches.sort(key=lambda item: item[0])
-    best_distance = matches[0][0]
-    best = [pattern for distance, pattern in matches if distance == best_distance]
-    if len(best) != 1:
-        return {"status": "ambiguous", "shift": None, "reason": "multiple_equally_close_shifts"}
-    if len(matches) > 1 and matches[1][0] == best_distance:
-        return {"status": "ambiguous", "shift": None, "reason": "multiple_equally_close_shifts"}
-    return {"status": "matched", "shift": best[0], "reason": None}
+    if len(matches) > 1:
+        return {"status": "ambiguous", "shift": None, "reason": "multiple_shifts_within_window"}
+    return {"status": "matched", "shift": matches[0][1], "reason": None}
