@@ -15,7 +15,7 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, AuditLog, Department, Employee, EmployeeServicePeriod
+from app.models import AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeServicePeriod
 
 app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs")
 app.add_middleware(
@@ -95,10 +95,11 @@ def dashboard(request: Request, admin: AdminAccount = Depends(get_current_admin)
 def employees_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
     with SessionLocal() as db:
         departments = db.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all()
+        branches = db.scalars(select(Branch).where(Branch.active.is_(True)).order_by(Branch.name)).all()
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
         return templates.TemplateResponse(
             request=request, name="employees.html",
-            context={"departments": departments, "employees": employees, "csrf_token": get_csrf_token(request)},
+            context={"departments": departments, "branches": branches, "employees": employees, "csrf_token": get_csrf_token(request)},
         )
 
 
@@ -108,7 +109,9 @@ def create_employee(
     full_name: str = Form(...),
     national_id: str = Form(""),
     phone: str = Form(""),
+    address: str = Form(""),
     department_id: int = Form(...),
+    branch_id: int | None = Form(None),
     position: str = Form(...),
     hire_date: date = Form(...),
     basic_salary: Decimal = Form(...),
@@ -122,10 +125,14 @@ def create_employee(
         department = db.get(Department, department_id)
         if department is None or not department.active:
             return HTMLResponse("القسم المحدد غير متاح.", status_code=400)
+        branch = db.get(Branch, branch_id) if branch_id is not None else None
+        if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
+            return HTMLResponse("الفرع المحدد غير تابع للقسم المختار أو غير متاح.", status_code=400)
         employee = Employee(
             code=allocate_employee_code(db), full_name=full_name.strip(),
             national_id=national_id.strip() or None, phone=phone.strip() or None,
-            department_id=department_id, position=position.strip(), hire_date=hire_date,
+            address=address.strip() or None, department_id=department_id,
+            branch_id=branch_id, position=position.strip(), hire_date=hire_date,
             basic_salary=basic_salary, daily_hours=daily_hours,
             fingerprint_id=fingerprint_id.strip() or None, status="active",
         )
@@ -133,6 +140,96 @@ def create_employee(
         db.flush()
         db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason="Initial employment"))
         db.commit()
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/employees/{employee_id}/edit", dependencies=[Depends(csrf_protect)])
+def edit_employee(
+    employee_id: int,
+    full_name: str = Form(...),
+    national_id: str = Form(""),
+    phone: str = Form(""),
+    address: str = Form(""),
+    department_id: int = Form(...),
+    branch_id: int | None = Form(None),
+    position: str = Form(...),
+    basic_salary: Decimal = Form(...),
+    daily_hours: Decimal = Form(...),
+    fingerprint_id: str = Form(""),
+    effective_date: date = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    reason = reason.strip()
+    full_name = full_name.strip()
+    position = position.strip()
+    if not reason or not full_name or not position:
+        raise HTTPException(status_code=400, detail="الاسم والمسمى وسبب التعديل حقول مطلوبة.")
+    if basic_salary < 0 or daily_hours <= 0 or daily_hours > 24:
+        raise HTTPException(status_code=400, detail="بيانات الراتب أو ساعات العمل غير صحيحة.")
+
+    with SessionLocal.begin() as db:
+        employee = db.get(Employee, employee_id)
+        if employee is None:
+            raise HTTPException(status_code=404, detail="الموظف غير موجود.")
+        department = db.get(Department, department_id)
+        if department is None or not department.active:
+            raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
+        if branch_id is not None:
+            branch = db.get(Branch, branch_id)
+            if branch is None or not branch.active or branch.department_id != department_id:
+                raise HTTPException(status_code=400, detail="الفرع المحدد غير تابع للقسم المختار أو غير متاح.")
+
+        normalized = {
+            "full_name": full_name,
+            "national_id": national_id.strip() or None,
+            "phone": phone.strip() or None,
+            "address": address.strip() or None,
+            "department_id": department_id,
+            "branch_id": branch_id,
+            "position": position,
+            "basic_salary": basic_salary,
+            "daily_hours": daily_hours,
+            "fingerprint_id": fingerprint_id.strip() or None,
+        }
+        for field_name in ("national_id", "fingerprint_id"):
+            value = normalized[field_name]
+            if value is None:
+                continue
+            duplicate = db.scalar(
+                select(Employee.id).where(
+                    getattr(Employee, field_name) == value,
+                    Employee.id != employee.id,
+                ).limit(1)
+            )
+            if duplicate is not None:
+                raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
+
+        changes = []
+        for field_name, new_value in normalized.items():
+            old_value = getattr(employee, field_name)
+            if old_value != new_value:
+                changes.append((field_name, old_value, new_value))
+        for field_name, old_value, new_value in changes:
+            setattr(employee, field_name, new_value)
+            db.add(EmployeeChange(
+                employee_id=employee.id,
+                field_name=field_name,
+                old_value=str(old_value) if old_value is not None else None,
+                new_value=str(new_value) if new_value is not None else None,
+                effective_date=effective_date,
+                reason=reason,
+            ))
+        if changes:
+            db.add(AuditLog(
+                actor=admin.username,
+                action="employee_updated",
+                entity_type="employee",
+                entity_id=str(employee.id),
+                old_value="; ".join(f"{name}={old}" for name, old, _ in changes),
+                new_value="; ".join(f"{name}={new}" for name, _, new in changes),
+                reason=reason,
+            ))
     return RedirectResponse("/employees", status_code=303)
 
 
