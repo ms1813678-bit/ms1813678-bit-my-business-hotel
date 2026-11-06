@@ -321,21 +321,34 @@ def build_monthly_reconciliation_proposals(
                     else None
                 )
                 previous_day_events = []
+                previous_shift_window = None
                 if previous_shift:
                     previous_start, previous_end = shift_window(
                         work_date - timedelta(days=1), previous_shift
                     )
+                    previous_shift_window = (
+                        previous_start - timedelta(minutes=120),
+                        previous_end + timedelta(minutes=120),
+                    )
                     previous_day_events = [
                         item for item in calendar_program_day
-                        if previous_start - timedelta(minutes=120)
+                        if previous_shift_window[0]
                         <= item["punch_at"]
-                        <= previous_end + timedelta(minutes=120)
+                        <= previous_shift_window[1]
                     ]
                 unassigned_program_day = [
                     item for item in calendar_program_day
                     if item not in previous_day_events
                 ]
-                if not unassigned_program_day and not unmatched_fingerprint and not has_fingerprint_evidence:
+                unassigned_fingerprint = [
+                    punch for punch in all_punches
+                    if work_date <= punch.date() <= work_date + timedelta(days=1)
+                    and not (
+                        previous_shift_window
+                        and previous_shift_window[0] <= punch <= previous_shift_window[1]
+                    )
+                ]
+                if not unassigned_program_day and not unmatched_fingerprint and not unassigned_fingerprint:
                     continue
                 program_day = unassigned_program_day
                 program_ins = [
