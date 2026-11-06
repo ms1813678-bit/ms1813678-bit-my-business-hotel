@@ -77,6 +77,8 @@ def test_unknown_employee_is_reported_and_never_fuzzy_matched():
 
     assert parsed["events"] == []
     assert parsed["issues"][0]["reason"] == "unknown_employee"
+    assert parsed["period_start"] == date(2026, 11, 1)
+    assert parsed["period_end"] == date(2026, 11, 1)
 
 
 def test_invalid_time_is_reported_instead_of_fabricated():
