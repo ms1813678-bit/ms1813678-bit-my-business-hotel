@@ -91,6 +91,139 @@ def dashboard(request: Request, admin: AdminAccount = Depends(get_current_admin)
     )
 
 
+@app.post("/departments", dependencies=[Depends(csrf_protect)])
+def create_department(
+    name: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="اسم القسم مطلوب.")
+    with SessionLocal.begin() as db:
+        if db.scalar(select(Department.id).where(Department.name == name)):
+            raise HTTPException(status_code=409, detail="اسم القسم مستخدم بالفعل.")
+        department = Department(name=name, active=True)
+        db.add(department)
+        db.flush()
+        db.add(AuditLog(
+            actor=admin.username, action="department_created",
+            entity_type="department", entity_id=str(department.id),
+            new_value=name, reason="Department created by HR",
+        ))
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/departments/{department_id}/edit", dependencies=[Depends(csrf_protect)])
+def edit_department(
+    department_id: int,
+    name: str = Form(...),
+    active: bool = Form(False),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="اسم القسم مطلوب.")
+    with SessionLocal.begin() as db:
+        department = db.get(Department, department_id)
+        if department is None:
+            raise HTTPException(status_code=404, detail="القسم غير موجود.")
+        duplicate = db.scalar(select(Department.id).where(
+            Department.name == name, Department.id != department_id
+        ))
+        if duplicate:
+            raise HTTPException(status_code=409, detail="اسم القسم مستخدم بالفعل.")
+        if not active:
+            active_employee = db.scalar(select(Employee.id).where(
+                Employee.department_id == department_id, Employee.status == "active"
+            ).limit(1))
+            if active_employee is not None:
+                raise HTTPException(status_code=409, detail="انقل الموظفين النشطين إلى قسم آخر قبل إيقاف هذا القسم.")
+        old_value = f"name={department.name}; active={department.active}"
+        department.name = name
+        department.active = active
+        db.add(AuditLog(
+            actor=admin.username, action="department_updated",
+            entity_type="department", entity_id=str(department.id),
+            old_value=old_value, new_value=f"name={name}; active={active}",
+            reason="Department settings updated",
+        ))
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/branches", dependencies=[Depends(csrf_protect)])
+def create_branch(
+    department_id: int = Form(...),
+    name: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="اسم الفرع مطلوب.")
+    with SessionLocal.begin() as db:
+        department = db.get(Department, department_id)
+        if department is None or not department.active:
+            raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
+        duplicate = db.scalar(select(Branch.id).where(
+            Branch.department_id == department_id, Branch.name == name
+        ))
+        if duplicate:
+            raise HTTPException(status_code=409, detail="اسم الفرع مستخدم داخل هذا القسم.")
+        branch = Branch(department_id=department_id, name=name, active=True)
+        db.add(branch)
+        db.flush()
+        db.add(AuditLog(
+            actor=admin.username, action="branch_created",
+            entity_type="branch", entity_id=str(branch.id),
+            new_value=f"{department.name}/{name}", reason="Branch created by HR",
+        ))
+    return RedirectResponse("/employees", status_code=303)
+
+
+@app.post("/branches/{branch_id}/edit", dependencies=[Depends(csrf_protect)])
+def edit_branch(
+    branch_id: int,
+    department_id: int = Form(...),
+    name: str = Form(...),
+    active: bool = Form(False),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="اسم الفرع مطلوب.")
+    with SessionLocal.begin() as db:
+        branch = db.get(Branch, branch_id)
+        if branch is None:
+            raise HTTPException(status_code=404, detail="الفرع غير موجود.")
+        department = db.get(Department, department_id)
+        if department is None or not department.active:
+            raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
+        duplicate = db.scalar(select(Branch.id).where(
+            Branch.department_id == department_id,
+            Branch.name == name,
+            Branch.id != branch_id,
+        ))
+        if duplicate:
+            raise HTTPException(status_code=409, detail="اسم الفرع مستخدم داخل هذا القسم.")
+        if not active:
+            assigned = db.scalar(select(Employee.id).where(
+                Employee.branch_id == branch_id, Employee.status == "active"
+            ).limit(1))
+            if assigned is not None:
+                raise HTTPException(status_code=409, detail="انقل الموظفين النشطين من هذا الفرع قبل إيقافه.")
+        old_value = f"department_id={branch.department_id}; name={branch.name}; active={branch.active}"
+        branch.department_id = department_id
+        branch.name = name
+        branch.active = active
+        db.add(AuditLog(
+            actor=admin.username, action="branch_updated",
+            entity_type="branch", entity_id=str(branch.id),
+            old_value=old_value,
+            new_value=f"department_id={department_id}; name={name}; active={active}",
+            reason="Branch settings updated",
+        ))
+    return RedirectResponse("/employees", status_code=303)
+
+
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
     with SessionLocal() as db:
