@@ -464,6 +464,15 @@ def approve_attendance_month(
     ]
     if any(batch is None for batch in batches):
         raise ValueError("attendance_month_source_batch_missing")
+    if (
+        batches[0].source_type != "program_report"
+        or batches[1].source_type != "fingerprint"
+        or any(
+            batch.period_start != month.period_start or batch.period_end != month.period_end
+            for batch in batches
+        )
+    ):
+        raise ValueError("attendance_month_source_batch_mismatch")
     if any(batch.issue_count for batch in batches):
         raise ValueError("attendance_month_has_unresolved_import_issues")
 
