@@ -108,3 +108,42 @@ def test_second_approval_for_same_day_is_rejected(roster_db):
         confirm_security_roster_day(db, day["work_date"], day["roster"], admin, [])
     db.rollback()
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 3
+
+
+def test_inactive_security_pattern_is_not_used_for_proposal(roster_db):
+    db, employees, _admin = roster_db
+    evening = db.scalar(select(ShiftPattern).where(ShiftPattern.code == "EVENING"))
+    evening.active = False
+    db.commit()
+    prepared = prepare_security_roster(db, _parsed(employees))
+    assert prepared["days"][0]["can_confirm"] is False
+    assert any("shift_pattern_resolution_missing" in issue
+               for issue in prepared["days"][0]["proposal"]["issues"])
+
+
+def test_matching_pattern_in_another_department_is_not_accepted(roster_db):
+    db, employees, _admin = roster_db
+    evening = db.scalar(select(ShiftPattern).where(ShiftPattern.code == "EVENING"))
+    evening.active = False
+    other_department = Department(name="Reception", active=True)
+    db.add(other_department)
+    db.flush()
+    db.add(ShiftPattern(
+        department_id=other_department.id, code="EVENING-OTHER", name="Wrong department",
+        start_time=time(16, 0), end_time=time(0, 0), active=True,
+        match_before_minutes=60, match_after_minutes=60,
+    ))
+    db.commit()
+    prepared = prepare_security_roster(db, _parsed(employees))
+    assert prepared["days"][0]["can_confirm"] is False
+
+
+def test_inactive_admin_cannot_confirm_roster(roster_db):
+    db, employees, admin = roster_db
+    parsed = _parsed(employees)
+    day = prepare_security_roster(db, parsed)["days"][0]
+    admin.active = False
+    db.commit()
+    with pytest.raises(ValueError, match="authenticated_active_admin_required"):
+        confirm_security_roster_day(db, day["work_date"], day["roster"], admin, [])
+    assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
