@@ -1,4 +1,4 @@
-"""Seed the approved shift patterns without guessing their matching windows."""
+"""Seed approved shift patterns and initialize untouched rows with bounded margins."""
 from sqlalchemy import select
 
 from app.db import SessionLocal
@@ -67,6 +67,15 @@ def main() -> None:
                             active=True,
                         )
                     )
+                elif (
+                    existing.match_before_minutes is None
+                    and existing.match_after_minutes is None
+                    and existing.match_window_minutes is None
+                ):
+                    # Apply the approved default only to untouched seeded rows;
+                    # preserve any explicit HR configuration or legacy window.
+                    existing.match_before_minutes = 120
+                    existing.match_after_minutes = 120
     print("Default shift patterns are ready. Before/after matching margins default to the approved 120-minute maximum and are trimmed to prevent overlap.")
 
 
