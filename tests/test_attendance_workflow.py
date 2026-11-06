@@ -248,7 +248,7 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
     db_session.flush()
     db_session.add(EmployeeServicePeriod(
         employee_id=historical_rehire.id,
-        start_date=date(2026, 1, 1), end_date=date(2026, 1, 31),
+        start_date=work_date, end_date=work_date,
         start_reason="Original employment", end_reason="Left before rehire",
     ))
     db_session.add_all([
