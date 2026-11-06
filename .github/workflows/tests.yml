@@ -5,10 +5,12 @@ on:
     branches:
       - feature/auth-security
       - feature/platform-hardening
+      - feature/attendance-end-to-end-acceptance
   pull_request:
     branches:
       - main
       - feature/auth-security
+      - feature/platform-hardening
   workflow_dispatch:
 
 permissions:
