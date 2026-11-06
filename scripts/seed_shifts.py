@@ -32,12 +32,21 @@ def main() -> None:
     from datetime import time
 
     with SessionLocal.begin() as db:
-        for department_name, shifts in DEFAULT_SHIFTS.items():
-            department = db.scalar(
-                select(Department).where(Department.name == department_name)
+        departments = {
+            department.name: department
+            for department in db.scalars(
+                select(Department).where(Department.name.in_(DEFAULT_SHIFTS))
             )
-            if department is None:
-                continue
+        }
+        missing_departments = sorted(set(DEFAULT_SHIFTS) - set(departments))
+        if missing_departments:
+            raise RuntimeError(
+                "Cannot seed shift patterns; create these departments first: "
+                + ", ".join(missing_departments)
+            )
+
+        for department_name, shifts in DEFAULT_SHIFTS.items():
+            department = departments[department_name]
             for code, name, start, end in shifts:
                 existing = db.scalar(
                     select(ShiftPattern).where(
