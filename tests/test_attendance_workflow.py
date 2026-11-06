@@ -638,11 +638,6 @@ def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_a
         status="under_review", created_by="hr-admin",
     )
     db_session.add(month)
-    db_session.add(AuditLog(
-        actor="hr-admin", action="security_roster_day_approved",
-        entity_type="security_roster", entity_id=work_date.isoformat(),
-        reason="Approved roster; blank assignment means OFF",
-    ))
     pattern = ShiftPattern(
         department_id=security.id, code="SEC-08-20", name="Security 08-20",
         start_time=time(8, 0), end_time=time(20, 0),
@@ -650,9 +645,26 @@ def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_a
     )
     db_session.add(pattern)
     db_session.flush()
-    db_session.add(SecurityShiftAssignment(
-        employee_id=security_employees[0].id, work_date=work_date,
-        shift_pattern_id=pattern.id, notes="Approved security roster assignment",
+    # Two employees are rostered to work and one is explicitly OFF.
+    for employee in security_employees[:2]:
+        db_session.add(SecurityShiftAssignment(
+            employee_id=employee.id, work_date=work_date,
+            shift_pattern_id=pattern.id, notes="Approved security roster assignment",
+        ))
+    db_session.add(AttendanceDailyRecord(
+        employee_id=security_employees[1].id, work_date=work_date,
+        status="ready_for_review", program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
+    ))
+    db_session.add(AuditLog(
+        actor="hr-admin", action="security_roster_day_approved",
+        entity_type="security_roster", entity_id=work_date.isoformat(),
+        new_value=(
+            f"{security_employees[0].id}:08:00; "
+            f"{security_employees[1].id}:08:00; "
+            f"{security_employees[2].id}:OFF"
+        ),
+        reason="Approved roster; two 12-hour shifts and one OFF",
     ))
     db_session.flush()
 
