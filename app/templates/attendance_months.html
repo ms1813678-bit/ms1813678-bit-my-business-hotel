@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>اعتماد شهور الحضور</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>مراجعة واعتماد شهور الحضور</h1>
+        <p>المسؤول: {{ admin }}</p>
+      </div>
+      <nav>
+        <a href="/attendance/review">مراجعة الأيام</a>
+        <a href="/attendance/reconcile">مطابقة شهر جديد</a>
+      </nav>
+    </header>
+    {% if not months %}
+    <section class="notice">
+      <h2>لا توجد شهور مستوردة</h2>
+      <p>استورد تقرير البرنامج وملف البصمة للفترة نفسها لإنشاء سجل الشهر.</p>
+    </section>
+    {% endif %}
+    {% for month in months %}
+    <section class="notice">
+      <h2>{{ month.period_start }} إلى {{ month.period_end }}</h2>
+      <p>حالة الشهر: <strong>{{ month.status }}</strong></p>
+      <p>سجلات الأيام: {{ month.total }} — المعتمد: {{ month.approved }} — المعلّق: {{ month.pending }}</p>
+      <p>مشكلات استيراد البرنامج: {{ month.program_issues if month.program_issues is not none else "الملف غير مكتمل" }}</p>
+      <p>مشكلات استيراد البصمة: {{ month.fingerprint_issues if month.fingerprint_issues is not none else "الملف غير مكتمل" }}</p>
+      {% if month.status == "under_review" %}
+      <form method="post" action="/attendance/months/{{ month.id }}/approve">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="reason-{{ month.id }}">سبب إغلاق الشهر</label>
+        <input id="reason-{{ month.id }}" name="reason" type="text" minlength="3" maxlength="500" required>
+        <label>
+          <input type="checkbox" name="coverage_confirmed" value="true" required>
+          أؤكد أنني راجعت تغطية جميع الموظفين والأيام، وراجعت النواقص بين التقرير والبصمة، ولم أعتبر الخانات الفارغة غيابًا تلقائيًا.
+        </label>
+        <button type="submit">اعتماد الشهر نهائيًا</button>
+      </form>
+      {% elif month.status == "approved" %}
+      <p>اعتمد الشهر بواسطة: {{ month.approved_by }}</p>
+      {% else %}
+      <p>الشهر في انتظار اكتمال الاستيراد وإنشاء المطابقة.</p>
+      {% endif %}
+    </section>
+    {% endfor %}
+    <footer>لا يصبح الشهر معتمدًا إلا بعد اعتماد جميع سجلات الأيام المحفوظة، وخلو ملفات المصدر من مشكلات الاستيراد، وتأكيد مسؤول الموارد البشرية مراجعة التغطية الشهرية.</footer>
+  </main>
+</body>
+</html>
