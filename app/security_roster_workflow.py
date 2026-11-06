@@ -78,7 +78,14 @@ def prepare_security_roster(db, parsed_workbook):
 
 def confirm_security_roster_day(db, work_date: date, roster: dict, admin: AdminAccount, import_issues: list | None = None):
     """Recompute and persist only a valid reviewed day for an authenticated admin."""
-    if not isinstance(admin, AdminAccount) or not admin.active or not admin.username.strip():
+    if not isinstance(admin, AdminAccount) or admin.id is None:
+        raise ValueError("authenticated_active_admin_required")
+    persisted_admin = db.get(AdminAccount, admin.id)
+    if (
+        persisted_admin is None
+        or not persisted_admin.active
+        or persisted_admin.username != admin.username
+    ):
         raise ValueError("authenticated_active_admin_required")
     department, employees = resolve_security_employees(db)
     import_issues = import_issues or []
@@ -129,4 +136,13 @@ def confirm_security_roster_day(db, work_date: date, roster: dict, admin: AdminA
         ),
         reason="Administrator confirmed reviewed security roster day",
     ))
+    try:
+        # Force all inserts now so a partial assignment set cannot be mistaken
+        # for a successful approval. The caller owns the surrounding transaction.
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ValueError(
+            "security_roster_approval_conflict_or_persistence_failure"
+        ) from exc
     return proposal
