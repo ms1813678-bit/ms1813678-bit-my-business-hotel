@@ -251,7 +251,16 @@ def build_monthly_reconciliation_proposals(
                         }
 
         for work_date in calendar_days:
-            if employee.get("hire_date") and work_date < employee["hire_date"]:
+            service_periods = employee.get("service_periods")
+            if service_periods:
+                in_service = any(
+                    period["start_date"] <= work_date
+                    and (period.get("end_date") is None or work_date <= period["end_date"])
+                    for period in service_periods
+                )
+                if not in_service:
+                    continue
+            elif employee.get("hire_date") and work_date < employee["hire_date"]:
                 continue
             calendar_program_day = program_by_day.get((employee_id, work_date), [])
             program_day = calendar_program_day
