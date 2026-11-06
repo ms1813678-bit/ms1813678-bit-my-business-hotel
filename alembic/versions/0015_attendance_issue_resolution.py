@@ -10,21 +10,24 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("attendance_import_issues", sa.Column("resolved_employee_id", sa.Integer(), nullable=True))
-    op.add_column("attendance_import_issues", sa.Column("resolved_by", sa.String(length=80), nullable=True))
-    op.add_column("attendance_import_issues", sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True))
-    op.create_foreign_key(
-        "fk_attendance_import_issues_resolved_employee",
-        "attendance_import_issues", "employees",
-        ["resolved_employee_id"], ["id"],
-    )
+    # Batch mode also supports SQLite deployments used by the Windows installer.
+    with op.batch_alter_table("attendance_import_issues") as batch_op:
+        batch_op.add_column(sa.Column("resolved_employee_id", sa.Integer(), nullable=True))
+        batch_op.add_column(sa.Column("resolved_by", sa.String(length=80), nullable=True))
+        batch_op.add_column(sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True))
+        batch_op.create_foreign_key(
+            "fk_attendance_import_issues_resolved_employee",
+            "employees",
+            ["resolved_employee_id"],
+            ["id"],
+        )
 
 
 def downgrade():
-    op.drop_constraint(
-        "fk_attendance_import_issues_resolved_employee",
-        "attendance_import_issues", type_="foreignkey",
-    )
-    op.drop_column("attendance_import_issues", "resolved_at")
-    op.drop_column("attendance_import_issues", "resolved_by")
-    op.drop_column("attendance_import_issues", "resolved_employee_id")
+    with op.batch_alter_table("attendance_import_issues") as batch_op:
+        batch_op.drop_constraint(
+            "fk_attendance_import_issues_resolved_employee", type_="foreignkey"
+        )
+        batch_op.drop_column("resolved_at")
+        batch_op.drop_column("resolved_by")
+        batch_op.drop_column("resolved_employee_id")
