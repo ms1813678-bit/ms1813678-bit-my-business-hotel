@@ -196,6 +196,7 @@ def build_monthly_reconciliation_proposals(
         department_id = employee["department_id"]
         all_punches = punches_by_employee.get(employee_id, [])
         non_security_candidates = {}
+        non_security_unmatched_dates = set()
 
         if department_id != security_department_id:
             by_calendar_date = {}
@@ -205,6 +206,7 @@ def build_monthly_reconciliation_proposals(
             for calendar_date, day_punches in by_calendar_date.items():
                 first_result = infer_non_security_shift(day_punches[0], patterns)
                 if first_result["status"] != "ready_for_review":
+                    non_security_unmatched_dates.add(calendar_date)
                     continue
                 work_date = first_result["work_date"]
                 if period_start <= work_date <= period_end:
@@ -219,6 +221,8 @@ def build_monthly_reconciliation_proposals(
                         }
 
         for work_date in calendar_days:
+            if employee.get("hire_date") and work_date < employee["hire_date"]:
+                continue
             program_day = program_by_day.get((employee_id, work_date), [])
             program_ins = [
                 item["punch_at"] for item in program_day
@@ -276,7 +280,12 @@ def build_monthly_reconciliation_proposals(
                     "program_clock_in": program_in, "program_clock_out": program_out,
                     "first_clock_in": None, "last_clock_out": None,
                     "worked_minutes": None,
-                    "issues": ["fingerprint_shift_inference_missing"] if program_day else ["no_attendance_evidence_or_shift"],
+                    "issues": (
+                        ["fingerprint_shift_inference_missing"] if program_day
+                        else ["fingerprint_shift_unmatched_or_ambiguous"]
+                        if work_date in non_security_unmatched_dates or work_date + timedelta(days=1) in non_security_unmatched_dates
+                        else ["no_attendance_evidence_or_shift"]
+                    ),
                     "status": "needs_review",
                 }
                 proposals.append({"employee_id": employee_id, "proposal": proposal})
