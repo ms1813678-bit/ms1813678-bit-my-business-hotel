@@ -47,7 +47,7 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - No employee master Excel file currently exists; initial records are entered manually. Provide an import template later.
 
 ## Attendance imports and review
-- Monthly inputs: the attendance program's one-sheet report is the primary source; the ZKTeco LX50 fingerprint export supplements missing days/events and is checked across the full month. Preserve the user's source priority: program report first, fingerprint report second.
+- Monthly inputs: the attendance program's one-sheet report is the primary source; the ZKTeco LX50 fingerprint export supplements missing days/events and is checked across the full month. Preserve the user's source priority: program report first, fingerprint report second. The program report defines the monthly period; when the fingerprint export contains only dates with punches, align its contained date range to that same program month rather than creating a shorter separate month.
 - Preserve the exact original uploaded workbooks, SHA-256 hashes, raw event values, employee identifiers, sheet names, and row positions; authorized HR users can retrieve the original source file later.
 - Fingerprint exports may contain multiple time tokens in one cell; preserve every token and its original cell value.
 - Non-Security departments infer the shift from the first fingerprint within that department's configured shift windows. Security alone uses the separate three-person monthly roster Excel.
