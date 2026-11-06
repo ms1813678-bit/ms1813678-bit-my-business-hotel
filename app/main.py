@@ -22,10 +22,10 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
+from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
-from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day
+from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
@@ -517,6 +517,66 @@ def attendance_approve(
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RedirectResponse("/attendance/review", status_code=303)
+
+
+@app.get("/attendance/months", response_class=HTMLResponse)
+def attendance_months_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    with SessionLocal() as db:
+        months = db.scalars(
+            select(AttendanceMonth).order_by(
+                AttendanceMonth.period_start.desc(), AttendanceMonth.id.desc()
+            )
+        ).all()
+        summaries = []
+        for month in months:
+            grouped = db.execute(
+                select(AttendanceDailyRecord.status, func.count())
+                .where(
+                    AttendanceDailyRecord.work_date >= month.period_start,
+                    AttendanceDailyRecord.work_date <= month.period_end,
+                )
+                .group_by(AttendanceDailyRecord.status)
+            ).all()
+            counts = {status: count for status, count in grouped}
+            program = db.get(AttendanceImportBatch, month.program_import_batch_id) if month.program_import_batch_id else None
+            fingerprint = db.get(AttendanceImportBatch, month.fingerprint_import_batch_id) if month.fingerprint_import_batch_id else None
+            summaries.append({
+                "id": month.id, "period_start": month.period_start,
+                "period_end": month.period_end, "status": month.status,
+                "total": sum(counts.values()),
+                "approved": counts.get("approved", 0),
+                "pending": sum(value for key, value in counts.items() if key != "approved"),
+                "program_issues": program.issue_count if program else None,
+                "fingerprint_issues": fingerprint.issue_count if fingerprint else None,
+                "approved_by": month.approved_by,
+            })
+    return templates.TemplateResponse(
+        request=request, name="attendance_months.html",
+        context={"admin": admin.username, "csrf_token": get_csrf_token(request),
+                 "months": summaries, "error": None},
+    )
+
+
+@app.post("/attendance/months/{month_id}/approve", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def attendance_month_approve(
+    month_id: int,
+    request: Request,
+    reason: str = Form(...),
+    coverage_confirmed: bool = Form(False),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            approve_attendance_month(
+                db, month_id=month_id, actor=admin.username,
+                reason=reason, coverage_confirmed=coverage_confirmed,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse("/attendance/months", status_code=303)
 
 
 @app.post("/security-roster/preview", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
