@@ -165,8 +165,8 @@ def prepare_and_persist_monthly_reconciliation(
         raise ValueError("program_report_batch_not_found")
     if fingerprint_batch is None or fingerprint_batch.source_type != "fingerprint":
         raise ValueError("fingerprint_batch_not_found")
-    if program_batch.status != "parsed" or fingerprint_batch.status != "parsed":
-        raise ValueError("resolve_import_issues_before_reconciliation")
+    if program_batch.status not in {"parsed", "needs_review"} or fingerprint_batch.status not in {"parsed", "needs_review"}:
+        raise ValueError("attendance_import_batch_not_ready_for_reconciliation")
 
     existing = db.scalar(
         select(AttendanceDailyRecord.id).where(
@@ -269,6 +269,12 @@ def prepare_and_persist_monthly_reconciliation(
     if not proposals:
         raise ValueError("no_attendance_proposals_generated")
 
+    import_issue_count = program_batch.issue_count + fingerprint_batch.issue_count
+    if import_issue_count:
+        for item in proposals:
+            item["proposal"]["status"] = "needs_review"
+            item["proposal"].setdefault("issues", []).append("source_import_has_unresolved_issues")
+
     ready_count = 0
     review_count = 0
     for item in proposals:
@@ -299,6 +305,7 @@ def prepare_and_persist_monthly_reconciliation(
         "total": len(proposals),
         "ready_for_review": ready_count,
         "needs_review": review_count,
+        "import_issue_count": import_issue_count,
         "period_start": period_start,
         "period_end": period_end,
     }
