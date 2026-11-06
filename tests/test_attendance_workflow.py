@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import persist_attendance_import
+from app.attendance_workflow import persist_attendance_import, persist_daily_attendance_proposal
 from app.models import AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog, Department, Employee
 
 
@@ -123,3 +123,44 @@ def test_import_without_any_valid_date_is_not_persisted(db_session):
             parsed=payload, actor="hr-admin",
         )
     assert db_session.scalar(select(func.count()).select_from(AttendanceImportBatch)) == 0
+
+
+def test_daily_attendance_proposal_is_saved_for_review_not_approved(db_session):
+    proposal = {
+        "work_date": date(2026, 11, 1),
+        "shift_pattern_id": 4,
+        "scheduled_start_at": datetime(2026, 11, 1, 8, 0),
+        "scheduled_end_at": datetime(2026, 11, 1, 16, 0),
+        "program_clock_in": datetime(2026, 11, 1, 8, 5),
+        "program_clock_out": datetime(2026, 11, 1, 16, 2),
+        "first_clock_in": datetime(2026, 11, 1, 8, 5),
+        "last_clock_out": datetime(2026, 11, 1, 16, 2),
+        "worked_minutes": 477,
+        "status": "ready_for_review",
+        "issues": [],
+    }
+    record = persist_daily_attendance_proposal(
+        db_session, employee_id=1, proposal=proposal, actor="hr-admin",
+        program_import_batch_id=None, fingerprint_import_batch_id=None,
+    )
+    db_session.commit()
+
+    assert record.status == "ready_for_review"
+    assert record.approved_by is None
+    assert record.approved_at is None
+    assert record.worked_minutes == 477
+    assert db_session.scalar(
+        select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "attendance_day_proposed"
+        )
+    ) == 1
+
+
+def test_daily_attendance_proposal_rejects_invalid_status(db_session):
+    with pytest.raises(ValueError, match="invalid_attendance_proposal_status"):
+        persist_daily_attendance_proposal(
+            db_session,
+            employee_id=1,
+            proposal={"work_date": date(2026, 11, 1), "status": "approved"},
+            actor="hr-admin",
+        )
