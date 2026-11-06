@@ -294,3 +294,21 @@ class AttendanceDailyRecord(Base):
     approved_by: Mapped[str | None] = mapped_column(String(80))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttendanceImportIssue(Base):
+    """A source-row parsing or identity problem retained for explicit HR review."""
+    __tablename__ = "attendance_import_issues"
+    __table_args__ = (
+        CheckConstraint("source_row >= 0", name="ck_attendance_import_issue_source_row"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT"), index=True
+    )
+    source_sheet: Mapped[str | None] = mapped_column(String(120))
+    source_row: Mapped[int | None] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(100), nullable=False)
+    raw_value: Mapped[str | None] = mapped_column(Text)
+    details: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
