@@ -969,6 +969,7 @@ def test_security_roster_upload_preview_and_explicit_day_approval(client, monkey
     sheet = workbook.active
     sheet.append(["Date", "Fayez", "Yasser", "Walid"])
     sheet.append([date(2026, 11, 1), "00:00", "08:00", "16:00"])
+    sheet.append([date(2026, 11, 2), "00:00", "08:00", "16:00"])
     output = BytesIO()
     workbook.save(output)
     preview = client.post(
@@ -1001,3 +1002,19 @@ def test_security_roster_upload_preview_and_explicit_day_approval(client, monkey
         assert db.scalar(select(func.count()).select_from(AuditLog).where(
             AuditLog.action == "security_roster_day_approved"
         )) == 1
+
+    # The same monthly upload remains available for the next date.
+    approved_second_day = client.post(
+        "/security-roster/confirm",
+        data={
+            "csrf_token": token,
+            "work_date": "2026-11-02",
+            "stage_token": stage_match.group(1),
+        },
+    )
+    assert approved_second_day.status_code == 200
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 6
+        assert db.scalar(select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "security_roster_day_approved"
+        )) == 2
