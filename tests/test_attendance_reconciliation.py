@@ -3,6 +3,7 @@ from datetime import date, datetime, time
 from app.attendance_reconciliation import (
     infer_non_security_shift,
     reconcile_attendance_day,
+    resolve_security_shift,
     shift_window,
     work_date_for_punch,
 )
@@ -106,3 +107,33 @@ def test_missing_clock_event_is_not_fabricated():
     assert result["status"] == "needs_review"
     assert result["worked_minutes"] is None
     assert "only_one_fingerprint_event" in result["issues"]
+
+
+def test_security_shift_uses_roster_assignment_even_when_start_time_is_ambiguous():
+    patterns = [
+        pattern("security-12h", "08:00", "20:00"),
+        pattern("security-8h", "08:00", "16:00"),
+    ]
+    patterns[0]["id"] = 10
+    patterns[1]["id"] = 11
+    result = resolve_security_shift(
+        7,
+        date(2026, 11, 1),
+        {
+            "employee_id": 7,
+            "work_date": date(2026, 11, 1),
+            "shift_pattern_id": 11,
+        },
+        patterns,
+    )
+    assert result["status"] == "ready_for_review"
+    assert result["shift"]["name"] == "security-8h"
+
+
+def test_security_attendance_without_roster_assignment_requires_review():
+    result = resolve_security_shift(
+        7, date(2026, 11, 1), None,
+        [pattern("security-12h", "08:00", "20:00")],
+    )
+    assert result["status"] == "needs_review"
+    assert result["reason"] == "security_roster_assignment_missing"
