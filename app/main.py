@@ -229,10 +229,12 @@ def employees_page(request: Request, admin: AdminAccount = Depends(get_current_a
     with SessionLocal() as db:
         departments = db.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all()
         branches = db.scalars(select(Branch).where(Branch.active.is_(True)).order_by(Branch.name)).all()
+        all_departments = db.scalars(select(Department).order_by(Department.name)).all()
+        all_branches = db.scalars(select(Branch).order_by(Branch.name)).all()
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
         return templates.TemplateResponse(
             request=request, name="employees.html",
-            context={"departments": departments, "branches": branches, "employees": employees, "csrf_token": get_csrf_token(request)},
+            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employees": employees, "csrf_token": get_csrf_token(request)},
         )
 
 
@@ -365,6 +367,59 @@ def edit_employee(
             ))
     return RedirectResponse("/employees", status_code=303)
 
+
+
+@app.post("/employees/{employee_id}/transfer", dependencies=[Depends(csrf_protect)])
+def transfer_employee(
+    employee_id: int,
+    department_id: int = Form(...),
+    branch_id: int | None = Form(None),
+    effective_date: date = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    reason = reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="سبب النقل مطلوب.")
+    with SessionLocal.begin() as db:
+        employee = db.get(Employee, employee_id)
+        if employee is None:
+            raise HTTPException(status_code=404, detail="الموظف غير موجود.")
+        if employee.status != "active":
+            raise HTTPException(status_code=409, detail="لا يمكن نقل موظف غير نشط.")
+        department = db.get(Department, department_id)
+        if department is None or not department.active:
+            raise HTTPException(status_code=400, detail="القسم الجديد غير متاح.")
+        branch = db.get(Branch, branch_id) if branch_id is not None else None
+        if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
+            raise HTTPException(status_code=400, detail="الفرع الجديد غير تابع للقسم المختار أو غير متاح.")
+        old_department_id, old_branch_id = employee.department_id, employee.branch_id
+        if old_department_id == department_id and old_branch_id == branch_id:
+            raise HTTPException(status_code=409, detail="الموظف موجود بالفعل في القسم والفرع المحددين.")
+        if effective_date < employee.hire_date:
+            raise HTTPException(status_code=400, detail="تاريخ النقل لا يمكن أن يسبق تاريخ تعيين الموظف.")
+        changes = [
+            ("department_id", old_department_id, department_id),
+            ("branch_id", old_branch_id, branch_id),
+        ]
+        employee.department_id = department_id
+        employee.branch_id = branch_id
+        for field_name, old_value, new_value in changes:
+            if old_value != new_value:
+                db.add(EmployeeChange(
+                    employee_id=employee.id, field_name=field_name,
+                    old_value=str(old_value) if old_value is not None else None,
+                    new_value=str(new_value) if new_value is not None else None,
+                    effective_date=effective_date, reason=reason,
+                ))
+        db.add(AuditLog(
+            actor=admin.username, action="employee_transferred",
+            entity_type="employee", entity_id=str(employee.id),
+            old_value=f"department_id={old_department_id}; branch_id={old_branch_id}",
+            new_value=f"department_id={department_id}; branch_id={branch_id}",
+            reason=reason,
+        ))
+    return RedirectResponse("/employees", status_code=303)
 
 
 @app.post("/employees/{employee_id}/archive", dependencies=[Depends(csrf_protect)])
