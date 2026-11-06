@@ -107,7 +107,7 @@ def _matrix_time_tokens(value):
     raw = str(value or "").strip()
     if not raw:
         return []
-    token_pattern = re.compile(r"(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?")
+    token_pattern = re.compile(r"(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?")
     tokens = []
     position = 0
     while position < len(raw):
