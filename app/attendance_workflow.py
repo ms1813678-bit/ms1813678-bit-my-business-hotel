@@ -7,7 +7,47 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
+from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeChange, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
+
+
+def _department_history_by_date(db, employees, period_start: date, period_end: date):
+    """Resolve each employee's effective department for every day in a period."""
+    employee_ids = [employee.id for employee in employees]
+    changes = db.scalars(
+        select(EmployeeChange).where(
+            EmployeeChange.employee_id.in_(employee_ids),
+            EmployeeChange.field_name == "department_id",
+        ).order_by(
+            EmployeeChange.effective_date.desc(), EmployeeChange.id.desc()
+        )
+    ).all() if employee_ids else []
+    by_employee = {}
+    for change in changes:
+        by_employee.setdefault(change.employee_id, []).append(change)
+
+    result = {}
+    for employee in employees:
+        history = by_employee.get(employee.id, [])
+        daily_departments = {}
+        current = employee.department_id
+        work_date = period_start
+        while work_date <= period_end:
+            department_id = current
+            for change in history:
+                if change.effective_date <= work_date:
+                    continue
+                try:
+                    expected_new = int(change.new_value)
+                    previous_department = int(change.old_value)
+                except (TypeError, ValueError):
+                    raise ValueError("employee_department_history_is_incomplete")
+                if department_id != expected_new:
+                    raise ValueError("employee_department_history_is_inconsistent")
+                department_id = previous_department
+            daily_departments[work_date] = department_id
+            work_date += timedelta(days=1)
+        result[employee.id] = daily_departments
+    return result
 
 
 def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: dict, actor: str):
@@ -296,6 +336,9 @@ def prepare_and_persist_monthly_reconciliation(
     ]
     if not employees:
         raise ValueError("no_employees_in_attendance_service_period")
+    department_history_by_employee = _department_history_by_date(
+        db, employees, period_start, period_end
+    )
 
     security_department = db.scalar(
         select(Department).where(
@@ -368,6 +411,7 @@ def prepare_and_persist_monthly_reconciliation(
             "id": item.id, "department_id": item.department_id,
             "hire_date": item.hire_date,
             "service_periods": service_periods_by_employee.get(item.id, []),
+            "department_by_date": department_history_by_employee[item.id],
         } for item in employees],
         period_start=period_start,
         period_end=period_end,
