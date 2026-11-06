@@ -26,10 +26,10 @@ def test_matches_inside_configured_before_and_after_margins():
 
 
 def test_two_shifts_have_no_overlap_and_midpoint_is_unmatched():
-    p = [pattern("morning", "07:00"), pattern("evening", "15:00")]
-    assert match(10, 59, p)["shift"]["id"] == "morning"
-    assert match(11, 0, p)["status"] == "unmatched"
-    assert match(11, 1, p)["shift"]["id"] == "evening"
+    p = [pattern("morning", "07:00"), pattern("evening", "11:00")]
+    assert match(8, 59, p)["shift"]["id"] == "morning"
+    assert match(9, 0, p)["status"] == "unmatched"
+    assert match(9, 1, p)["shift"]["id"] == "evening"
 
 
 def test_duplicate_start_times_are_ambiguous_even_at_exact_start():
