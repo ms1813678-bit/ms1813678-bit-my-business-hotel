@@ -46,6 +46,7 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
         period_end=period_end,
         original_filename=(filename or "attendance.xlsx")[:255],
         file_sha256=digest,
+        original_file_bytes=bytes(file_bytes),
         uploaded_by=actor,
         status="needs_review" if issues else "parsed",
         row_count=len(events),
