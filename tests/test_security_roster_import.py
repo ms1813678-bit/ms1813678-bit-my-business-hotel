@@ -130,3 +130,17 @@ def test_header_only_workbook_is_not_reported_as_ready():
     assert result["status"] == "needs_review"
     assert result["records"] == []
     assert result["issues"][0]["reason"] == "no_valid_roster_rows"
+
+
+def test_normalized_alias_collision_is_rejected_before_parsing():
+    data = _workbook_bytes([["Date", "Fayez", "Yasser", "Walid"]])
+    with pytest.raises(ValueError, match="employee_aliases_contain_normalization_collisions"):
+        parse_security_roster_xlsx(
+            data,
+            {
+                " Fayez ": 1,
+                "fayez": 2,
+                "Yasser": 2,
+                "Walid": 3,
+            },
+        )
