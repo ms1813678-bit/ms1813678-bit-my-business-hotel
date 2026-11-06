@@ -100,6 +100,31 @@ def _load_rows(file_bytes: bytes, filename: str):
     raise ValueError("unsupported_attendance_file_extension")
 
 
+def _matrix_time_tokens(value):
+    """Parse separated or directly concatenated HH:MM tokens without guessing."""
+    if isinstance(value, (datetime, time)):
+        return _time_tokens(value)
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    token_pattern = re.compile(r"(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?")
+    tokens = []
+    position = 0
+    while position < len(raw):
+        if raw[position].isspace() or raw[position] in {",", ";", "|"}:
+            position += 1
+            continue
+        match = token_pattern.match(raw, position)
+        if match is None:
+            return []
+        try:
+            tokens.append(time.fromisoformat(match.group(0)))
+        except ValueError:
+            return []
+        position = match.end()
+    return tokens
+
+
 def _parse_att_log_matrix(sheet_name: str, rows: list, aliases: dict):
     """Parse the fingerprint terminal's day-columns / employee-block report layout."""
     period_match = None
@@ -199,7 +224,7 @@ def _parse_att_log_matrix(sheet_name: str, rows: list, aliases: dict):
             raw_value = data_row[column_index] if column_index < len(data_row) else None
             if raw_value in (None, ""):
                 continue
-            tokens = _time_tokens(raw_value)
+            tokens = _matrix_time_tokens(raw_value)
             if not tokens:
                 issues.append({
                     "sheet": sheet_name, "row": data_row_index + 1,
