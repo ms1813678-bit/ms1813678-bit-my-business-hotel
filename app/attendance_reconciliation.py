@@ -138,3 +138,169 @@ def resolve_security_shift(employee_id: int, work_date: date, assignment: dict |
         "work_date": work_date,
         "reason": None,
     }
+
+
+def build_monthly_reconciliation_proposals(
+    *,
+    employees: list[dict],
+    period_start: date,
+    period_end: date,
+    program_events: list[dict],
+    fingerprint_events: list[dict],
+    patterns_by_department: dict[int, list[dict]],
+    security_assignments: list[dict],
+    security_department_id: int,
+    security_approved_dates: set[date],
+) -> list[dict]:
+    """Build one review proposal per employee/work date without approving any day."""
+    if period_end < period_start:
+        raise ValueError("attendance_period_is_invalid")
+
+    program_by_day = {}
+    for event in program_events:
+        punch_at = event.get("punch_at")
+        employee_id = event.get("employee_id")
+        if not isinstance(punch_at, datetime) or employee_id is None:
+            continue
+        key = (employee_id, punch_at.date())
+        program_by_day.setdefault(key, []).append(event)
+
+    punches_by_employee = {}
+    for event in fingerprint_events:
+        punch_at = event.get("punch_at")
+        employee_id = event.get("employee_id")
+        if isinstance(punch_at, datetime) and employee_id is not None:
+            punches_by_employee.setdefault(employee_id, []).append(punch_at)
+    for punches in punches_by_employee.values():
+        punches.sort()
+
+    assignments = {
+        (item["employee_id"], item["work_date"]): item
+        for item in security_assignments
+    }
+    patterns_by_id = {
+        pattern["id"]: pattern
+        for patterns in patterns_by_department.values()
+        for pattern in patterns
+    }
+
+    calendar_days = []
+    current = period_start
+    while current <= period_end:
+        calendar_days.append(current)
+        current += timedelta(days=1)
+
+    proposals = []
+    for employee in employees:
+        employee_id = employee["id"]
+        department_id = employee["department_id"]
+        all_punches = punches_by_employee.get(employee_id, [])
+        non_security_candidates = {}
+
+        if department_id != security_department_id:
+            by_calendar_date = {}
+            for punch in all_punches:
+                by_calendar_date.setdefault(punch.date(), []).append(punch)
+            patterns = patterns_by_department.get(department_id, [])
+            for calendar_date, day_punches in by_calendar_date.items():
+                first_result = infer_non_security_shift(day_punches[0], patterns)
+                if first_result["status"] != "ready_for_review":
+                    continue
+                work_date = first_result["work_date"]
+                if period_start <= work_date <= period_end:
+                    candidate = non_security_candidates.get(work_date)
+                    if candidate and candidate["shift"].get("id") != first_result["shift"].get("id"):
+                        non_security_candidates[work_date] = {
+                            "conflict": True, "shift": None,
+                        }
+                    else:
+                        non_security_candidates[work_date] = {
+                            "conflict": False, "shift": first_result["shift"],
+                        }
+
+        for work_date in calendar_days:
+            program_day = program_by_day.get((employee_id, work_date), [])
+            program_ins = [
+                item["punch_at"] for item in program_day
+                if str(item.get("event_type", "")).casefold() in {"in", "clock in", "check in"}
+            ]
+            program_outs = [
+                item["punch_at"] for item in program_day
+                if str(item.get("event_type", "")).casefold() in {"out", "clock out", "check out"}
+            ]
+            program_in = min(program_ins) if program_ins else None
+            program_out = max(program_outs) if program_outs else None
+
+            security_assignment = None
+            if department_id == security_department_id:
+                security_assignment = assignments.get((employee_id, work_date))
+                if security_assignment is None and work_date in security_approved_dates:
+                    # An approved Security roster with no assignment means OFF for this employee.
+                    continue
+                pattern = patterns_by_id.get(
+                    security_assignment.get("shift_pattern_id")
+                ) if security_assignment else None
+                if security_assignment and pattern is None:
+                    proposal = {
+                        "work_date": work_date, "shift_pattern_id": None,
+                        "scheduled_start_at": None, "scheduled_end_at": None,
+                        "program_clock_in": program_in, "program_clock_out": program_out,
+                        "first_clock_in": None, "last_clock_out": None,
+                        "worked_minutes": None, "issues": ["security_roster_shift_pattern_missing"],
+                        "status": "needs_review",
+                    }
+                    proposals.append({
+                        "employee_id": employee_id, "proposal": proposal,
+                        "security_shift_assignment_id": security_assignment.get("id"),
+                    })
+                    continue
+            else:
+                candidate = non_security_candidates.get(work_date)
+                if candidate and candidate.get("conflict"):
+                    proposal = {
+                        "work_date": work_date, "shift_pattern_id": None,
+                        "scheduled_start_at": None, "scheduled_end_at": None,
+                        "program_clock_in": program_in, "program_clock_out": program_out,
+                        "first_clock_in": None, "last_clock_out": None,
+                        "worked_minutes": None, "issues": ["conflicting_first_punch_shift_proposals"],
+                        "status": "needs_review",
+                    }
+                    proposals.append({"employee_id": employee_id, "proposal": proposal})
+                    continue
+                pattern = candidate.get("shift") if candidate else None
+
+            if pattern is None:
+                proposal = {
+                    "work_date": work_date, "shift_pattern_id": None,
+                    "scheduled_start_at": None, "scheduled_end_at": None,
+                    "program_clock_in": program_in, "program_clock_out": program_out,
+                    "first_clock_in": None, "last_clock_out": None,
+                    "worked_minutes": None,
+                    "issues": ["fingerprint_shift_inference_missing"] if program_day else ["no_attendance_evidence_or_shift"],
+                    "status": "needs_review",
+                }
+                proposals.append({"employee_id": employee_id, "proposal": proposal})
+                continue
+
+            scheduled_start, scheduled_end = shift_window(work_date, pattern)
+            evidence_start = scheduled_start - timedelta(minutes=120)
+            evidence_end = scheduled_end + timedelta(minutes=120)
+            day_fingerprint = [
+                punch for punch in all_punches
+                if evidence_start <= punch <= evidence_end
+            ]
+            proposal = reconcile_attendance_day(
+                work_date=work_date,
+                shift_pattern=pattern,
+                program_clock_in=program_in,
+                program_clock_out=program_out,
+                fingerprint_punches=day_fingerprint,
+            )
+            proposals.append({
+                "employee_id": employee_id,
+                "proposal": proposal,
+                "security_shift_assignment_id": (
+                    security_assignment.get("id") if security_assignment else None
+                ),
+            })
+    return proposals
