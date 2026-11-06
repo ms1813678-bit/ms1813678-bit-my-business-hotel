@@ -30,6 +30,18 @@
       <h2>{{ month.period_start }} إلى {{ month.period_end }}</h2>
       <p>حالة الشهر: <strong>{{ month.status }}</strong></p>
       <p>سجلات الأيام: {{ month.total }} — المعتمد: {{ month.approved }} — المعلّق: {{ month.pending }}</p>
+      <p><strong>أيام موظفين بلا سجل مطابقة: {{ month.unrepresented_employee_days }}</strong></p>
+      <p class="muted">هذه فجوات تغطية تحتاج مراجعة التقرير الأساسي وملف البصمة. لا يصنفها النظام غيابًا أو راحة تلقائيًا.</p>
+      {% if month.coverage_examples %}
+      <details>
+        <summary>عرض أمثلة فجوات التغطية (حتى 20)</summary>
+        <ul>
+          {% for gap in month.coverage_examples %}
+          <li>{{ gap.work_date }} — {{ gap.employee_code }} — {{ gap.employee_name }}</li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
       <p>مشكلات استيراد البرنامج: {{ month.program_issues if month.program_issues is not none else "الملف غير مكتمل" }}</p>
       <p>مشكلات استيراد البصمة: {{ month.fingerprint_issues if month.fingerprint_issues is not none else "الملف غير مكتمل" }}</p>
       {% if month.status == "under_review" %}
