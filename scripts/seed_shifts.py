@@ -62,11 +62,10 @@ def main() -> None:
                             name=name,
                             start_time=time.fromisoformat(start),
                             end_time=time.fromisoformat(end),
-                            match_window_minutes=None,
                             active=True,
                         )
                     )
-    print("Default shift patterns are ready. Matching windows remain unconfigured until HR sets them.")
+    print("Default shift patterns are ready. Before/after matching margins default to the approved 120-minute maximum and are trimmed to prevent overlap.")
 
 
 if __name__ == "__main__":
