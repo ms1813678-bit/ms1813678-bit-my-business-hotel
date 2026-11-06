@@ -112,7 +112,9 @@ def test_fresh_postgres_install_repeated_upgrade_rollback_and_admin_guards(postg
     migrate(test_engine, "head")
     migrate(test_engine, "head")
     with test_engine.connect() as connection:
-        assert "employee_service_periods" in inspect(connection).get_table_names()
+        table_names = set(inspect(connection).get_table_names())
+        assert "employee_service_periods" in table_names
+        assert {"shift_patterns", "security_shift_assignments"}.issubset(table_names)
         assert connection.execute(
             text("SELECT to_regclass('employee_code_number_seq') IS NOT NULL")
         ).scalar_one() is True
