@@ -411,3 +411,140 @@ def test_employee_archive_and_rehire_preserve_service_history(client):
         assert periods[0].end_date == date.today()
         assert periods[0].end_reason == "End of first service"
         assert periods[1].start_date == date.today() + timedelta(days=1)
+
+
+def test_employee_profile_edit_records_effective_dated_history_and_audit(client):
+    from app.main import SessionLocal
+    from app.models import AuditLog, Branch, EmployeeChange
+
+    assert login(client).status_code == 303
+    with SessionLocal.begin() as db:
+        branch = Branch(
+            department_id=client.test_department_id,
+            name="Test Branch",
+            active=True,
+        )
+        db.add(branch)
+        db.flush()
+        branch_id = branch.id
+
+    token = csrf_from(client.get("/employees"))
+    create_data = {
+        "csrf_token": token,
+        "full_name": "Profile Edit Test",
+        "national_id": "TEST-NID-1001",
+        "phone": "01000000000",
+        "address": "Old address",
+        "department_id": str(client.test_department_id),
+        "branch_id": str(branch_id),
+        "position": "Old Position",
+        "hire_date": "2025-01-01",
+        "basic_salary": "1000.00",
+        "daily_hours": "8",
+        "fingerprint_id": "TEST-FP-1001",
+    }
+    created = client.post("/employees", data=create_data, follow_redirects=False)
+    assert created.status_code == 303
+
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Profile Edit Test").one()
+        employee_id = employee.id
+
+    edit_data = {
+        "csrf_token": token,
+        "full_name": "Profile Edit Test Updated",
+        "national_id": "TEST-NID-1001",
+        "phone": "01111111111",
+        "address": "New address",
+        "department_id": str(client.test_department_id),
+        "branch_id": str(branch_id),
+        "position": "New Position",
+        "basic_salary": "1250.50",
+        "daily_hours": "7.5",
+        "fingerprint_id": "TEST-FP-1001",
+        "effective_date": "2025-02-01",
+        "reason": "Approved employee data correction",
+    }
+    edited = client.post(
+        f"/employees/{employee_id}/edit",
+        data=edit_data,
+        follow_redirects=False,
+    )
+    assert edited.status_code == 303
+
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        changes = (
+            db.query(EmployeeChange)
+            .filter_by(employee_id=employee_id)
+            .all()
+        )
+        audit = (
+            db.query(AuditLog)
+            .filter_by(entity_type="employee", entity_id=str(employee_id), action="employee_updated")
+            .one()
+        )
+        assert employee.full_name == "Profile Edit Test Updated"
+        assert employee.address == "New address"
+        assert employee.phone == "01111111111"
+        assert employee.basic_salary == Decimal("1250.50")
+        assert employee.daily_hours == Decimal("7.50")
+        assert {change.field_name for change in changes} == {
+            "full_name", "phone", "address", "position", "basic_salary", "daily_hours"
+        }
+        assert all(change.effective_date == date(2025, 2, 1) for change in changes)
+        assert all(change.reason == "Approved employee data correction" for change in changes)
+        assert all(change.old_value is not None and change.new_value is not None for change in changes)
+        assert audit.actor == "integration-admin"
+        assert "Approved employee data correction" == audit.reason
+
+
+def test_employee_edit_rejects_branch_from_another_department(client):
+    from app.main import SessionLocal
+    from app.models import Branch
+
+    assert login(client).status_code == 303
+    with SessionLocal.begin() as db:
+        other_department = Department(name="Other Test Department", active=True)
+        db.add(other_department)
+        db.flush()
+        wrong_branch = Branch(
+            department_id=other_department.id,
+            name="Wrong Department Branch",
+            active=True,
+        )
+        db.add(wrong_branch)
+        db.flush()
+        wrong_branch_id = wrong_branch.id
+
+    token = csrf_from(client.get("/employees"))
+    create_data = {
+        "csrf_token": token,
+        "full_name": "Branch Validation Test",
+        "department_id": str(client.test_department_id),
+        "position": "Test Position",
+        "hire_date": date.today().isoformat(),
+        "basic_salary": "1000.00",
+        "daily_hours": "8",
+    }
+    assert client.post("/employees", data=create_data, follow_redirects=False).status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Branch Validation Test").one()
+        employee_id = employee.id
+
+    response = client.post(
+        f"/employees/{employee_id}/edit",
+        data={
+            "csrf_token": token,
+            "full_name": "Branch Validation Test",
+            "department_id": str(client.test_department_id),
+            "branch_id": str(wrong_branch_id),
+            "position": "Test Position",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+            "effective_date": date.today().isoformat(),
+            "reason": "Testing branch ownership validation",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
