@@ -25,7 +25,7 @@ from app.employee_codes import allocate_employee_code
 from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
-from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee
+from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
@@ -642,6 +642,7 @@ def attendance_months_page(
             counts = {status: count for status, count in grouped}
             program = db.get(AttendanceImportBatch, month.program_import_batch_id) if month.program_import_batch_id else None
             fingerprint = db.get(AttendanceImportBatch, month.fingerprint_import_batch_id) if month.fingerprint_import_batch_id else None
+            coverage = summarize_attendance_month_coverage(db, month)
             summaries.append({
                 "id": month.id, "period_start": month.period_start,
                 "period_end": month.period_end, "status": month.status,
@@ -650,6 +651,8 @@ def attendance_months_page(
                 "pending": sum(value for key, value in counts.items() if key != "approved"),
                 "program_issues": program.issue_count if program else None,
                 "fingerprint_issues": fingerprint.issue_count if fingerprint else None,
+                "unrepresented_employee_days": coverage["unrepresented_employee_days"],
+                "coverage_examples": coverage["coverage_examples"],
                 "approved_by": month.approved_by,
             })
     return templates.TemplateResponse(
