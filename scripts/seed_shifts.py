@@ -62,6 +62,8 @@ def main() -> None:
                             name=name,
                             start_time=time.fromisoformat(start),
                             end_time=time.fromisoformat(end),
+                            match_before_minutes=120,
+                            match_after_minutes=120,
                             active=True,
                         )
                     )
