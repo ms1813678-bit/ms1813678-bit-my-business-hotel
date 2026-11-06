@@ -229,3 +229,31 @@ def test_monthly_builder_does_not_invent_missing_attendance():
         security_approved_dates=set(),
     )
     assert result == []
+
+
+def test_monthly_builder_groups_program_overnight_clock_out_on_shift_start_date():
+    night = pattern("night-program", "23:00", "07:00", 60, 60)
+    night["id"] = 41
+    result = build_monthly_reconciliation_proposals(
+        employees=[{"id": 1, "department_id": 2}],
+        period_start=date(2026, 11, 1),
+        period_end=date(2026, 11, 2),
+        program_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 23, 5), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 2, 7, 3), "event_type": "OUT"},
+        ],
+        fingerprint_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 23, 5)},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 2, 7, 3)},
+        ],
+        patterns_by_department={2: [night]},
+        security_assignments=[],
+        security_department_id=99,
+        security_approved_dates=set(),
+    )
+    assert len(result) == 1
+    proposal = result[0]["proposal"]
+    assert proposal["work_date"] == date(2026, 11, 1)
+    assert proposal["program_clock_in"] == datetime(2026, 11, 1, 23, 5)
+    assert proposal["program_clock_out"] == datetime(2026, 11, 2, 7, 3)
+    assert proposal["worked_minutes"] == 478
