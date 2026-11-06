@@ -59,7 +59,7 @@ def test_unknown_employee_mapping_is_rejected():
     try:
         parse_security_roster_xlsx(data, {"Fayez": 11, "Yasser": 12})
     except ValueError as exc:
-        assert str(exc) == "exactly_three_unique_security_employee_aliases_required"
+        assert str(exc) == "aliases_must_resolve_to_exactly_three_unique_security_employees"
     else:
         raise AssertionError("expected ValueError")
 
