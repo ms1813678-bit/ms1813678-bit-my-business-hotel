@@ -196,77 +196,81 @@ def build_monthly_reconciliation_proposals(
     for employee in employees:
         employee_id = employee["id"]
         department_id = employee["department_id"]
+        department_by_date = employee.get("department_by_date", {})
         all_punches = punches_by_employee.get(employee_id, [])
         non_security_candidates = {}
         non_security_unmatched_dates = set()
 
-        if department_id != security_department_id:
-            by_calendar_date = {}
-            for punch in all_punches:
-                by_calendar_date.setdefault(punch.date(), []).append(punch)
-            patterns = patterns_by_department.get(department_id, [])
-            for calendar_date, day_punches in by_calendar_date.items():
-                first_result = infer_non_security_shift(day_punches[0], patterns)
-                # A previous overnight shift can end inside the next day's
-                # configured start window (for example 23:00-07:00 followed
-                # by a 07:00 shift). Its OUT must not be inferred as a new
-                # day's IN merely because both windows contain that timestamp.
-                previous_candidate = non_security_candidates.get(
-                    calendar_date - timedelta(days=1)
+        by_calendar_date = {}
+        for punch in all_punches:
+            by_calendar_date.setdefault(punch.date(), []).append(punch)
+        for calendar_date, day_punches in by_calendar_date.items():
+            day_department_id = department_by_date.get(calendar_date, department_id)
+            if day_department_id == security_department_id:
+                continue
+            patterns = patterns_by_department.get(day_department_id, [])
+            first_result = infer_non_security_shift(day_punches[0], patterns)
+            # A previous overnight shift can end inside the next day's
+            # configured start window (for example 23:00-07:00 followed
+            # by a 07:00 shift). Its OUT must not be inferred as a new
+            # day's IN merely because both windows contain that timestamp.
+            previous_candidate = non_security_candidates.get(
+                calendar_date - timedelta(days=1)
+            )
+            previous_shift = (
+                previous_candidate.get("shift")
+                if previous_candidate and not previous_candidate.get("conflict")
+                else None
+            )
+            previous_overnight_window = None
+            if previous_shift:
+                previous_start, previous_end = shift_window(
+                    calendar_date - timedelta(days=1), previous_shift
                 )
-                previous_shift = (
-                    previous_candidate.get("shift")
-                    if previous_candidate and not previous_candidate.get("conflict")
-                    else None
-                )
-                previous_overnight_window = None
-                if previous_shift:
-                    previous_start, previous_end = shift_window(
-                        calendar_date - timedelta(days=1), previous_shift
+                if previous_end.date() > previous_start.date():
+                    previous_overnight_window = (
+                        previous_start - timedelta(minutes=120),
+                        previous_end + timedelta(minutes=120),
                     )
-                    if previous_end.date() > previous_start.date():
-                        previous_overnight_window = (
-                            previous_start - timedelta(minutes=120),
-                            previous_end + timedelta(minutes=120),
-                        )
-                first_punch_may_be_previous_out = bool(
+            first_punch_may_be_previous_out = bool(
+                previous_overnight_window
+                and previous_overnight_window[0] <= day_punches[0]
+                <= previous_overnight_window[1]
+            )
+            if first_punch_may_be_previous_out:
+                first_result = {
+                    "status": "needs_review",
+                    "shift": None,
+                    "work_date": None,
+                    "reason": "first_punch_may_belong_to_previous_overnight_shift",
+                }
+            if first_result["status"] != "ready_for_review":
+                # If every event fits that already identified overnight
+                # shift window, it belongs to the previous work date.
+                belongs_to_previous_shift = bool(
                     previous_overnight_window
-                    and previous_overnight_window[0] <= day_punches[0]
-                    <= previous_overnight_window[1]
-                )
-                if first_punch_may_be_previous_out:
-                    first_result = {
-                        "status": "needs_review",
-                        "shift": None,
-                        "work_date": None,
-                        "reason": "first_punch_may_belong_to_previous_overnight_shift",
-                    }
-                if first_result["status"] != "ready_for_review":
-                    # If every event fits that already identified overnight
-                    # shift window, it belongs to the previous work date.
-                    belongs_to_previous_shift = bool(
-                        previous_overnight_window
-                        and all(
-                            previous_overnight_window[0] <= punch <= previous_overnight_window[1]
-                            for punch in day_punches
-                        )
+                    and all(
+                        previous_overnight_window[0] <= punch <= previous_overnight_window[1]
+                        for punch in day_punches
                     )
-                    if not belongs_to_previous_shift:
-                        non_security_unmatched_dates.add(calendar_date)
-                    continue
-                work_date = first_result["work_date"]
-                if period_start <= work_date <= period_end:
-                    candidate = non_security_candidates.get(work_date)
-                    if candidate and candidate["shift"].get("id") != first_result["shift"].get("id"):
-                        non_security_candidates[work_date] = {
-                            "conflict": True, "shift": None,
-                        }
-                    else:
-                        non_security_candidates[work_date] = {
-                            "conflict": False, "shift": first_result["shift"],
-                        }
+                )
+                if not belongs_to_previous_shift:
+                    non_security_unmatched_dates.add(calendar_date)
+                continue
+            work_date = first_result["work_date"]
+            if period_start <= work_date <= period_end:
+                candidate = non_security_candidates.get(work_date)
+                if candidate and candidate["shift"].get("id") != first_result["shift"].get("id"):
+                    non_security_candidates[work_date] = {
+                        "conflict": True, "shift": None,
+                    }
+                else:
+                    non_security_candidates[work_date] = {
+                        "conflict": False, "shift": first_result["shift"],
+                    }
 
         for work_date in calendar_days:
+            work_department_id = department_by_date.get(work_date, department_id)
             service_periods = employee.get("service_periods")
             if service_periods:
                 in_service = any(
@@ -292,7 +296,7 @@ def build_monthly_reconciliation_proposals(
             program_out = max(program_outs) if program_outs else None
 
             security_assignment = None
-            if department_id == security_department_id:
+            if work_department_id == security_department_id:
                 security_assignment = assignments.get((employee_id, work_date))
                 if security_assignment is None and work_date in security_approved_dates:
                     # An approved Security roster with no assignment means OFF for this employee.
@@ -352,7 +356,7 @@ def build_monthly_reconciliation_proposals(
                     if punch not in previous_shift_punches
                 ]
                 unmatched_fingerprint = (
-                    department_id != security_department_id
+                    work_department_id != security_department_id
                     and (
                         work_date in non_security_unmatched_dates
                         or work_date + timedelta(days=1) in non_security_unmatched_dates
@@ -405,7 +409,7 @@ def build_monthly_reconciliation_proposals(
                     )
                 ]
                 missing_security_roster_day = (
-                    department_id == security_department_id
+                    work_department_id == security_department_id
                     and security_assignment is None
                     and work_date not in security_approved_dates
                 )
@@ -429,7 +433,7 @@ def build_monthly_reconciliation_proposals(
                 program_out = max(program_outs) if program_outs else None
                 issue = (
                     "security_roster_assignment_missing"
-                    if department_id == security_department_id
+                    if work_department_id == security_department_id
                     else "fingerprint_shift_inference_missing"
                     if program_day
                     else "fingerprint_shift_unmatched_or_ambiguous"
