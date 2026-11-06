@@ -705,6 +705,9 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
     service_by_employee = {}
     for row in service_rows:
         service_by_employee.setdefault(row.employee_id, []).append(row)
+    department_by_employee_date = _department_history_by_date(
+        db, employees, month.period_start, month.period_end
+    )
 
     daily_rows = db.scalars(
         select(AttendanceDailyRecord).where(
@@ -778,7 +781,7 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
                 continue
             if (
                 security_department is not None
-                and employee.department_id == security_department.id
+                and department_by_employee_date[employee.id][work_date] == security_department.id
                 and work_date in security_approved_dates
                 and (employee.id, work_date) not in security_assignments
             ):
