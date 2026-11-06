@@ -28,6 +28,24 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
     if source_type not in {"program_report", "fingerprint"}:
         raise ValueError("unsupported_attendance_source_type")
 
+    # The program report defines the monthly period. A fingerprint export may
+    # contain only dates with recorded punches, so align a contained fingerprint
+    # range to the one already-imported program month instead of treating it as
+    # a shorter, separate month.
+    if source_type == "fingerprint":
+        matching_program_months = db.scalars(
+            select(AttendanceMonth).where(
+                AttendanceMonth.program_import_batch_id.is_not(None),
+                AttendanceMonth.period_start <= period_start,
+                AttendanceMonth.period_end >= period_end,
+            ).with_for_update()
+        ).all()
+        if len(matching_program_months) > 1:
+            raise ValueError("fingerprint_import_period_matches_multiple_program_months")
+        if matching_program_months:
+            period_start = matching_program_months[0].period_start
+            period_end = matching_program_months[0].period_end
+
     digest = hashlib.sha256(file_bytes).hexdigest()
     duplicate = db.scalar(
         select(AttendanceImportBatch).where(
