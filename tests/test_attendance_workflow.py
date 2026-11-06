@@ -664,6 +664,45 @@ def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_a
     } == {("ATT-001", work_date), ("SEC-COVER-0", work_date)}
 
 
+def test_monthly_coverage_includes_historical_service_period_after_rehire(db_session):
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    employee.hire_date = date(2026, 11, 1)
+    employee.status = "active"
+    db_session.add(EmployeeServicePeriod(
+        employee_id=employee.id,
+        start_date=date(2025, 1, 1),
+        end_date=date(2025, 1, 31),
+        start_reason="Original employment",
+        end_reason="Archived before later rehire",
+    ))
+    program = AttendanceImportBatch(
+        source_type="program_report", period_start=date(2025, 1, 15),
+        period_end=date(2025, 1, 15), original_filename="program-old.xlsx",
+        file_sha256="a" * 64, uploaded_by="hr-admin", status="parsed",
+        row_count=1, issue_count=0,
+    )
+    fingerprint = AttendanceImportBatch(
+        source_type="fingerprint", period_start=date(2025, 1, 15),
+        period_end=date(2025, 1, 15), original_filename="fingerprint-old.xlsx",
+        file_sha256="b" * 64, uploaded_by="hr-admin", status="parsed",
+        row_count=1, issue_count=0,
+    )
+    db_session.add_all([program, fingerprint])
+    db_session.flush()
+    month = AttendanceMonth(
+        period_start=date(2025, 1, 15), period_end=date(2025, 1, 15),
+        program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
+        status="under_review", created_by="hr-admin",
+    )
+    db_session.add(month)
+    db_session.flush()
+
+    summary = summarize_attendance_month_coverage(db_session, month)
+    assert summary["unrepresented_employee_days"] == 1
+    assert summary["coverage_examples"][0]["employee_code"] == "ATT-001"
+
+
 def test_unknown_employee_resolution_links_raw_punches_and_recalculates_batch_status(db_session):
     payload = parsed_payload()
     payload["events"] = [{
