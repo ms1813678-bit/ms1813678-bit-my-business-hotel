@@ -7,8 +7,8 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation, resolve_unknown_attendance_employee, summarize_attendance_month_coverage)
-from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
+from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, _department_history_by_date, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation, resolve_unknown_attendance_employee, summarize_attendance_month_coverage)
+from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, EmployeeChange, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
 
 
 @pytest.fixture
@@ -840,3 +840,27 @@ def test_unknown_employee_resolution_rejects_reassignment_and_wrong_issue_type(d
         resolve_unknown_attendance_employee(
             db_session, issue_id=invalid_issue.id, employee_id=employee.id, actor="hr-admin"
         )
+
+
+def test_department_history_uses_effective_date_for_each_attendance_day(db_session):
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    old_department_id = employee.department_id
+    new_department = Department(name="Transferred Department", active=True)
+    db_session.add(new_department)
+    db_session.flush()
+    employee.department_id = new_department.id
+    db_session.add(EmployeeChange(
+        employee_id=employee.id, field_name="department_id",
+        old_value=str(old_department_id), new_value=str(new_department.id),
+        effective_date=date(2026, 11, 2), reason="Department transfer",
+    ))
+    db_session.flush()
+
+    history = _department_history_by_date(
+        db_session, [employee], date(2026, 11, 1), date(2026, 11, 3)
+    )
+
+    assert history[employee.id][date(2026, 11, 1)] == old_department_id
+    assert history[employee.id][date(2026, 11, 2)] == new_department.id
+    assert history[employee.id][date(2026, 11, 3)] == new_department.id
+    assert history[employee.id][date(2026, 10, 31)] == old_department_id
