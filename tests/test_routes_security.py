@@ -1100,12 +1100,23 @@ def test_security_roster_upload_preview_and_daily_confirmation(client):
     stage_token = token_match.group(1)
     assert client.get("/security-roster").status_code == 200
 
+    rejected_without_review = client.post(
+        "/security-roster/confirm",
+        data={
+            "csrf_token": csrf,
+            "work_date": "2026-11-01",
+            "stage_token": stage_token,
+        },
+    )
+    assert rejected_without_review.status_code == 400
+
     confirmation = client.post(
         "/security-roster/confirm",
         data={
             "csrf_token": csrf,
             "work_date": "2026-11-01",
             "stage_token": stage_token,
+            "reviewed": "yes",
         },
     )
     assert confirmation.status_code == 200
