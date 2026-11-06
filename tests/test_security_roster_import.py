@@ -122,3 +122,11 @@ def test_two_alias_columns_for_same_employee_are_rejected():
     assert parsed["status"] == "needs_review"
     assert parsed["records"] == []
     assert parsed["issues"][0]["reason"] == "duplicate_employee_header"
+
+
+def test_header_only_workbook_is_not_reported_as_ready():
+    data = _workbook_bytes([["Date", "Fayez", "Yasser", "Walid"]])
+    result = parse_security_roster_xlsx(data, ALIASES)
+    assert result["status"] == "needs_review"
+    assert result["records"] == []
+    assert result["issues"][0]["reason"] == "no_valid_roster_rows"
