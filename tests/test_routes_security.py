@@ -217,10 +217,29 @@ def test_attendance_review_page_is_paginated(client):
     from app.main import SessionLocal
     from app.models import AttendanceDailyRecord
 
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Attendance Pagination Employee",
+            "department_id": str(client.test_department_id),
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
     with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(
+            full_name="Attendance Pagination Employee"
+        ).one()
+        employee_id = employee.id
         for index in range(105):
             db.add(AttendanceDailyRecord(
-                employee_id=1,
+                employee_id=employee_id,
                 work_date=date(2026, 11, 1) + timedelta(days=index),
                 status="needs_review",
             ))
