@@ -596,6 +596,16 @@ def test_unknown_employee_resolution_links_raw_punches_and_recalculates_batch_st
         "source_sheet": "Att.log report",
         "source_row": 9,
         "event_index": 0,
+    }, {
+        "employee_id": None,
+        "raw_employee_code": "FP-UNKNOWN",
+        "raw_employee_name": "Unmatched Name",
+        "punch_at": datetime(2026, 11, 1, 16, 9),
+        "raw_timestamp": "07:50 16:09",
+        "event_type": "PUNCH",
+        "source_sheet": "Att.log report",
+        "source_row": 9,
+        "event_index": 1,
     }]
     payload["issues"] = [{
         "sheet": "Att.log report", "row": 9,
@@ -615,12 +625,14 @@ def test_unknown_employee_resolution_links_raw_punches_and_recalculates_batch_st
     )
     db_session.flush()
 
-    punch = db_session.scalar(select(AttendancePunch).where(
+    punches = db_session.scalars(select(AttendancePunch).where(
         AttendancePunch.import_batch_id == batch.id
-    ))
-    assert punch.employee_id == employee.id
-    assert punch.raw_employee_code == "FP-UNKNOWN"
-    assert punch.raw_timestamp == "07:50"
+    ).order_by(AttendancePunch.event_index)).all()
+    assert len(punches) == 2
+    assert all(punch.employee_id == employee.id for punch in punches)
+    assert all(punch.raw_employee_code == "FP-UNKNOWN" for punch in punches)
+    assert punches[0].raw_timestamp == "07:50"
+    assert punches[1].raw_timestamp == "07:50 16:09"
     assert resolved.resolved_employee_id == employee.id
     assert resolved.resolved_by == "hr-admin"
     assert resolved.resolved_at is not None
