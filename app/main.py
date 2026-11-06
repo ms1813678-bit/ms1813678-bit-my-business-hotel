@@ -22,10 +22,10 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
+from app.models import AdminAccount, AttendanceImportBatch, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
-from app.attendance_workflow import persist_attendance_import
+from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
@@ -372,6 +372,69 @@ def attendance_import_upload(
         )
     return templates.TemplateResponse(
         request=request, name="attendance_import.html", context=context
+    )
+
+
+def _attendance_import_batch_options():
+    with SessionLocal() as db:
+        return db.scalars(
+            select(AttendanceImportBatch)
+            .where(AttendanceImportBatch.status == "parsed")
+            .order_by(AttendanceImportBatch.created_at.desc(), AttendanceImportBatch.id.desc())
+            .limit(50)
+        ).all()
+
+
+@app.get("/attendance/reconcile", response_class=HTMLResponse)
+def attendance_reconcile_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    batches = _attendance_import_batch_options()
+    return templates.TemplateResponse(
+        request=request,
+        name="attendance_reconcile.html",
+        context={
+            "admin": admin.username, "csrf_token": get_csrf_token(request),
+            "batches": batches, "error": None, "summary": None,
+        },
+    )
+
+
+@app.post("/attendance/reconcile", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def attendance_reconcile_upload(
+    request: Request,
+    program_batch_id: int = Form(...),
+    fingerprint_batch_id: int = Form(...),
+    period_start: str = Form(...),
+    period_end: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    context = {
+        "admin": admin.username, "csrf_token": get_csrf_token(request),
+        "batches": _attendance_import_batch_options(), "error": None, "summary": None,
+    }
+    try:
+        selected_start = date.fromisoformat(period_start)
+        selected_end = date.fromisoformat(period_end)
+        with SessionLocal.begin() as db:
+            summary = prepare_and_persist_monthly_reconciliation(
+                db,
+                program_batch_id=program_batch_id,
+                fingerprint_batch_id=fingerprint_batch_id,
+                period_start=selected_start,
+                period_end=selected_end,
+                actor=admin.username,
+            )
+        context["summary"] = summary
+    except (ValueError, KeyError) as exc:
+        context["error"] = str(exc)
+        return templates.TemplateResponse(
+            request=request, name="attendance_reconcile.html",
+            context=context, status_code=400,
+        )
+    return templates.TemplateResponse(
+        request=request, name="attendance_reconcile.html", context=context
     )
 
 
