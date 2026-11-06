@@ -9,6 +9,8 @@
 - Overnight shifts remain associated with the work date on which the shift starts.
 - Missing or uncertain fingerprint events are never fabricated.
 
+- Security roster rule: the Excel roster gives each of the three employees' shift start time or OFF. Exactly two working employees means 12 hours each; all three working means 8 hours each. 00:00 is a valid start time. End times are derived by adding the duration across midnight. Invalid working counts, duplicate starts, and missing/ambiguous configured patterns require administrator review.
+
 ## Approved shift patterns
 
 | Department | Shift times |
