@@ -1383,13 +1383,21 @@ def test_attendance_import_route_saves_raw_evidence_but_not_daily_approval(clien
     assert response.status_code == 200
     assert "تم تسجيل دفعة الاستيراد" in response.text
     with SessionLocal() as db:
-        assert db.query(AttendanceImportBatch).count() == 1
+        batch = db.query(AttendanceImportBatch).one()
+        assert batch.original_file_bytes == output.getvalue()
+        batch_id = batch.id
         assert db.query(AttendancePunch).count() == 2
         assert db.query(AttendanceDailyRecord).count() == 0
+
+    download = client.get(f"/attendance/import/{batch_id}/download")
+    assert download.status_code == 200
+    assert download.content == output.getvalue()
+    assert "attachment" in download.headers["content-disposition"]
 
 
 def test_attendance_import_route_requires_admin_and_csrf(client):
     assert client.get("/attendance/import").status_code == 401
+    assert client.get("/attendance/import/1/download").status_code == 401
     response = client.post("/attendance/import", data={"source_type": "fingerprint"})
     assert response.status_code == 403
 
