@@ -124,3 +124,42 @@ def test_auto_detection_skips_header_only_sheet_and_reads_later_data_sheet():
     assert parsed["period_start"] == date(2026, 11, 1)
     assert parsed["period_end"] == date(2026, 11, 1)
     assert parsed["issues"] == []
+
+
+def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens():
+    days = list(range(1, 32))
+    rows = [
+        ["Attendance Record Report"],
+        ["Stat.Date:", "2026-10-01 ~ 2026-10-31"],
+        ["Att. Time", None, "2026-10-01 ~ 2026-10-31"],
+        days,
+        ["ID:", None, "1", None, None, None, None, None, "Name:", None, "Employee One"],
+        ["00:2507:5016:09", "15:48 23:54"] + [None] * 29,
+        ["ID:", None, "5", None, None, None, None, None, "Name:", None, "Employee Two"],
+        ["08:0208:0216:5816:58"] + [None] * 30,
+        ["ID:", None, "999", None, None, None, None, None, "Name:", None, "Unknown Employee"],
+        ["08:00"] + [None] * 30,
+    ]
+    raw = workbook_bytes([("Att.log report", rows)])
+    parsed = parse_attendance_workbook(
+        raw, "1_StandardReport.xlsx", "fingerprint",
+        {"1": 101, "Employee One": 101, "5": 105, "Employee Two": 105},
+    )
+
+    assert parsed["period_start"] == date(2026, 10, 1)
+    assert parsed["period_end"] == date(2026, 10, 31)
+    assert len(parsed["events"]) == 6
+    assert [event["punch_at"].time() for event in parsed["events"][:5]] == [
+        time(0, 25), time(7, 50), time(16, 9), time(15, 48), time(23, 54)
+    ]
+    assert [event["punch_at"] for event in parsed["events"][3:5]] == [
+        datetime(2026, 10, 2, 15, 48), datetime(2026, 10, 2, 23, 54)
+    ]
+    assert [event["punch_at"].time() for event in parsed["events"][5:]] == [time(8, 0)]
+    assert [event["employee_id"] for event in parsed["events"]] == [
+        101, 101, 101, 101, 101, None
+    ]
+    assert parsed["events"][0]["source_sheet"] == "Att.log report"
+    assert parsed["events"][0]["source_row"] == 6
+    assert parsed["events"][0]["raw_timestamp"] == "00:2507:5016:09"
+    assert any(issue["reason"] == "unknown_employee" for issue in parsed["issues"])
