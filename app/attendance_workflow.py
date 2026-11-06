@@ -74,8 +74,21 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
         "program_import_batch_id" if source_type == "program_report"
         else "fingerprint_import_batch_id"
     )
-    if getattr(month, batch_field) is not None:
-        raise ValueError("attendance_month_source_already_imported")
+    previous_batch_id = getattr(month, batch_field)
+    if previous_batch_id is not None:
+        previous_batch = db.get(AttendanceImportBatch, previous_batch_id)
+        if previous_batch is None or previous_batch.status != "needs_review":
+            raise ValueError("attendance_month_source_already_imported")
+        previous_batch.status = "rejected"
+        db.add(AuditLog(
+            actor=actor,
+            action="attendance_import_batch_replaced",
+            entity_type="attendance_import_batch",
+            entity_id=str(previous_batch.id),
+            old_value=f"status=needs_review; source={source_type}",
+            new_value=f"status=rejected; replacement_batch={batch.id}",
+            reason="HR replaced an unresolved source import before monthly reconciliation",
+        ))
     setattr(month, batch_field, batch.id)
 
     for event in events:
@@ -189,8 +202,11 @@ def prepare_and_persist_monthly_reconciliation(
         raise ValueError("program_report_batch_not_found")
     if fingerprint_batch is None or fingerprint_batch.source_type != "fingerprint":
         raise ValueError("fingerprint_batch_not_found")
-    if program_batch.status not in {"parsed", "needs_review"} or fingerprint_batch.status not in {"parsed", "needs_review"}:
-        raise ValueError("attendance_import_batch_not_ready_for_reconciliation")
+    if (
+        program_batch.status != "parsed" or fingerprint_batch.status != "parsed"
+        or program_batch.issue_count or fingerprint_batch.issue_count
+    ):
+        raise ValueError("attendance_import_batch_has_unresolved_issues")
     if (
         program_batch.period_start != period_start or program_batch.period_end != period_end
         or fingerprint_batch.period_start != period_start or fingerprint_batch.period_end != period_end
