@@ -22,10 +22,10 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, AttendanceImportBatch, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
+from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
-from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation
+from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
@@ -436,6 +436,60 @@ def attendance_reconcile_upload(
     return templates.TemplateResponse(
         request=request, name="attendance_reconcile.html", context=context
     )
+
+
+@app.get("/attendance/review", response_class=HTMLResponse)
+def attendance_review_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(AttendanceDailyRecord, Employee)
+            .join(Employee, Employee.id == AttendanceDailyRecord.employee_id)
+            .where(AttendanceDailyRecord.status.in_(["ready_for_review", "needs_review"]))
+            .order_by(AttendanceDailyRecord.work_date, Employee.full_name)
+            .limit(500)
+        ).all()
+        records = [{
+            "id": record.id, "employee": employee.full_name,
+            "employee_code": employee.code, "work_date": record.work_date,
+            "scheduled_start_at": record.scheduled_start_at,
+            "scheduled_end_at": record.scheduled_end_at,
+            "program_clock_in": record.program_clock_in,
+            "program_clock_out": record.program_clock_out,
+            "fingerprint_in": record.first_clock_in,
+            "fingerprint_out": record.last_clock_out,
+            "worked_minutes": record.worked_minutes,
+            "status": record.status, "review_notes": record.review_notes,
+        } for record, employee in rows]
+    return templates.TemplateResponse(
+        request=request, name="attendance_review.html",
+        context={"admin": admin.username, "csrf_token": get_csrf_token(request),
+                 "records": records, "error": None},
+    )
+
+
+@app.post("/attendance/{record_id}/approve", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def attendance_approve(
+    record_id: int,
+    request: Request,
+    clock_in: str = Form(...),
+    clock_out: str = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        approved_in = datetime.fromisoformat(clock_in)
+        approved_out = datetime.fromisoformat(clock_out)
+        with SessionLocal.begin() as db:
+            approve_attendance_day(
+                db, record_id=record_id, clock_in=approved_in,
+                clock_out=approved_out, actor=admin.username, reason=reason,
+            )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse("/attendance/review", status_code=303)
 
 
 @app.post("/security-roster/preview", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
