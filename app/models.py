@@ -190,3 +190,107 @@ class AdminAccount(Base):
 @event.listens_for(AdminAccount, "before_delete")
 def prevent_admin_deletion(mapper, connection, target):
     raise ValueError("The sole administrator account cannot be deleted.")
+
+
+class AttendanceImportBatch(Base):
+    """Immutable source-file receipt and processing state for monthly attendance imports."""
+    __tablename__ = "attendance_import_batches"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('program_report', 'fingerprint')",
+            name="ck_attendance_import_source_type",
+        ),
+        CheckConstraint(
+            "status IN ('uploaded', 'parsed', 'needs_review', 'approved', 'rejected')",
+            name="ck_attendance_import_status",
+        ),
+        CheckConstraint("period_end >= period_start", name="ck_attendance_import_period"),
+        CheckConstraint("row_count >= 0 AND issue_count >= 0", name="ck_attendance_import_counts"),
+        UniqueConstraint("source_type", "file_sha256", name="uq_attendance_import_source_hash"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    uploaded_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="uploaded", nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    issue_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttendancePunch(Base):
+    """Parsed fingerprint event; raw source identity and cell text are retained for traceability."""
+    __tablename__ = "attendance_punches"
+    __table_args__ = (
+        UniqueConstraint(
+            "import_batch_id", "source_sheet", "source_row", "event_index",
+            name="uq_attendance_punch_source_position",
+        ),
+        CheckConstraint("event_index >= 0", name="ck_attendance_punch_event_index"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT"), index=True
+    )
+    employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), index=True
+    )
+    raw_employee_code: Mapped[str | None] = mapped_column(String(80))
+    raw_employee_name: Mapped[str | None] = mapped_column(String(200))
+    punch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), index=True)
+    raw_timestamp: Mapped[str] = mapped_column(String(120), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(40))
+    source_sheet: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_row: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttendanceDailyRecord(Base):
+    """One employee/work-date reconciliation result, pending HR approval by default."""
+    __tablename__ = "attendance_daily_records"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "work_date", name="uq_attendance_daily_employee_date"),
+        CheckConstraint(
+            "status IN ('needs_review', 'ready_for_review', 'approved', 'rejected')",
+            name="ck_attendance_daily_status",
+        ),
+        CheckConstraint(
+            "scheduled_end_at IS NULL OR scheduled_start_at IS NULL "
+            "OR scheduled_end_at > scheduled_start_at",
+            name="ck_attendance_daily_schedule_order",
+        ),
+        CheckConstraint("worked_minutes IS NULL OR worked_minutes >= 0", name="ck_attendance_daily_worked_minutes"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), index=True
+    )
+    work_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    shift_pattern_id: Mapped[int | None] = mapped_column(ForeignKey("shift_patterns.id"))
+    security_shift_assignment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("security_shift_assignments.id", ondelete="RESTRICT")
+    )
+    program_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    fingerprint_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    scheduled_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    scheduled_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    program_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    program_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    first_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    last_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    worked_minutes: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="needs_review", nullable=False)
+    review_notes: Mapped[str | None] = mapped_column(Text)
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
