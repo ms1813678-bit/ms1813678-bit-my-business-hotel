@@ -212,6 +212,31 @@ def test_employee_creation_requires_auth_and_valid_csrf(client):
         assert employee.code == "MY-0001"
 
 
+def test_attendance_review_page_is_paginated(client):
+    assert login(client).status_code == 303
+    from app.main import SessionLocal
+    from app.models import AttendanceDailyRecord
+
+    with SessionLocal() as db:
+        for index in range(105):
+            db.add(AttendanceDailyRecord(
+                employee_id=1,
+                work_date=date(2026, 11, 1) + timedelta(days=index),
+                status="needs_review",
+            ))
+        db.commit()
+
+    first = client.get("/attendance/review")
+    assert first.status_code == 200
+    assert "عرض 100 سجلًا من إجمالي 105 سجلًا" in first.text
+    assert "الصفحة 1 من 2" in first.text
+    assert 'href="/attendance/review?page=2"' in first.text
+    second = client.get("/attendance/review?page=2")
+    assert second.status_code == 200
+    assert "عرض 5 سجلًا من إجمالي 105 سجلًا" in second.text
+    assert "الصفحة 2 من 2" in second.text
+
+
 def test_logout_requires_csrf_and_clears_session(client):
     assert login(client).status_code == 303
     dashboard = client.get("/")
