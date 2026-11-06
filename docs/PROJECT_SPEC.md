@@ -141,3 +141,11 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Preserve source imports and historical records; use database migrations for schema changes.
 - Add automated tests for payroll calculations, date boundaries, duplicate imports, permissions, and backup/restore before production use.
 - No production deployment or real employee data until local installation, security, backup, and restore have been tested on the target laptop.
+
+
+## Database migration rollback policy
+
+- Production databases must not be downgraded across migration `0009_audit_log_immutability`. Its downgrade removes database-level UPDATE/DELETE triggers from `audit_logs`, weakening tamper protection.
+- For production schema corrections, prefer a forward-only migration that preserves audit immutability.
+- If a rollback is unavoidable for disaster recovery, stop application writes, take and verify a full backup, restore into an isolated environment, and explicitly re-establish and verify the audit-log triggers before reopening the system.
+- Automated migration downgrade tests may exercise rollback in disposable test schemas only; they do not authorize production downgrade.
