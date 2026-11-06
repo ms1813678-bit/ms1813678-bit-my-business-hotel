@@ -436,6 +436,16 @@ def build_monthly_reconciliation_proposals(
                 program_clock_out=program_out,
                 fingerprint_punches=day_fingerprint,
             )
+            # Multiple same-direction program events cannot be safely reduced
+            # to min(IN)/max(OUT): preserve the proposal but require HR review.
+            if len(program_ins) > 1:
+                proposal["issues"] = sorted(set(proposal["issues"] + ["multiple_program_clock_in_events"]))
+            if len(program_outs) > 1:
+                proposal["issues"] = sorted(set(proposal["issues"] + ["multiple_program_clock_out_events"]))
+            if len(set(item["punch_at"] for item in program_day)) != len(program_day):
+                proposal["issues"] = sorted(set(proposal["issues"] + ["duplicate_program_events"]))
+            if proposal["issues"]:
+                proposal["status"] = "needs_review"
             proposals.append({
                 "employee_id": employee_id,
                 "proposal": proposal,
