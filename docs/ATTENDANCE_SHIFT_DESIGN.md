@@ -49,7 +49,9 @@ The repository now includes an initial, non-approving evidence layer:
 - Employee matching is exact against configured employee codes, fingerprint IDs, or names. Unknown identities and malformed values become issues, never fuzzy matches.
 - `app.attendance_workflow.persist_attendance_import` stores parsed evidence and an immutable AuditLog event, rejects duplicate source-file hashes, and does not approve daily attendance.
 
-This is not yet the completed attendance workflow. Remaining work includes a protected upload/preview interface, program-report plus fingerprint reconciliation across the full month, shift-aware overnight pairing, review/adjustment screens, explicit monthly HR approval, and a payroll gate. Do not use imported evidence for payroll until those controls and end-to-end tests are implemented.
+The implementation now includes protected Excel import for both sources, exact employee identity matching, persisted raw punches and import issues, monthly reconciliation proposals, shift-aware overnight pairing, a protected HR review page, and explicit per-day approval with reason and immutable audit entry. Approval writes final HR-approved clock values separately from imported evidence. The month builder does not fabricate absences when there is neither a configured shift nor attendance evidence, and approved Security OFF days do not create attendance rows.
+
+Still outstanding before this stage is accepted: verify full-month behavior against synthetic copies of the hotel's real export layouts; add a true concurrent PostgreSQL approval test; finish the remaining security-roster staging/cleanup edge tests if CI does not already cover them; verify import issues are individually resolvable; and complete the end-to-end Ubuntu/Windows checks. Payroll must consume only records whose status is approved and the final approved clock values, never raw punches or unapproved proposals. The payroll gate itself belongs to the later payroll stage and must be tested before production use.
 
 
 ### Reconciliation proposal rules
