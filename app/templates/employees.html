@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>الموظفون</title><link rel="stylesheet" href="/static/app.css"></head>
 <body><main class="shell"><header class="topbar"><div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة الموظفين</h1><p class="muted">إضافة وتعديل وأرشفة وإعادة تعيين الموظفين</p></div><a href="/">لوحة التحكم</a></header>
-<section class="notice"><h2>إضافة موظف</h2><form method="post" action="/employees">
+<section class="notice"><h2>إضافة موظف</h2><form method="post" action="/employees" enctype="multipart/form-data">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <div class="form-grid">
 <label>الاسم بالكامل<input name="full_name" required maxlength="200"></label>
@@ -17,9 +17,10 @@
 <label>الراتب الأساسي بالجنيه<input name="basic_salary" type="number" min="0" step="0.01" required></label>
 <label>ساعات العمل اليومية<input name="daily_hours" type="number" min="0.5" max="24" step="0.5" required></label>
 <label>رقم البصمة<input name="fingerprint_id" maxlength="50"></label>
+<label>الصورة الشخصية (اختياري JPG/PNG/WEBP، حد 5MB)<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label>
 </div><button type="submit">حفظ الموظف</button></form></section>
 <section class="notice"><h2>سجل الموظفين</h2><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>الفرع</th><th>المسمى</th><th>الحالة</th></tr></thead><tbody>
-{% for e in employees %}<tr><td>{{ e.code }}</td><td>{{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{% for b in all_branches if b.id == e.branch_id %}{{ b.name }}{% else %}—{% endfor %}</td><td>{{ e.position }}</td><td>{{ e.status }}
+{% for e in employees %}<tr><td>{{ e.code }}</td><td>{% if e.photo_path %}<img src="/employees/{{ e.id }}/photo" alt="صورة {{ e.full_name }}" width="48" height="48">{% endif %} {{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{% for b in all_branches if b.id == e.branch_id %}{{ b.name }}{% else %}—{% endfor %}</td><td>{{ e.position }}</td><td>{{ e.status }}
 <details><summary>تعديل البيانات</summary><form method="post" action="/employees/{{ e.id }}/edit">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="form-grid">
 <label>الاسم بالكامل<input name="full_name" required maxlength="200" value="{{ e.full_name }}"></label>
@@ -38,6 +39,17 @@
 <label>سبب التعديل<input name="reason" required maxlength="1000"></label>
 </div><button type="submit">حفظ التعديلات</button></form></details>
 <details><summary>نقل الموظف لقسم أو فرع آخر</summary><form method="post" action="/employees/{{ e.id }}/transfer"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>القسم الجديد<select name="department_id" required>{% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label><label>الفرع الجديد<select name="branch_id"><option value="">بدون فرع</option>{% for b in branches %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></label><label>تاريخ سريان النقل<input type="date" name="effective_date" required></label><label>سبب النقل<input name="reason" required></label><button type="submit">تسجيل النقل</button></form></details>
+
+<details><summary>تسجيل طلب تصحيح بيانات شخصية</summary>
+<form method="post" action="/employees/{{ e.id }}/data-change-requests">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>البيان المطلوب تعديله<select name="field_name" required>
+<option value="full_name">الاسم بالكامل</option><option value="national_id">الرقم القومي</option>
+<option value="phone">رقم الهاتف</option><option value="address">العنوان</option><option value="position">المسمى الوظيفي</option>
+</select></label>
+<label>القيمة المطلوبة<input name="requested_value" required maxlength="2000"></label>
+<label>سبب الطلب<input name="request_reason" required maxlength="1000"></label>
+<button type="submit">تسجيل الطلب للمراجعة</button></form></details>
 <details><summary>سجل تغييرات الموظف</summary><ul>{% for change in employee_changes if change.employee_id == e.id %}<li>{{ change.effective_date }} — {{ change.field_name }}: {{ change.old_value or '—' }} ← {{ change.new_value or '—' }} ({{ change.reason }})</li>{% else %}<li>لا توجد تغييرات مسجلة.</li>{% endfor %}</ul></details>
 {% if e.status == "active" %}
 <form method="post" action="/employees/{{ e.id }}/archive" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" required placeholder="سبب الأرشفة"><button type="submit">أرشفة</button></form>
@@ -46,6 +58,24 @@
 {% endif %}
 </td></tr>{% else %}<tr><td colspan="6">لا يوجد موظفون مسجلون بعد.</td></tr>{% endfor %}
 </tbody></table></div></section>
+
+<section class="notice"><h2>طلبات تصحيح البيانات الشخصية</h2>
+{% for r in data_change_requests %}
+<article class="notice"><p>طلب #{{ r.id }} — الموظف #{{ r.employee_id }} — {{ r.field_name }}</p>
+<p>القيمة المطلوبة: {{ r.requested_value }}</p><p>السبب: {{ r.request_reason }}</p>
+<p>الحالة: {{ r.status }} — تاريخ التسجيل: {{ r.recorded_at }}</p>
+{% if r.status == "pending" %}
+<form method="post" action="/employee-data-change-requests/{{ r.id }}/review">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>سبب القرار<input name="decision_reason" required maxlength="1000"></label>
+<label>تاريخ السريان (للموافقة)<input type="date" name="effective_date"></label>
+<button type="submit" name="decision" value="apply">مراجعة وتطبيق التعديل</button>
+<button type="submit" name="decision" value="reject">رفض الطلب</button>
+</form>
+{% else %}<p>قرار المراجعة: {{ r.decision_reason }} — بواسطة {{ r.reviewed_by }} — {{ r.reviewed_at }}</p>{% endif %}
+</article>
+{% else %}<p>لا توجد طلبات تصحيح بيانات.</p>{% endfor %}
+</section>
 <section class="notice"><h2>إدارة الأقسام والفروع</h2>
 <h3>إضافة قسم</h3><form method="post" action="/departments"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>اسم القسم<input name="name" required maxlength="100"></label><button type="submit">إضافة القسم</button></form>
 <h3>الأقسام الحالية</h3>
