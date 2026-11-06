@@ -519,7 +519,7 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     db_session.flush()
     future_rehire = Employee(
         code="ATT-FUTURE-REHIRE", full_name="Future Rehire",
-        department_id=program.id if False else db_session.scalar(
+        department_id=db_session.scalar(
             select(Department.id).where(Department.name == "Attendance Test")
         ),
         position="Test", hire_date=date(2020, 1, 1), status="active",
