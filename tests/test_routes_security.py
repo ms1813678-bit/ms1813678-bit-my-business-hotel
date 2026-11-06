@@ -1155,13 +1155,14 @@ def test_security_roster_expired_preview_is_rejected_and_deleted(monkeypatch, tm
     old_time = time.time() - 120
     os.utime(path, (old_time, old_time))
 
-    request = Request({
+    request_scope = {
         "type": "http", "method": "POST", "scheme": "http",
         "path": "/", "raw_path": b"/", "query_string": b"",
         "headers": [], "server": ("testserver", 80),
         "client": ("testclient", 50000), "http_version": "1.1",
-    })
-    request.session = {"security_roster_stage": token}
+        "session": {"security_roster_stage": token},
+    }
+    request = Request(request_scope)
 
     with pytest.raises(HTTPException) as exc:
         main_module._load_staged_security_roster(token, request)
@@ -1208,8 +1209,8 @@ def test_security_roster_preview_token_is_bound_to_its_own_session(monkeypatch, 
         "path": "/", "raw_path": b"/", "query_string": b"",
         "headers": [], "server": ("testserver", 80),
         "client": ("testclient", 50001), "http_version": "1.1",
+        "session": {"admin_username": "admin-two", "security_roster_stage": "different-token"},
     })
-    second_admin_request.session = {"admin_username": "admin-two", "security_roster_stage": "different-token"}
 
     with pytest.raises(HTTPException) as exc:
         main_module._load_staged_security_roster(token, second_admin_request)
