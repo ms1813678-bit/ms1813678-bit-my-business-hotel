@@ -275,16 +275,39 @@ def build_monthly_reconciliation_proposals(
                 pattern = candidate.get("shift") if candidate else None
 
             if pattern is None:
+                previous_candidate = non_security_candidates.get(work_date - timedelta(days=1))
+                previous_shift = (
+                    previous_candidate.get("shift")
+                    if previous_candidate and not previous_candidate.get("conflict")
+                    else None
+                )
+                previous_shift_punches = []
+                if previous_shift:
+                    previous_start, previous_end = shift_window(
+                        work_date - timedelta(days=1), previous_shift
+                    )
+                    previous_shift_punches = [
+                        punch for punch in all_punches
+                        if previous_start - timedelta(minutes=120)
+                        <= punch <= previous_end + timedelta(minutes=120)
+                    ]
+                unassigned_fingerprint_punches = [
+                    punch for punch in all_punches
+                    if punch not in previous_shift_punches
+                ]
                 unmatched_fingerprint = (
                     department_id != security_department_id
                     and (
                         work_date in non_security_unmatched_dates
-                        or work_date + timedelta(days=1) in non_security_unmatched_dates
+                        or (
+                            work_date + timedelta(days=1) in non_security_unmatched_dates
+                            and not previous_shift_punches
+                        )
                     )
                 )
                 has_fingerprint_evidence = any(
                     work_date <= punch.date() <= work_date + timedelta(days=1)
-                    for punch in all_punches
+                    for punch in unassigned_fingerprint_punches
                 )
                 # A missing row in both source files is not proof of an absence:
                 # without an assigned schedule, do not manufacture a daily record.
