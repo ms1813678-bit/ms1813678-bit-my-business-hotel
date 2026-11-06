@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import create_engine, select, func
@@ -7,8 +7,8 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import persist_attendance_import, persist_daily_attendance_proposal
-from app.models import AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog, Department, Employee
+from app.attendance_workflow import (persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation)
+from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
 
 
 @pytest.fixture
@@ -162,5 +162,136 @@ def test_daily_attendance_proposal_rejects_invalid_status(db_session):
             db_session,
             employee_id=1,
             proposal={"work_date": date(2026, 11, 1), "status": "approved"},
+            actor="hr-admin",
+        )
+
+
+def test_monthly_reconciliation_persists_review_records_and_respects_security_off_days(db_session):
+    attendance_department = db_session.scalar(
+        select(Department).where(Department.name == "Attendance Test")
+    )
+    security_department = Department(name="Security", active=True)
+    db_session.add(security_department)
+    db_session.flush()
+
+    security_employees = []
+    for index, name in enumerate(("Security A", "Security B", "Security C"), start=1):
+        employee = Employee(
+            code=f"SEC-ATT-{index}", full_name=name,
+            department_id=security_department.id, position="Security",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        db_session.add(employee)
+        db_session.flush()
+        security_employees.append(employee)
+
+    department_pattern = ShiftPattern(
+        department_id=attendance_department.id, code="DAY", name="Day",
+        start_time=time(8, 0), end_time=time(16, 0),
+        match_before_minutes=60, match_after_minutes=60, active=True,
+    )
+    security_night = ShiftPattern(
+        department_id=security_department.id, code="NIGHT", name="Night",
+        start_time=time(20, 0), end_time=time(8, 0),
+        match_before_minutes=60, match_after_minutes=60, active=True,
+    )
+    security_day = ShiftPattern(
+        department_id=security_department.id, code="DAY", name="Day",
+        start_time=time(8, 0), end_time=time(20, 0),
+        match_before_minutes=60, match_after_minutes=60, active=True,
+    )
+    db_session.add_all([department_pattern, security_night, security_day])
+    db_session.flush()
+
+    work_date = date(2026, 11, 1)
+    program_batch = AttendanceImportBatch(
+        source_type="program_report", period_start=work_date, period_end=work_date,
+        original_filename="program.xlsx", file_sha256="a" * 64,
+        uploaded_by="hr-admin", status="parsed", row_count=2, issue_count=0,
+    )
+    fingerprint_batch = AttendanceImportBatch(
+        source_type="fingerprint", period_start=work_date, period_end=work_date,
+        original_filename="fingerprint.xlsx", file_sha256="b" * 64,
+        uploaded_by="hr-admin", status="parsed", row_count=6, issue_count=0,
+    )
+    db_session.add_all([program_batch, fingerprint_batch])
+    db_session.flush()
+
+    db_session.add_all([
+        SecurityShiftAssignment(
+            employee_id=security_employees[0].id, work_date=work_date,
+            shift_pattern_id=security_night.id,
+        ),
+        SecurityShiftAssignment(
+            employee_id=security_employees[1].id, work_date=work_date,
+            shift_pattern_id=security_day.id,
+        ),
+        AuditLog(
+            actor="hr-admin", action="security_roster_day_approved",
+            entity_type="security_roster", entity_id=work_date.isoformat(),
+            reason="Approved security roster for test",
+        ),
+    ])
+    db_session.flush()
+
+    normal_employee = db_session.scalar(
+        select(Employee).where(Employee.code == "ATT-001")
+    )
+    db_session.add_all([
+        AttendancePunch(
+            import_batch_id=program_batch.id, employee_id=normal_employee.id,
+            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
+            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
+            event_type="IN", source_sheet="Sheet1", source_row=2, event_index=0,
+        ),
+        AttendancePunch(
+            import_batch_id=program_batch.id, employee_id=normal_employee.id,
+            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
+            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
+            event_type="OUT", source_sheet="Sheet1", source_row=2, event_index=1,
+        ),
+    ])
+    for employee, start, end in (
+        (normal_employee, datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 16, 0)),
+        (security_employees[0], datetime(2026, 11, 1, 20, 0), datetime(2026, 11, 2, 8, 0)),
+        (security_employees[1], datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 20, 0)),
+    ):
+        for index, punch_at in enumerate((start, end)):
+            db_session.add(AttendancePunch(
+                import_batch_id=fingerprint_batch.id, employee_id=employee.id,
+                raw_employee_code=employee.code, raw_employee_name=employee.full_name,
+                punch_at=punch_at, raw_timestamp=punch_at.strftime("%H:%M"),
+                event_type="PUNCH", source_sheet="Att.log report",
+                source_row=2 + index, event_index=0,
+            ))
+
+    summary = prepare_and_persist_monthly_reconciliation(
+        db_session,
+        program_batch_id=program_batch.id,
+        fingerprint_batch_id=fingerprint_batch.id,
+        period_start=work_date,
+        period_end=work_date,
+        actor="hr-admin",
+    )
+    db_session.commit()
+
+    assert summary == {
+        "total": 3, "ready_for_review": 3, "needs_review": 0,
+        "period_start": work_date, "period_end": work_date,
+    }
+    records = db_session.scalars(select(AttendanceDailyRecord)).all()
+    assert len(records) == 3
+    assert all(item.status == "ready_for_review" for item in records)
+    assert all(item.approved_by is None and item.approved_at is None for item in records)
+    assert security_employees[2].id not in {item.employee_id for item in records}
+
+
+def test_monthly_reconciliation_refuses_duplicate_period_records(db_session):
+    from app.attendance_workflow import prepare_and_persist_monthly_reconciliation
+    with pytest.raises(ValueError, match="attendance_period_already_has_reconciliation_records"):
+        prepare_and_persist_monthly_reconciliation(
+            db_session, program_batch_id=1, fingerprint_batch_id=2,
+            period_start=date(2026, 11, 1), period_end=date(2026, 11, 1),
             actor="hr-admin",
         )
