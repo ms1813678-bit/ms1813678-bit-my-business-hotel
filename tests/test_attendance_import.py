@@ -181,4 +181,4 @@ def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens()
     assert parsed["events"][0]["source_sheet"] == "Att.log report"
     assert parsed["events"][0]["source_row"] == 6
     assert parsed["events"][0]["raw_timestamp"] == "00:2507:5016:09"
-    assert any(issue["reason"] == "unknown_employee" for issue in parsed["issues"])
+    assert [issue["reason"] for issue in parsed["issues"]] == ["unknown_employee"]
