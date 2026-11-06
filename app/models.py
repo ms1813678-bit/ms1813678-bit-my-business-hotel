@@ -38,6 +38,8 @@ class Employee(Base):
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.id"))
     position: Mapped[str] = mapped_column(String(120))
     hire_date: Mapped[date] = mapped_column(Date)
+    probation_start_date: Mapped[date | None] = mapped_column(Date)
+    probation_end_date: Mapped[date | None] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(20), default="active")
     basic_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     daily_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2))
