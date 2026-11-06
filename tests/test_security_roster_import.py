@@ -2,6 +2,7 @@ from datetime import date, time
 from io import BytesIO
 
 from openpyxl import Workbook
+import pytest
 
 from app.security_roster_import import parse_security_roster_xlsx
 
