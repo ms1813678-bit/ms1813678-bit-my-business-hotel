@@ -301,11 +301,9 @@ def build_monthly_reconciliation_proposals(
                     department_id != security_department_id
                     and (
                         work_date in non_security_unmatched_dates
-                        or (
-                            work_date + timedelta(days=1) in non_security_unmatched_dates
-                            and not previous_shift_punches
-                        )
+                        or work_date + timedelta(days=1) in non_security_unmatched_dates
                     )
+                    and not previous_shift_punches
                 )
                 has_fingerprint_evidence = any(
                     work_date <= punch.date() <= work_date + timedelta(days=1)
