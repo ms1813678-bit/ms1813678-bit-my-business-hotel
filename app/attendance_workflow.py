@@ -677,6 +677,21 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
             Department.name == "Security", Department.active.is_(True)
         )
     )
+    security_assignments = set()
+    if security_department is not None:
+        security_assignments = {
+            (employee_id, work_date)
+            for employee_id, work_date in db.execute(
+                select(
+                    SecurityShiftAssignment.employee_id,
+                    SecurityShiftAssignment.work_date,
+                ).where(
+                    SecurityShiftAssignment.work_date >= month.period_start,
+                    SecurityShiftAssignment.work_date <= month.period_end,
+                )
+            ).all()
+        }
+
     security_approved_dates = set()
     approved_values = db.scalars(
         select(AuditLog.entity_id).where(
@@ -721,8 +736,10 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
                 security_department is not None
                 and employee.department_id == security_department.id
                 and work_date in security_approved_dates
+                and (employee.id, work_date) not in security_assignments
             ):
                 # On an approved Security roster, no assignment means OFF.
+                # Employees with an assignment still require attendance review.
                 continue
             gaps.append({
                 "employee_id": employee.id,
