@@ -1372,7 +1372,7 @@ def test_attendance_approval_endpoint_requires_csrf_and_admin(client):
     assert client.post(
         "/attendance/1/approve",
         data={"clock_in": "2026-11-01T08:00", "clock_out": "2026-11-01T16:00", "reason": "reviewed"},
-    ).status_code == 401
+    ).status_code == 403
     assert login(client).status_code == 303
     response = client.post(
         "/attendance/1/approve",
