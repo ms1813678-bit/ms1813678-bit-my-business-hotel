@@ -4,10 +4,10 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
+from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
 
 
 def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: dict, actor: str):
@@ -231,14 +231,31 @@ def prepare_and_persist_monthly_reconciliation(
     month.program_import_batch_id = program_batch_id
     month.fingerprint_import_batch_id = fingerprint_batch_id
 
-    employees = db.scalars(
-        select(Employee).where(
-            Employee.status == "active",
-            Employee.hire_date <= period_end,
-        ).order_by(Employee.id)
+    all_employees = db.scalars(
+        select(Employee).where(Employee.hire_date <= period_end).order_by(Employee.id)
     ).all()
+    service_period_rows = db.scalars(
+        select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.start_date <= period_end
+        ).order_by(EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date)
+    ).all()
+    service_periods_by_employee = {}
+    for service_period in service_period_rows:
+        service_periods_by_employee.setdefault(service_period.employee_id, []).append({
+            "start_date": service_period.start_date,
+            "end_date": service_period.end_date,
+        })
+    employees = [
+        employee for employee in all_employees
+        if employee.status == "active"
+        or any(
+            period["start_date"] <= period_end
+            and (period["end_date"] is None or period["end_date"] >= period_start)
+            for period in service_periods_by_employee.get(employee.id, [])
+        )
+    ]
     if not employees:
-        raise ValueError("no_active_employees_in_attendance_period")
+        raise ValueError("no_employees_in_attendance_service_period")
 
     security_department = db.scalar(
         select(Department).where(
@@ -310,6 +327,7 @@ def prepare_and_persist_monthly_reconciliation(
         employees=[{
             "id": item.id, "department_id": item.department_id,
             "hire_date": item.hire_date,
+            "service_periods": service_periods_by_employee.get(item.id, []),
         } for item in employees],
         period_start=period_start,
         period_end=period_end,
@@ -473,6 +491,8 @@ def approve_attendance_month(
         )
     ):
         raise ValueError("attendance_month_source_batch_mismatch")
+    if any(batch.status != "parsed" for batch in batches):
+        raise ValueError("attendance_month_source_batch_not_ready_for_approval")
     if any(batch.issue_count for batch in batches):
         raise ValueError("attendance_month_has_unresolved_import_issues")
 
@@ -480,6 +500,8 @@ def approve_attendance_month(
         select(AttendanceDailyRecord).where(
             AttendanceDailyRecord.work_date >= month.period_start,
             AttendanceDailyRecord.work_date <= month.period_end,
+            AttendanceDailyRecord.program_import_batch_id == month.program_import_batch_id,
+            AttendanceDailyRecord.fingerprint_import_batch_id == month.fingerprint_import_batch_id,
         ).with_for_update()
     ).all()
     if not rows:
@@ -489,6 +511,10 @@ def approve_attendance_month(
 
     old_status = month.status
     month.status = "approved"
+    for batch in batches:
+        batch.status = "approved"
+        batch.reviewed_by = actor
+        batch.reviewed_at = datetime.now(timezone.utc)
     month.approved_by = actor
     month.approved_at = datetime.now(timezone.utc)
     month.approval_reason = reason.strip()
@@ -498,7 +524,11 @@ def approve_attendance_month(
         entity_type="attendance_month",
         entity_id=str(month.id),
         old_value=f"status={old_status}; daily_records={len(rows)}",
-        new_value=f"status=approved; daily_records={len(rows)}; coverage_confirmed=true",
+        new_value=(
+            f"status=approved; daily_records={len(rows)}; "
+            f"program_batch={batches[0].id}; fingerprint_batch={batches[1].id}; "
+            "source_batches=approved; coverage_confirmed=true"
+        ),
         reason=reason.strip(),
     ))
     db.flush()
