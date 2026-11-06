@@ -300,3 +300,57 @@ def test_overnight_program_and_fingerprint_events_do_not_create_next_day_duplica
     proposal = result[0]["proposal"]
     assert proposal["work_date"] == date(2026, 11, 1)
     assert proposal["program_clock_out"] == datetime(2026, 11, 2, 7, 3)
+
+
+def test_multiple_program_clock_in_events_require_review():
+    night = pattern("day-multiple-in", "08:00", "16:00", 60, 60)
+    night["id"] = 61
+    result = build_monthly_reconciliation_proposals(
+        employees=[{"id": 1, "department_id": 2}],
+        period_start=date(2026, 11, 1),
+        period_end=date(2026, 11, 1),
+        program_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 8, 0), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 8, 7), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 16, 0), "event_type": "OUT"},
+        ],
+        fingerprint_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 8, 0)},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 16, 0)},
+        ],
+        patterns_by_department={2: [night]},
+        security_assignments=[],
+        security_department_id=99,
+        security_approved_dates=set(),
+    )
+    assert len(result) == 1
+    proposal = result[0]["proposal"]
+    assert proposal["status"] == "needs_review"
+    assert "multiple_program_clock_in_events" in proposal["issues"]
+
+
+def test_multiple_program_clock_out_events_require_review():
+    day = pattern("day-multiple-out", "08:00", "16:00", 60, 60)
+    day["id"] = 62
+    result = build_monthly_reconciliation_proposals(
+        employees=[{"id": 1, "department_id": 2}],
+        period_start=date(2026, 11, 1),
+        period_end=date(2026, 11, 1),
+        program_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 8, 0), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 16, 0), "event_type": "OUT"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 16, 8), "event_type": "OUT"},
+        ],
+        fingerprint_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 8, 0)},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 16, 0)},
+        ],
+        patterns_by_department={2: [day]},
+        security_assignments=[],
+        security_department_id=99,
+        security_approved_dates=set(),
+    )
+    assert len(result) == 1
+    proposal = result[0]["proposal"]
+    assert proposal["status"] == "needs_review"
+    assert "multiple_program_clock_out_events" in proposal["issues"]
