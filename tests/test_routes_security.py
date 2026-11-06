@@ -786,3 +786,139 @@ def test_employee_probation_dates_are_optional_validated_and_audited(client):
         assert len(changes) == 1
         assert changes[0].effective_date == date(2025, 4, 1)
         assert changes[0].reason == "Probation period extended"
+
+
+def test_employee_data_change_request_can_be_reviewed_and_applied(client):
+    from app.main import SessionLocal
+    from app.models import AuditLog, EmployeeChange, EmployeeDataChangeRequest
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Change Request Employee",
+            "department_id": client.test_department_id,
+            "position": "Receptionist",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Change Request Employee").one()
+        employee_id = employee.id
+
+    submitted = client.post(
+        f"/employees/{employee_id}/data-change-requests",
+        data={
+            "csrf_token": token,
+            "field_name": "phone",
+            "requested_value": "01012345678",
+            "request_reason": "Employee requested phone correction",
+        },
+        follow_redirects=False,
+    )
+    assert submitted.status_code == 303
+    with SessionLocal() as db:
+        request_row = db.query(EmployeeDataChangeRequest).filter_by(employee_id=employee_id).one()
+        request_id = request_row.id
+        assert request_row.status == "pending"
+
+    reviewed = client.post(
+        f"/employee-data-change-requests/{request_id}/review",
+        data={
+            "csrf_token": token,
+            "decision": "apply",
+            "decision_reason": "Identity checked and approved",
+            "effective_date": "2025-02-01",
+        },
+        follow_redirects=False,
+    )
+    assert reviewed.status_code == 303
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        request_row = db.get(EmployeeDataChangeRequest, request_id)
+        change = db.query(EmployeeChange).filter_by(
+            employee_id=employee_id, field_name="phone"
+        ).one()
+        audit = db.query(AuditLog).filter_by(
+            entity_type="employee_data_change_request",
+            entity_id=str(request_id),
+            action="employee_data_change_applied",
+        ).one()
+        assert employee.phone == "01012345678"
+        assert request_row.status == "applied"
+        assert request_row.reviewed_by == "integration-admin"
+        assert change.old_value is None
+        assert change.new_value == "01012345678"
+        assert change.effective_date == date(2025, 2, 1)
+        assert audit.reason == "Identity checked and approved"
+
+    repeated = client.post(
+        f"/employee-data-change-requests/{request_id}/review",
+        data={
+            "csrf_token": token,
+            "decision": "reject",
+            "decision_reason": "Duplicate review",
+        },
+        follow_redirects=False,
+    )
+    assert repeated.status_code == 409
+
+
+def test_employee_photo_upload_is_validated_and_served_only_to_admin(client, monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "EMPLOYEE_PHOTO_DIR", tmp_path)
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(image_bytes, format="PNG")
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Photo Employee",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        files={"photo": ("employee.png", image_bytes.getvalue(), "image/png")},
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with main_module.SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Photo Employee").one()
+        employee_id = employee.id
+        photo_path = employee.photo_path
+        assert photo_path.endswith(".png")
+        assert (tmp_path / photo_path).is_file()
+
+    served = client.get(f"/employees/{employee_id}/photo")
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/png"
+
+    invalid = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Invalid Photo Employee",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        files={"photo": ("not-image.png", b"not an image", "image/png")},
+        follow_redirects=False,
+    )
+    assert invalid.status_code == 400
