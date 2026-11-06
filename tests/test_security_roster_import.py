@@ -62,3 +62,19 @@ def test_unknown_employee_mapping_is_rejected():
         assert str(exc) == "exactly_three_unique_security_employee_aliases_required"
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_duplicate_employee_headers_are_reported_without_silently_collapsing():
+    data = _workbook_bytes([
+        ["Date", "Fayez", "Fayez", "Yasser", "Walid"],
+        [date(2026, 11, 1), "OFF", time(8, 0), time(20, 0), time(8, 0)],
+    ])
+    result = parse_security_roster_xlsx(data, ALIASES)
+    assert result["status"] == "needs_review"
+    assert result["records"] == []
+    assert any(
+        issue["reason"] == "duplicate_employee_header"
+        and issue["row"] == 1
+        and issue["column"] == 3
+        for issue in result["issues"]
+    )
