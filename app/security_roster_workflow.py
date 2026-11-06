@@ -39,14 +39,16 @@ def prepare_security_roster(db, parsed_workbook):
                 by_name[key] = employee
 
     resolved = {}
-    for source_name, employee in parsed_workbook["employee_headers"].items():
-        key = _key(source_name)
-        match = by_name.get(key)
-        if match is None:
-            raise ValueError(f"unknown_security_employee_column:{source_name}")
-        if match.id in resolved:
+    for employee_id, source_name in parsed_workbook["employee_headers"].items():
+        employee = next((item for item in employees if item.id == employee_id), None)
+        if employee is None:
+            raise ValueError("excel_employee_id_not_in_active_security_team")
+        allowed = {_key(value) for value in (employee.full_name, employee.code, employee.fingerprint_id) if value}
+        if _key(source_name) not in allowed:
+            raise ValueError(f"unknown_or_mismatched_security_employee_column:{source_name}")
+        if employee_id in resolved:
             raise ValueError("duplicate_security_employee_columns")
-        resolved[match.id] = employee.id
+        resolved[employee_id] = employee_id
     if set(resolved) != {employee.id for employee in employees}:
         raise ValueError("excel_columns_must_match_all_three_active_security_employees")
 
@@ -62,8 +64,9 @@ def prepare_security_roster(db, parsed_workbook):
     ]
     daily = []
     for record in parsed_workbook["records"]:
-        roster = {resolved[employee_id]: value
-                  for employee_id, value in record["roster"].items()}
+        roster = {employee_id: value for employee_id, value in record["roster"].items()}
+        if set(roster) != set(resolved):
+            raise ValueError("daily_roster_employee_mapping_is_incomplete")
         proposal = build_security_day_proposal(roster, pattern_data)
         daily.append({
             "work_date": record["work_date"],
