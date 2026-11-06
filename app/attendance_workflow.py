@@ -650,9 +650,9 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
     These are coverage gaps for HR to inspect against both source workbooks. They
     are never converted to absence or rest-day classifications automatically.
     """
-    employees = db.scalars(
-        select(Employee).where(Employee.hire_date <= month.period_end).order_by(Employee.id)
-    ).all()
+    # Do not filter by Employee.hire_date here: re-hire updates that field,
+    # while EmployeeServicePeriod retains earlier historical employment periods.
+    employees = db.scalars(select(Employee).order_by(Employee.id)).all()
     service_rows = db.scalars(
         select(EmployeeServicePeriod).order_by(
             EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date
