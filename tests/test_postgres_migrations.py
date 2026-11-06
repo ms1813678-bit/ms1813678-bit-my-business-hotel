@@ -188,6 +188,35 @@ def test_fresh_postgres_install_repeated_upgrade_rollback_and_admin_guards(postg
             text("SELECT COUNT(*) FROM admin_accounts WHERE username = 'migration-admin'")
         ).scalar_one() == 1
 
+    # Database triggers reject direct SQL changes to audit history.
+    with test_engine.begin() as connection:
+        audit_id = connection.execute(
+            text("""
+                INSERT INTO audit_logs
+                    (actor, action, entity_type, entity_id, reason, created_at)
+                VALUES
+                    ('migration-admin', 'immutable_test', 'test', 'audit-1',
+                     'original', NOW())
+                RETURNING id
+            """)
+        ).scalar_one()
+        with pytest.raises(DBAPIError):
+            with connection.begin_nested():
+                connection.execute(
+                    text("UPDATE audit_logs SET reason = 'tampered' WHERE id = :id"),
+                    {"id": audit_id},
+                )
+        with pytest.raises(DBAPIError):
+            with connection.begin_nested():
+                connection.execute(
+                    text("DELETE FROM audit_logs WHERE id = :id"),
+                    {"id": audit_id},
+                )
+        assert connection.execute(
+            text("SELECT reason FROM audit_logs WHERE id = :id"),
+            {"id": audit_id},
+        ).scalar_one() == "original"
+
     # Downgrade and re-upgrade retain employee data, history, counter, and sequence state.
     downgrade(test_engine, "base")
     with test_engine.connect() as connection:
