@@ -446,3 +446,31 @@ def test_monthly_builder_respects_service_period_start_and_end_dates():
     assert {item["proposal"]["work_date"] for item in result} == {
         date(2026, 11, 2), date(2026, 11, 3)
     }
+
+
+
+def test_previous_overnight_shift_out_is_not_misclassified_as_next_day_shift_in():
+    night = pattern("night", "23:00", "07:00", 120, 120)
+    night["id"] = 101
+    morning = pattern("morning", "07:00", "15:00", 120, 120)
+    morning["id"] = 102
+    result = build_monthly_reconciliation_proposals(
+        employees=[{"id": 1, "department_id": 2}],
+        period_start=date(2026, 11, 1),
+        period_end=date(2026, 11, 2),
+        program_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 23, 0), "event_type": "IN"},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 2, 7, 3), "event_type": "OUT"},
+        ],
+        fingerprint_events=[
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 1, 23, 0)},
+            {"employee_id": 1, "punch_at": datetime(2026, 11, 2, 7, 3)},
+        ],
+        patterns_by_department={2: [night, morning]},
+        security_assignments=[],
+        security_department_id=99,
+        security_approved_dates=set(),
+    )
+    assert len(result) == 1
+    assert result[0]["proposal"]["work_date"] == date(2026, 11, 1)
+    assert result[0]["proposal"]["scheduled_end_at"] == datetime(2026, 11, 2, 7, 0)
