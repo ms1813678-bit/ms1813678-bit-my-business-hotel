@@ -59,6 +59,8 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
     if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
         raise ValueError("empty_excel_file")
     aliases = {_norm(name): employee_id for name, employee_id in employee_aliases.items()}
+    if len(aliases) != len(employee_aliases):
+        raise ValueError("employee_aliases_contain_normalization_collisions")
     if len(set(aliases.values())) != 3:
         raise ValueError("aliases_must_resolve_to_exactly_three_unique_security_employees")
 
