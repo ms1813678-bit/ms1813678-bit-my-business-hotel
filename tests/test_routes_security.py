@@ -113,7 +113,7 @@ def test_anonymous_user_cannot_open_protected_pages_or_post(client):
     assert client.post("/logout", data={}).status_code == 403
 
 
-@pytest.mark.parametrize("path", ["/login", "/logout", "/employees"])
+@pytest.mark.parametrize("path", ["/login", "/logout", "/employees", "/attendance/months/1/approve"])
 def test_post_routes_reject_missing_or_invalid_csrf(client, path):
     if path == "/logout":
         assert login(client).status_code == 303
