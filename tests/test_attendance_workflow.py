@@ -8,7 +8,7 @@ import pytest
 
 from app.db import Base
 from app.attendance_workflow import persist_attendance_import
-from app.models import AttendanceImportBatch, AttendancePunch, AuditLog, Department, Employee
+from app.models import AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog, Department, Employee
 
 
 @pytest.fixture
@@ -90,6 +90,9 @@ def test_import_with_issues_is_held_for_review(db_session):
     )
     assert batch.status == "needs_review"
     assert batch.issue_count == 1
+    issue = db_session.scalar(select(AttendanceImportIssue))
+    assert issue.reason == "unknown_employee"
+    assert issue.source_row == 4
 
 
 def test_same_source_file_cannot_be_imported_twice(db_session):
