@@ -1217,3 +1217,84 @@ def test_security_roster_preview_token_is_bound_to_its_own_session(monkeypatch, 
 
     assert exc.value.status_code == 403
     assert (staging / f"{token}.xlsx").exists()
+
+
+def test_security_roster_preview_cannot_cross_admin_sessions_or_survive_logout(client, monkeypatch, tmp_path):
+    from datetime import time
+    from io import BytesIO
+    from openpyxl import Workbook
+    from fastapi.testclient import TestClient
+    from app.main import SessionLocal
+
+    monkeypatch.setattr("app.main.SECURITY_ROSTER_STAGING_DIR", tmp_path / "staging")
+    with SessionLocal.begin() as db:
+        security = Department(name="Security", active=True)
+        db.add(security)
+        db.flush()
+        for index, name in enumerate(("Fayez", "Yasser", "Walid"), start=1):
+            db.add(Employee(
+                code=f"SEC-{index}", full_name=name, department_id=security.id,
+                position="Security", hire_date=date(2024, 1, 1),
+                basic_salary=Decimal("5000"), daily_hours=Decimal("8"), status="active",
+            ))
+        for code, start, end in (
+            ("MIDNIGHT", time(0, 0), time(8, 0)),
+            ("MORNING", time(8, 0), time(16, 0)),
+            ("EVENING", time(16, 0), time(0, 0)),
+        ):
+            db.add(ShiftPattern(
+                department_id=security.id, code=code, name=code,
+                start_time=start, end_time=end, active=True,
+                match_before_minutes=60, match_after_minutes=60,
+            ))
+
+    assert login(client).status_code == 303
+    upload_page = client.get("/security-roster")
+    first_csrf = csrf_from(upload_page)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Date", "Fayez", "Yasser", "Walid"])
+    sheet.append([date(2026, 11, 1), "00:00", "08:00", "16:00"])
+    output = BytesIO()
+    workbook.save(output)
+    preview = client.post(
+        "/security-roster/preview",
+        data={"csrf_token": first_csrf},
+        files={"file": ("security.xlsx", output.getvalue(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert preview.status_code == 200
+    stage_match = re.search(r'name="stage_token" value="([^"]+)"', preview.text)
+    assert stage_match
+    stage_token = stage_match.group(1)
+
+    with TestClient(app) as second_client:
+        assert login(second_client).status_code == 303
+        second_csrf = csrf_from(second_client.get("/security-roster"))
+        cross_session = second_client.post(
+            "/security-roster/confirm",
+            data={
+                "csrf_token": second_csrf,
+                "work_date": "2026-11-01",
+                "stage_token": stage_token,
+                "reviewed": "yes",
+            },
+        )
+        assert cross_session.status_code == 403
+
+    logout = client.post(
+        "/logout", data={"csrf_token": first_csrf}, follow_redirects=False
+    )
+    assert logout.status_code == 303
+    assert login(client).status_code == 303
+    new_csrf = csrf_from(client.get("/security-roster"))
+    after_logout = client.post(
+        "/security-roster/confirm",
+        data={
+            "csrf_token": new_csrf,
+            "work_date": "2026-11-01",
+            "stage_token": stage_token,
+            "reviewed": "yes",
+        },
+    )
+    assert after_logout.status_code == 403
