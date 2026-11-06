@@ -86,5 +86,7 @@ def match_shift_by_clock(clock_in: datetime, patterns: list[dict]) -> dict:
     if not matches:
         return {"status": "unmatched", "shift": None, "reason": "outside_non_overlapping_matching_window"}
     if len(matches) > 1:
+        return {"status": "ambiguous", "shift": None, "reason": "multiple_shifts_within_matching_window"}
+    if matches and starts.count(_minutes(matches[0]["start_time"])) > 1:
         return {"status": "ambiguous", "shift": None, "reason": "duplicate_or_indistinguishable_shift_start_times"}
     return {"status": "matched", "shift": matches[0], "reason": None}
