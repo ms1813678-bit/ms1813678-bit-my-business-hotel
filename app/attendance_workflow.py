@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import AttendanceImportBatch, AttendancePunch, AuditLog
+from app.models import AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog
 
 
 def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: dict, actor: str):
@@ -64,6 +65,15 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
             source_sheet=str(event.get("source_sheet", "Sheet1"))[:120],
             source_row=int(event["source_row"]),
             event_index=int(event["event_index"]),
+        ))
+    for issue in issues:
+        db.add(AttendanceImportIssue(
+            import_batch_id=batch.id,
+            source_sheet=str(issue.get("sheet"))[:120] if issue.get("sheet") is not None else None,
+            source_row=issue.get("row"),
+            reason=str(issue.get("reason", "unknown_import_issue"))[:100],
+            raw_value=str(issue.get("value"))[:2000] if issue.get("value") is not None else None,
+            details=json.dumps(issue, ensure_ascii=False, default=str),
         ))
     db.add(AuditLog(
         actor=actor,
