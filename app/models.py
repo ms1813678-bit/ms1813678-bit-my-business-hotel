@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, event
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, Time, UniqueConstraint, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -46,6 +46,39 @@ class Employee(Base):
     daily_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     department: Mapped[Department] = relationship(back_populates="employees")
+
+  
+class ShiftPattern(Base):
+    __tablename__ = "shift_patterns"
+    __table_args__ = (
+        UniqueConstraint("department_id", "code", name="uq_shift_patterns_department_code"),
+        CheckConstraint(
+            "match_window_minutes IS NULL OR match_window_minutes >= 0",
+            name="ck_shift_patterns_match_window_nonnegative",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"), index=True)
+    code: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(100))
+    start_time: Mapped[datetime.time] = mapped_column(Time)
+    end_time: Mapped[datetime.time] = mapped_column(Time)
+    # HR must configure this explicitly; no unapproved matching window is assumed.
+    match_window_minutes: Mapped[int | None] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class SecurityShiftAssignment(Base):
+    __tablename__ = "security_shift_assignments"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "work_date", name="uq_security_shift_employee_date"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    work_date: Mapped[date] = mapped_column(Date, index=True)
+    shift_pattern_id: Mapped[int] = mapped_column(ForeignKey("shift_patterns.id"))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class EmployeeCodeCounter(Base):
