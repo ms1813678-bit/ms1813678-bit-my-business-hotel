@@ -223,7 +223,8 @@ def build_monthly_reconciliation_proposals(
         for work_date in calendar_days:
             if employee.get("hire_date") and work_date < employee["hire_date"]:
                 continue
-            program_day = program_by_day.get((employee_id, work_date), [])
+            calendar_program_day = program_by_day.get((employee_id, work_date), [])
+            program_day = calendar_program_day
             program_ins = [
                 item["punch_at"] for item in program_day
                 if str(item.get("event_type", "")).casefold() in {"in", "clock in", "check in"}
@@ -287,8 +288,43 @@ def build_monthly_reconciliation_proposals(
                 )
                 # A missing row in both source files is not proof of an absence:
                 # without an assigned schedule, do not manufacture a daily record.
-                if not program_day and not unmatched_fingerprint and not has_fingerprint_evidence:
+                # A next-calendar-day OUT event may already belong to the
+                # previous day's overnight shift. Do not create a duplicate
+                # review row for that same event.
+                previous_candidate = non_security_candidates.get(work_date - timedelta(days=1))
+                previous_shift = (
+                    previous_candidate.get("shift")
+                    if previous_candidate and not previous_candidate.get("conflict")
+                    else None
+                )
+                previous_day_events = []
+                if previous_shift:
+                    previous_start, previous_end = shift_window(
+                        work_date - timedelta(days=1), previous_shift
+                    )
+                    previous_day_events = [
+                        item for item in calendar_program_day
+                        if previous_start - timedelta(minutes=120)
+                        <= item["punch_at"]
+                        <= previous_end + timedelta(minutes=120)
+                    ]
+                unassigned_program_day = [
+                    item for item in calendar_program_day
+                    if item not in previous_day_events
+                ]
+                if not unassigned_program_day and not unmatched_fingerprint and not has_fingerprint_evidence:
                     continue
+                program_day = unassigned_program_day
+                program_ins = [
+                    item["punch_at"] for item in program_day
+                    if str(item.get("event_type", "")).casefold() in {"in", "clock in", "check in"}
+                ]
+                program_outs = [
+                    item["punch_at"] for item in program_day
+                    if str(item.get("event_type", "")).casefold() in {"out", "clock out", "check out"}
+                ]
+                program_in = min(program_ins) if program_ins else None
+                program_out = max(program_outs) if program_outs else None
                 issue = (
                     "security_roster_assignment_missing"
                     if department_id == security_department_id
@@ -311,6 +347,24 @@ def build_monthly_reconciliation_proposals(
             scheduled_start, scheduled_end = shift_window(work_date, pattern)
             evidence_start = scheduled_start - timedelta(minutes=120)
             evidence_end = scheduled_end + timedelta(minutes=120)
+            # Group program-report IN/OUT events by the scheduled shift window,
+            # not by calendar date, so an overnight OUT remains on shift start day.
+            program_day = [
+                item for item in program_events
+                if item.get("employee_id") == employee_id
+                and isinstance(item.get("punch_at"), datetime)
+                and evidence_start <= item["punch_at"] <= evidence_end
+            ]
+            program_ins = [
+                item["punch_at"] for item in program_day
+                if str(item.get("event_type", "")).casefold() in {"in", "clock in", "check in"}
+            ]
+            program_outs = [
+                item["punch_at"] for item in program_day
+                if str(item.get("event_type", "")).casefold() in {"out", "clock out", "check out"}
+            ]
+            program_in = min(program_ins) if program_ins else None
+            program_out = max(program_outs) if program_outs else None
             day_fingerprint = [
                 punch for punch in all_punches
                 if evidence_start <= punch <= evidence_end
