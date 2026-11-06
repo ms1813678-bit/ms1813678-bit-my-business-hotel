@@ -252,18 +252,18 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
             event_type="OUT", source_sheet="Sheet1", source_row=2, event_index=1,
         ),
     ])
-    for employee, start, end in (
+    for employee_index, (employee, start, end) in enumerate((
         (normal_employee, datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 16, 0)),
         (security_employees[0], datetime(2026, 11, 1, 20, 0), datetime(2026, 11, 2, 8, 0)),
         (security_employees[1], datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 20, 0)),
-    ):
+    )):
         for index, punch_at in enumerate((start, end)):
             db_session.add(AttendancePunch(
                 import_batch_id=fingerprint_batch.id, employee_id=employee.id,
                 raw_employee_code=employee.code, raw_employee_name=employee.full_name,
                 punch_at=punch_at, raw_timestamp=punch_at.strftime("%H:%M"),
                 event_type="PUNCH", source_sheet="Att.log report",
-                source_row=2 + index, event_index=0,
+                source_row=2 + employee_index * 2 + index, event_index=0,
             ))
 
     summary = prepare_and_persist_monthly_reconciliation(
@@ -288,10 +288,27 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
 
 
 def test_monthly_reconciliation_refuses_duplicate_period_records(db_session):
-    from app.attendance_workflow import prepare_and_persist_monthly_reconciliation
+    work_date = date(2026, 11, 1)
+    program_batch = AttendanceImportBatch(
+        source_type="program_report", period_start=work_date, period_end=work_date,
+        original_filename="program.xlsx", file_sha256="c" * 64,
+        uploaded_by="hr-admin", status="parsed",
+    )
+    fingerprint_batch = AttendanceImportBatch(
+        source_type="fingerprint", period_start=work_date, period_end=work_date,
+        original_filename="fingerprint.xlsx", file_sha256="d" * 64,
+        uploaded_by="hr-admin", status="parsed",
+    )
+    db_session.add_all([program_batch, fingerprint_batch])
+    db_session.flush()
+    db_session.add(AttendanceDailyRecord(
+        employee_id=1, work_date=work_date, status="needs_review",
+    ))
+    db_session.flush()
+
     with pytest.raises(ValueError, match="attendance_period_already_has_reconciliation_records"):
         prepare_and_persist_monthly_reconciliation(
-            db_session, program_batch_id=1, fingerprint_batch_id=2,
-            period_start=date(2026, 11, 1), period_end=date(2026, 11, 1),
-            actor="hr-admin",
+            db_session, program_batch_id=program_batch.id,
+            fingerprint_batch_id=fingerprint_batch.id,
+            period_start=work_date, period_end=work_date, actor="hr-admin",
         )
