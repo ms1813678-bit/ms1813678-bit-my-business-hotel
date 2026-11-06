@@ -344,4 +344,7 @@ class AttendanceImportIssue(Base):
     reason: Mapped[str] = mapped_column(String(100), nullable=False)
     raw_value: Mapped[str | None] = mapped_column(Text)
     details: Mapped[str | None] = mapped_column(Text)
+    resolved_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"))
+    resolved_by: Mapped[str | None] = mapped_column(String(80))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
