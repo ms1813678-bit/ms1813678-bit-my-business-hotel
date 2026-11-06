@@ -637,3 +637,101 @@ def resolve_unknown_attendance_employee(
     ))
     db.flush()
     return issue
+
+
+
+def summarize_attendance_month_coverage(db, month: AttendanceMonth):
+    """List employee-days without a generated record or an approved Security roster.
+
+    These are coverage gaps for HR to inspect against both source workbooks. They
+    are never converted to absence or rest-day classifications automatically.
+    """
+    employees = db.scalars(
+        select(Employee).where(Employee.hire_date <= month.period_end).order_by(Employee.id)
+    ).all()
+    service_rows = db.scalars(
+        select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.start_date <= month.period_end,
+            or_(
+                EmployeeServicePeriod.end_date.is_(None),
+                EmployeeServicePeriod.end_date >= month.period_start,
+            ),
+        ).order_by(EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date)
+    ).all()
+    service_by_employee = {}
+    for row in service_rows:
+        service_by_employee.setdefault(row.employee_id, []).append(row)
+
+    daily_rows = db.scalars(
+        select(AttendanceDailyRecord).where(
+            AttendanceDailyRecord.work_date >= month.period_start,
+            AttendanceDailyRecord.work_date <= month.period_end,
+            AttendanceDailyRecord.program_import_batch_id == month.program_import_batch_id,
+            AttendanceDailyRecord.fingerprint_import_batch_id == month.fingerprint_import_batch_id,
+        )
+    ).all()
+    represented = {(row.employee_id, row.work_date) for row in daily_rows}
+
+    security_department = db.scalar(
+        select(Department).where(
+            Department.name == "Security", Department.active.is_(True)
+        )
+    )
+    security_approved_dates = set()
+    approved_values = db.scalars(
+        select(AuditLog.entity_id).where(
+            AuditLog.action == "security_roster_day_approved",
+            AuditLog.entity_type == "security_roster",
+        )
+    ).all()
+    for raw in approved_values:
+        try:
+            day = date.fromisoformat(raw)
+        except (TypeError, ValueError):
+            continue
+        if month.period_start <= day <= month.period_end:
+            security_approved_dates.add(day)
+
+    gaps = []
+    for employee in employees:
+        periods = service_by_employee.get(employee.id, [])
+        if periods:
+            service_dates = set()
+            for period in periods:
+                first = max(period.start_date, month.period_start)
+                last = min(period.end_date or month.period_end, month.period_end)
+                current = first
+                while current <= last:
+                    service_dates.add(current)
+                    current += timedelta(days=1)
+        elif employee.status == "active":
+            first = max(employee.hire_date, month.period_start)
+            service_dates = set()
+            current = first
+            while current <= month.period_end:
+                service_dates.add(current)
+                current += timedelta(days=1)
+        else:
+            service_dates = set()
+
+        for work_date in sorted(service_dates):
+            if (employee.id, work_date) in represented:
+                continue
+            if (
+                security_department is not None
+                and employee.department_id == security_department.id
+                and work_date in security_approved_dates
+            ):
+                # On an approved Security roster, no assignment means OFF.
+                continue
+            gaps.append({
+                "employee_id": employee.id,
+                "employee_code": employee.code,
+                "employee_name": employee.full_name,
+                "work_date": work_date,
+            })
+
+    return {
+        "unrepresented_employee_days": len(gaps),
+        "coverage_examples": gaps[:20],
+    }
