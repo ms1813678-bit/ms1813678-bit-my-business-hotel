@@ -266,9 +266,9 @@ def prepare_and_persist_monthly_reconciliation(
     month.program_import_batch_id = program_batch_id
     month.fingerprint_import_batch_id = fingerprint_batch_id
 
-    all_employees = db.scalars(
-        select(Employee).where(Employee.hire_date <= period_end).order_by(Employee.id)
-    ).all()
+    # Include former employees whose current hire_date reflects a later
+    # rehire; their earlier EmployeeServicePeriod may still overlap this month.
+    all_employees = db.scalars(select(Employee).order_by(Employee.id)).all()
     # Load the full service history so an employee with only a future
     # rehire/start period is not incorrectly treated as active in this month.
     service_period_rows = db.scalars(
