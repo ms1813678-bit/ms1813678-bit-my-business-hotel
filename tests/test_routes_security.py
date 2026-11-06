@@ -997,6 +997,8 @@ def test_security_roster_upload_preview_and_explicit_day_approval(client, monkey
     )
     assert approved.status_code == 200
     assert "تم اعتماد جدول يوم 2026-11-01 بنجاح" in approved.text
+    assert "تم اعتماد هذا اليوم بالفعل" in approved.text
+    assert 'value="2026-11-02"' in approved.text
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 3
         assert db.scalar(select(func.count()).select_from(AuditLog).where(
