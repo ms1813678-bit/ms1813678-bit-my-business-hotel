@@ -217,7 +217,14 @@ def _parse_att_log_matrix(sheet_name: str, rows: list, aliases: dict):
             continue
 
         identity = raw_code if raw_code not in (None, "") else raw_name
-        employee_id = aliases.get(normalize(identity))
+        # xlrd exposes numeric .xls identifiers as floats (for example 1.0),
+        # while employee aliases are stored as their canonical integer text.
+        identity_key = (
+            str(int(identity))
+            if isinstance(identity, (int, float)) and int(identity) == identity
+            else normalize(identity)
+        )
+        employee_id = aliases.get(identity_key)
         row_events = []
         event_index = 0
         for column_index, day in day_columns.items():
