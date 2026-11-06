@@ -13,7 +13,7 @@ import unicodedata
 
 
 DATE_HEADERS = {"date", "work date", "日期", "التاريخ", "اليوم"}
-CODE_HEADERS = {"ac-no", "ac no", "employee id", "employee code", "id", "رقم الموظف", "كود الموظف"}
+CODE_HEADERS = {"ac-no", "ac-no.", "ac no", "ac no.", "employee id", "user id", "pin", "employee code", "id", "رقم الموظف", "كود الموظف"}
 NAME_HEADERS = {"name", "employee name", "الاسم", "اسم الموظف"}
 IN_HEADERS = {"clock in", "check in", "in time", "وقت الحضور", "دخول"}
 OUT_HEADERS = {"clock out", "check out", "out time", "وقت الانصراف", "خروج"}
@@ -172,7 +172,7 @@ def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str
             else:
                 event_value = cell("event")
                 if event_value not in (None, ""):
-                    values = [("PUNCH", event_value)]
+                    values = [(str(cell("type") or "PUNCH"), event_value)]
                 else:
                     values = [("IN", cell("in")), ("OUT", cell("out"))]
 
