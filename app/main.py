@@ -258,25 +258,41 @@ def create_employee(
 ):
     if basic_salary < 0 or daily_hours <= 0 or daily_hours > 24:
         return HTMLResponse("بيانات الراتب أو ساعات العمل غير صحيحة.", status_code=400)
-    with SessionLocal() as db:
+    full_name = full_name.strip()
+    position = position.strip()
+    national_id = national_id.strip() or None
+    fingerprint_id = fingerprint_id.strip() or None
+    if not full_name or not position:
+        raise HTTPException(status_code=400, detail="اسم الموظف والمسمى الوظيفي مطلوبان.")
+    with SessionLocal.begin() as db:
         department = db.get(Department, department_id)
         if department is None or not department.active:
-            return HTMLResponse("القسم المحدد غير متاح.", status_code=400)
+            raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
         branch = db.get(Branch, branch_id) if branch_id is not None else None
         if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
-            return HTMLResponse("الفرع المحدد غير تابع للقسم المختار أو غير متاح.", status_code=400)
+            raise HTTPException(status_code=400, detail="الفرع المحدد غير تابع للقسم المختار أو غير متاح.")
+        for field_name, value in (("national_id", national_id), ("fingerprint_id", fingerprint_id)):
+            if value is not None and db.scalar(
+                select(Employee.id).where(getattr(Employee, field_name) == value).limit(1)
+            ) is not None:
+                raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
         employee = Employee(
-            code=allocate_employee_code(db), full_name=full_name.strip(),
-            national_id=national_id.strip() or None, phone=phone.strip() or None,
+            code=allocate_employee_code(db), full_name=full_name,
+            national_id=national_id, phone=phone.strip() or None,
             address=address.strip() or None, department_id=department_id,
-            branch_id=branch_id, position=position.strip(), hire_date=hire_date,
+            branch_id=branch_id, position=position, hire_date=hire_date,
             basic_salary=basic_salary, daily_hours=daily_hours,
-            fingerprint_id=fingerprint_id.strip() or None, status="active",
+            fingerprint_id=fingerprint_id, status="active",
         )
         db.add(employee)
         db.flush()
         db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason="Initial employment"))
-        db.commit()
+        db.add(AuditLog(
+            actor=admin.username, action="employee_created",
+            entity_type="employee", entity_id=str(employee.id),
+            new_value=f"code={employee.code}; full_name={employee.full_name}; department_id={department_id}; branch_id={branch_id}",
+            reason="Initial employee record created",
+        ))
     return RedirectResponse("/employees", status_code=303)
 
 
