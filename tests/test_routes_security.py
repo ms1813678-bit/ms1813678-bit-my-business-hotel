@@ -1357,3 +1357,25 @@ def test_monthly_attendance_reconciliation_page_is_admin_protected(client):
     assert page.status_code == 200
     assert "مطابقة الحضور الشهرية" in page.text
     assert client.post("/attendance/reconcile", data={}).status_code == 403
+
+
+def test_attendance_review_page_is_admin_protected_and_renders_empty_state(client):
+    assert client.get("/attendance/review").status_code == 401
+    assert login(client).status_code == 303
+    page = client.get("/attendance/review")
+    assert page.status_code == 200
+    assert "مراجعة واعتماد الحضور" in page.text
+    assert "لا توجد سجلات معلقة" in page.text
+
+
+def test_attendance_approval_endpoint_requires_csrf_and_admin(client):
+    assert client.post(
+        "/attendance/1/approve",
+        data={"clock_in": "2026-11-01T08:00", "clock_out": "2026-11-01T16:00", "reason": "reviewed"},
+    ).status_code == 401
+    assert login(client).status_code == 303
+    response = client.post(
+        "/attendance/1/approve",
+        data={"clock_in": "2026-11-01T08:00", "clock_out": "2026-11-01T16:00", "reason": "reviewed"},
+    )
+    assert response.status_code == 403
