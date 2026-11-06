@@ -47,6 +47,7 @@
     <section class="notice">
       <h2>تم تسجيل دفعة الاستيراد</h2>
       <p>رقم الدفعة: {{ batch.id }}</p>
+      <p><a href="/attendance/import/{{ batch.id }}/download">تحميل نسخة الملف الأصلي المحفوظة</a></p>
       <p>الفترة: {{ batch.period_start }} إلى {{ batch.period_end }}</p>
       <p>عدد أحداث الدخول/الخروج المستخرجة: {{ batch.row_count }}</p>
       <p>عدد الملاحظات التي تحتاج مراجعة: {{ batch.issue_count }}</p>
