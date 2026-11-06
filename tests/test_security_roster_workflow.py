@@ -179,3 +179,22 @@ def test_audit_log_orm_delete_is_rejected(roster_db):
         db.flush()
     db.rollback()
     assert db.get(AuditLog, entry.id) is not None
+
+
+def test_persistence_conflict_rolls_back_entire_day(roster_db, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+
+    db, employees, admin = roster_db
+    parsed = _parsed(employees)
+    day = prepare_security_roster(db, parsed)["days"][0]
+    original_flush = db.flush
+
+    def conflicting_flush(*args, **kwargs):
+        raise IntegrityError("INSERT", {}, Exception("unique constraint conflict"))
+
+    monkeypatch.setattr(db, "flush", conflicting_flush)
+    with pytest.raises(ValueError, match="approval_conflict_or_persistence_failure"):
+        confirm_security_roster_day(db, day["work_date"], day["roster"], admin, [])
+    monkeypatch.setattr(db, "flush", original_flush)
+    assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
