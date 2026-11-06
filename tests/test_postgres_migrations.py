@@ -1,6 +1,8 @@
 """PostgreSQL-only migration, data-preservation, and sequence integration tests."""
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime, time
+from decimal import Decimal
+from threading import Event
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,7 +13,9 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from app.db import engine as configured_engine
+from app.db import engine as configured_engine, Base
+from app.attendance_workflow import approve_attendance_day
+from app.models import AttendanceDailyRecord, AuditLog, Department, Employee, ShiftPattern
 from app.employee_codes import allocate_employee_code
 
 
@@ -556,3 +560,87 @@ def test_attendance_schema_migration_creates_raw_and_reconciliation_tables(postg
 
     issue_columns = {column["name"] for column in inspector.get_columns("attendance_import_issues")}
     assert {"import_batch_id", "source_sheet", "source_row", "reason", "raw_value", "details"}.issubset(issue_columns)
+
+
+def test_concurrent_postgres_attendance_approval_allows_exactly_one_winner(postgres_schema):
+    """Two independent PostgreSQL transactions cannot approve one day twice."""
+    Base.metadata.create_all(postgres_schema)
+    factory = sessionmaker(bind=postgres_schema, expire_on_commit=False)
+    work_date = date(2026, 11, 1)
+
+    with factory.begin() as db:
+        department = Department(name="Concurrent Attendance Test", active=True)
+        db.add(department)
+        db.flush()
+        employee = Employee(
+            code="CONCURRENT-ATT-01", full_name="Concurrent Test",
+            department_id=department.id, position="Test",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        db.add(employee)
+        db.flush()
+        pattern = ShiftPattern(
+            department_id=department.id, code="DAY", name="Day",
+            start_time=time(8, 0), end_time=time(16, 0),
+            match_before_minutes=60, match_after_minutes=60, active=True,
+        )
+        db.add(pattern)
+        db.flush()
+        record = AttendanceDailyRecord(
+            employee_id=employee.id, work_date=work_date,
+            shift_pattern_id=pattern.id,
+            scheduled_start_at=datetime(2026, 11, 1, 8, 0),
+            scheduled_end_at=datetime(2026, 11, 1, 16, 0),
+            first_clock_in=datetime(2026, 11, 1, 8, 0),
+            last_clock_out=datetime(2026, 11, 1, 16, 0),
+            status="ready_for_review",
+        )
+        db.add(record)
+        db.flush()
+        record_id = record.id
+
+    first_has_lock = Event()
+    release_first = Event()
+
+    def first_approval():
+        with factory.begin() as db:
+            approve_attendance_day(
+                db, record_id=record_id,
+                clock_in=datetime(2026, 11, 1, 8, 0),
+                clock_out=datetime(2026, 11, 1, 16, 0),
+                actor="hr-one", reason="First concurrent approval",
+            )
+            first_has_lock.set()
+            assert release_first.wait(timeout=10)
+        return "approved"
+
+    def second_approval():
+        assert first_has_lock.wait(timeout=10)
+        with factory.begin() as db:
+            try:
+                approve_attendance_day(
+                    db, record_id=record_id,
+                    clock_in=datetime(2026, 11, 1, 8, 5),
+                    clock_out=datetime(2026, 11, 1, 16, 5),
+                    actor="hr-two", reason="Second concurrent approval",
+                )
+            except ValueError as exc:
+                assert str(exc) == "attendance_daily_record_already_approved"
+                return "rejected"
+        return "unexpectedly-approved"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(first_approval)
+        assert first_has_lock.wait(timeout=10)
+        second = pool.submit(second_approval)
+        release_first.set()
+        assert first.result(timeout=15) == "approved"
+        assert second.result(timeout=15) == "rejected"
+
+    with factory() as db:
+        final_record = db.get(AttendanceDailyRecord, record_id)
+        assert final_record.status == "approved"
+        assert final_record.approved_by == "hr-one"
+        assert db.query(AttendanceDailyRecord).count() == 1
+        assert db.query(AuditLog).filter_by(action="attendance_day_approved").count() == 1
