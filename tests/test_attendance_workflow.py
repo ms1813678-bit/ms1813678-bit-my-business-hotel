@@ -238,6 +238,19 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
     normal_employee = db_session.scalar(
         select(Employee).where(Employee.code == "ATT-001")
     )
+    historical_rehire = Employee(
+        code="ATT-HISTORICAL-REHIRE", full_name="Historical Rehire",
+        department_id=attendance_department.id, position="Test",
+        hire_date=date(2026, 12, 1), status="active",
+        basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+    )
+    db_session.add(historical_rehire)
+    db_session.flush()
+    db_session.add(EmployeeServicePeriod(
+        employee_id=historical_rehire.id,
+        start_date=date(2026, 1, 1), end_date=date(2026, 1, 31),
+        start_reason="Original employment", end_reason="Left before rehire",
+    ))
     db_session.add_all([
         AttendancePunch(
             import_batch_id=program_batch.id, employee_id=normal_employee.id,
@@ -251,9 +264,22 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
             punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
             event_type="OUT", source_sheet="Sheet1", source_row=2, event_index=1,
         ),
+        AttendancePunch(
+            import_batch_id=program_batch.id, employee_id=historical_rehire.id,
+            raw_employee_code=historical_rehire.code, raw_employee_name=historical_rehire.full_name,
+            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
+            event_type="IN", source_sheet="Sheet1", source_row=3, event_index=0,
+        ),
+        AttendancePunch(
+            import_batch_id=program_batch.id, employee_id=historical_rehire.id,
+            raw_employee_code=historical_rehire.code, raw_employee_name=historical_rehire.full_name,
+            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
+            event_type="OUT", source_sheet="Sheet1", source_row=3, event_index=1,
+        ),
     ])
     for employee_index, (employee, start, end) in enumerate((
         (normal_employee, datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 16, 0)),
+        (historical_rehire, datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 16, 0)),
         (security_employees[0], datetime(2026, 11, 1, 20, 0), datetime(2026, 11, 2, 8, 0)),
         (security_employees[1], datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 20, 0)),
     )):
@@ -277,14 +303,15 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
     db_session.commit()
 
     assert summary == {
-        "total": 3, "ready_for_review": 3, "needs_review": 0,
+        "total": 4, "ready_for_review": 4, "needs_review": 0,
         "import_issue_count": 0,
         "period_start": work_date, "period_end": work_date,
     }
     records = db_session.scalars(select(AttendanceDailyRecord)).all()
-    assert len(records) == 3
+    assert len(records) == 4
     assert all(item.status == "ready_for_review" for item in records)
     assert all(item.approved_by is None and item.approved_at is None for item in records)
+    assert historical_rehire.id in {item.employee_id for item in records}
     assert security_employees[2].id not in {item.employee_id for item in records}
 
 
