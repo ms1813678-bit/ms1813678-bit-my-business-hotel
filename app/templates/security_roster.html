@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>جدول الأمن</title><link rel="stylesheet" href="/static/app.css"></head>
+<body><main class="shell">
+<header class="topbar"><div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>استيراد جدول الأمن</h1><p>المسؤول: {{ admin }}</p></div><a href="/">الرئيسية</a></header>
+{% if error %}<section class="notice"><strong>تعذر إكمال العملية:</strong> {{ error }}</section>{% endif %}
+{% if success %}<section class="notice"><strong>{{ success }}</strong></section>{% endif %}
+<section class="notice"><h2>رفع ملف Excel</h2><p>ارفع ملف .xlsx يحتوي على التاريخ وأسماء موظفي الأمن الثلاثة. اكتب وقت بداية الوردية أو OFF. المعاينة لا تحفظ أي ورديات.</p>
+<form method="post" action="/security-roster/preview" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="file" name="file" accept=".xlsx" required><button type="submit">رفع ومعاينة</button></form>
+{% if filename %}<p>{{ filename }}</p>{% endif %}</section>
+{% if issues %}<section class="notice"><h2>ملاحظات الاستيراد</h2><ul>{% for issue in issues %}<li>صف {{ issue.row if issue.row is defined else "غير محدد" }} — {{ issue.reason }} {% if issue.date is defined %}({{ issue.date }}){% endif %}</li>{% endfor %}</ul></section>{% endif %}
+{% if days %}<section><h2>مراجعة الأيام</h2><p>كل يوم يُراجع ويُعتمد منفصلًا.</p>
+{% for day in days %}<article class="tile"><h3>{{ day.work_date.strftime("%Y-%m-%d") }}</h3>
+{% if day.can_confirm %}<p>جاهز للاعتماد بعد المراجعة</p>{% else %}<p>يحتاج إلى مراجعة وتصحيح</p>{% endif %}
+<table><thead><tr><th>الموظف</th><th>البداية</th><th>النهاية</th><th>المدة</th></tr></thead><tbody>
+{% for assignment in day.proposal.assignments %}<tr><td>{{ assignment.employee_id }}</td><td>{{ assignment.start_time.strftime("%H:%M") }}</td><td>{{ assignment.end_time.strftime("%H:%M") }}</td><td>{{ assignment.duration_hours }} ساعة</td></tr>{% endfor %}
+</tbody></table>
+{% if day.proposal.issues %}<ul>{% for issue in day.proposal.issues %}<li>{{ issue }}</li>{% endfor %}</ul>{% endif %}
+{% if day.can_confirm %}<form method="post" action="/security-roster/confirm"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="work_date" value="{{ day.work_date.isoformat() }}"><input type="hidden" name="stage_token" value="{{ stage_token }}"><label><input type="checkbox" required> راجعت ورديات هذا اليوم</label><button type="submit">اعتماد اليوم</button></form>{% else %}<p>لن يتم حفظ تعيينات هذا اليوم.</p>{% endif %}</article>{% endfor %}</section>{% endif %}
+<footer>تنتهي صلاحية المعاينة بعد ساعة. الاعتماد يتطلب تأكيد المسؤول.</footer></main></body></html>
