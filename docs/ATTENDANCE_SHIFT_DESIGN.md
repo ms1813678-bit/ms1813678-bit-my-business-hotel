@@ -36,3 +36,17 @@ AI may analyze attendance evidence and prepare shift suggestions with explanatio
 ## Not yet implemented in this stage
 
 The security roster upload/editor, attendance import and reconciliation, monthly attendance review/approval, and payroll gate belong to the following attendance stages. This foundation does not claim those workflows are complete.
+
+
+## Attendance evidence foundation (revision 0010)
+
+The repository now includes an initial, non-approving evidence layer:
+
+- `AttendanceImportBatch` records source type, period, file hash, uploader, counts, and review status.
+- `AttendancePunch` stores each parsed event with its exact source sheet, row, event index, raw timestamp text, and exact employee mapping when available.
+- `AttendanceDailyRecord` is the future employee/work-date reconciliation record. It defaults to `needs_review`; this table is not a payroll approval.
+- `app.attendance_import.parse_attendance_workbook` reads both legacy `.xls` and modern `.xlsx` files. Program exports contribute separate clock-in/clock-out evidence; fingerprint exports retain every time token in a multi-time cell.
+- Employee matching is exact against configured employee codes, fingerprint IDs, or names. Unknown identities and malformed values become issues, never fuzzy matches.
+- `app.attendance_workflow.persist_attendance_import` stores parsed evidence and an immutable AuditLog event, rejects duplicate source-file hashes, and does not approve daily attendance.
+
+This is not yet the completed attendance workflow. Remaining work includes a protected upload/preview interface, program-report plus fingerprint reconciliation across the full month, shift-aware overnight pairing, review/adjustment screens, explicit monthly HR approval, and a payroll gate. Do not use imported evidence for payroll until those controls and end-to-end tests are implemented.
