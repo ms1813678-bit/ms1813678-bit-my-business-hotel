@@ -41,6 +41,9 @@
     </section>
     {% endif %}
 
+    {% if batch %}
+    <p><a href="/attendance/import/{{ batch.id }}/issues">مراجعة مشكلات هذه الدفعة وحل هوية الموظف المجهول</a></p>
+    {% endif %}
     <p><a href="/attendance/reconcile">الانتقال إلى مطابقة الشهر</a></p>
 
     {% if batch %}
