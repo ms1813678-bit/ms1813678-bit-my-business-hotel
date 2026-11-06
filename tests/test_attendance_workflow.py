@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation, resolve_unknown_attendance_employee)
+from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation, resolve_unknown_attendance_employee, summarize_attendance_month_coverage)
 from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
 
 
@@ -582,6 +582,54 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     assert audit is not None
     assert audit.entity_id == str(month.id)
 
+
+
+def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_absence(db_session):
+    work_date = date(2026, 11, 1)
+    security = Department(name="Security", active=True)
+    db_session.add(security)
+    db_session.flush()
+    for index in range(3):
+        db_session.add(Employee(
+            code=f"SEC-COVER-{index}", full_name=f"Security Cover {index}",
+            department_id=security.id, position="Security",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        ))
+    program = AttendanceImportBatch(
+        source_type="program_report", period_start=work_date, period_end=work_date,
+        original_filename="program.xlsx", file_sha256="1" * 64,
+        uploaded_by="hr-admin", status="parsed", row_count=1, issue_count=0,
+    )
+    fingerprint = AttendanceImportBatch(
+        source_type="fingerprint", period_start=work_date, period_end=work_date,
+        original_filename="fingerprint.xlsx", file_sha256="2" * 64,
+        uploaded_by="hr-admin", status="parsed", row_count=1, issue_count=0,
+    )
+    db_session.add_all([program, fingerprint])
+    db_session.flush()
+    month = AttendanceMonth(
+        period_start=work_date, period_end=work_date,
+        program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
+        status="under_review", created_by="hr-admin",
+    )
+    db_session.add(month)
+    db_session.add(AuditLog(
+        actor="hr-admin", action="security_roster_day_approved",
+        entity_type="security_roster", entity_id=work_date.isoformat(),
+        reason="Approved roster; blank assignment means OFF",
+    ))
+    db_session.flush()
+
+    summary = summarize_attendance_month_coverage(db_session, month)
+    assert summary["unrepresented_employee_days"] == 1
+    assert summary["coverage_examples"] == [{
+        "employee_id": 1,
+        "employee_code": "ATT-001",
+        "employee_name": "Test Employee",
+        "work_date": work_date,
+    }]
 
 
 def test_unknown_employee_resolution_links_raw_punches_and_recalculates_batch_status(db_session):
