@@ -30,8 +30,11 @@ def _department_history_by_date(db, employees, period_start: date, period_end: d
         history = by_employee.get(employee.id, [])
         daily_departments = {}
         current = employee.department_id
-        work_date = period_start
-        while work_date <= period_end:
+        # Include adjacent dates because an overnight shift can use the
+        # previous/next calendar day's department context.
+        work_date = period_start - timedelta(days=1)
+        history_end = period_end + timedelta(days=1)
+        while work_date <= history_end:
             department_id = current
             for change in history:
                 if change.effective_date <= work_date:
