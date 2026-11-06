@@ -1225,6 +1225,7 @@ def test_security_roster_preview_cannot_cross_admin_sessions_or_survive_logout(c
     from openpyxl import Workbook
     from fastapi.testclient import TestClient
     from app.main import SessionLocal
+    from app.models import ShiftPattern
 
     monkeypatch.setattr("app.main.SECURITY_ROSTER_STAGING_DIR", tmp_path / "staging")
     with SessionLocal.begin() as db:
