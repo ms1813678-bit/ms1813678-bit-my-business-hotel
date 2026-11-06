@@ -24,6 +24,8 @@ from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.models import AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
 from app.security_roster_import import parse_security_roster_xlsx
+from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
+from app.attendance_workflow import persist_attendance_import
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
@@ -286,6 +288,91 @@ def _security_roster_aliases(db):
     if len({value for value in aliases.values()}) != 3:
         raise ValueError("security_employee_identifiers_must_resolve_to_three_employees")
     return aliases
+
+
+def _attendance_employee_aliases(db):
+    employees = db.scalars(select(Employee).order_by(Employee.id)).all()
+    aliases = {}
+    owners = {}
+    for employee in employees:
+        for value in (employee.code, employee.fingerprint_id, employee.full_name):
+            if not value:
+                continue
+            key = normalize_attendance_alias(value)
+            owner = owners.get(key)
+            if owner is not None and owner != employee.id:
+                raise ValueError("employee_identifiers_are_ambiguous_for_attendance_import")
+            owners[key] = employee.id
+            aliases[str(value)] = employee.id
+    if not aliases:
+        raise ValueError("no_employee_identifiers_configured")
+    return aliases
+
+
+def _read_attendance_upload(upload: UploadFile) -> bytes:
+    filename = (upload.filename or "").strip()
+    if Path(filename).suffix.casefold() not in {".xls", ".xlsx"}:
+        raise HTTPException(status_code=400, detail="يرجى رفع ملف Excel بصيغة .xls أو .xlsx.")
+    raw = upload.file.read(SECURITY_ROSTER_MAX_BYTES + 1)
+    if not raw:
+        raise HTTPException(status_code=400, detail="الملف فارغ.")
+    if len(raw) > SECURITY_ROSTER_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="حجم ملف الحضور يجب ألا يتجاوز 5 ميجابايت.")
+    return raw
+
+
+@app.get("/attendance/import", response_class=HTMLResponse)
+def attendance_import_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    return templates.TemplateResponse(
+        request=request,
+        name="attendance_import.html",
+        context={"admin": admin.username, "csrf_token": get_csrf_token(request),
+                 "error": None, "batch": None, "issues": []},
+    )
+
+
+@app.post("/attendance/import", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def attendance_import_upload(
+    request: Request,
+    source_type: str = Form(...),
+    file: UploadFile = File(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    context = {
+        "admin": admin.username, "csrf_token": get_csrf_token(request),
+        "error": None, "batch": None, "issues": [],
+    }
+    try:
+        if source_type not in {"program_report", "fingerprint"}:
+            raise ValueError("unsupported_attendance_source_type")
+        raw = _read_attendance_upload(file)
+        with SessionLocal.begin() as db:
+            aliases = _attendance_employee_aliases(db)
+            parsed = parse_attendance_workbook(raw, file.filename or "attendance.xlsx", source_type, aliases)
+            batch = persist_attendance_import(
+                db, file_bytes=raw, filename=file.filename or "attendance.xlsx",
+                parsed=parsed, actor=admin.username,
+            )
+            context.update({
+                "batch": {
+                    "id": batch.id, "source_type": batch.source_type,
+                    "period_start": batch.period_start, "period_end": batch.period_end,
+                    "row_count": batch.row_count, "issue_count": batch.issue_count,
+                    "status": batch.status,
+                },
+                "issues": parsed["issues"],
+            })
+    except (ValueError, KeyError) as exc:
+        context["error"] = str(exc)
+        return templates.TemplateResponse(
+            request=request, name="attendance_import.html", context=context, status_code=400
+        )
+    return templates.TemplateResponse(
+        request=request, name="attendance_import.html", context=context
+    )
 
 
 @app.post("/security-roster/preview", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
