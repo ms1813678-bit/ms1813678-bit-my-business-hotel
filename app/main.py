@@ -22,10 +22,10 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
+from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
-from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month
+from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
@@ -412,6 +412,74 @@ def _attendance_import_batch_options():
             .order_by(AttendanceImportBatch.created_at.desc(), AttendanceImportBatch.id.desc())
             .limit(50)
         ).all()
+
+
+@app.get("/attendance/import/{batch_id}/issues", response_class=HTMLResponse)
+def attendance_import_issues_page(
+    request: Request,
+    batch_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    with SessionLocal() as db:
+        batch = db.get(AttendanceImportBatch, batch_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="دفعة الاستيراد غير موجودة.")
+        issues = db.scalars(
+            select(AttendanceImportIssue)
+            .where(AttendanceImportIssue.import_batch_id == batch_id)
+            .order_by(AttendanceImportIssue.source_row, AttendanceImportIssue.id)
+        ).all()
+        employees = db.scalars(select(Employee).order_by(Employee.full_name, Employee.id)).all()
+    return templates.TemplateResponse(
+        request=request,
+        name="attendance_import_issues.html",
+        context={
+            "admin": admin.username, "csrf_token": get_csrf_token(request),
+            "batch": batch, "issues": issues, "employees": employees, "error": None,
+        },
+    )
+
+
+@app.post(
+    "/attendance/import/{batch_id}/issues/{issue_id}/resolve",
+    response_class=HTMLResponse,
+    dependencies=[Depends(csrf_protect)],
+)
+def attendance_import_issue_resolve(
+    request: Request,
+    batch_id: int,
+    issue_id: int,
+    employee_id: int = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            issue = db.get(AttendanceImportIssue, issue_id)
+            if issue is None or issue.import_batch_id != batch_id:
+                raise ValueError("attendance_import_issue_not_found")
+            resolve_unknown_attendance_employee(
+                db, issue_id=issue_id, employee_id=employee_id, actor=admin.username
+            )
+    except ValueError as exc:
+        with SessionLocal() as db:
+            batch = db.get(AttendanceImportBatch, batch_id)
+            issues = db.scalars(
+                select(AttendanceImportIssue)
+                .where(AttendanceImportIssue.import_batch_id == batch_id)
+                .order_by(AttendanceImportIssue.source_row, AttendanceImportIssue.id)
+            ).all() if batch else []
+            employees = db.scalars(select(Employee).order_by(Employee.full_name, Employee.id)).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="attendance_import_issues.html",
+            context={
+                "admin": admin.username, "csrf_token": get_csrf_token(request),
+                "batch": batch, "issues": issues, "employees": employees,
+                "error": str(exc),
+            },
+            status_code=400,
+        )
+    return RedirectResponse(f"/attendance/import/{batch_id}/issues", status_code=303)
 
 
 @app.get("/attendance/reconcile", response_class=HTMLResponse)
