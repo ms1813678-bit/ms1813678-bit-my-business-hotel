@@ -187,6 +187,8 @@ def test_persistence_conflict_rolls_back_entire_day(roster_db, monkeypatch):
     db, employees, admin = roster_db
     parsed = _parsed(employees)
     day = prepare_security_roster(db, parsed)["days"][0]
+    # Load expired identity fields before injecting the simulated flush failure.
+    _admin_id, _admin_username = admin.id, admin.username
     original_flush = db.flush
 
     def conflicting_flush(*args, **kwargs):
