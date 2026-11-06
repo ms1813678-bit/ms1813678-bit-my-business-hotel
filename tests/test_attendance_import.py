@@ -75,7 +75,10 @@ def test_unknown_employee_is_reported_and_never_fuzzy_matched():
     ])])
     parsed = parse_attendance_workbook(raw, "fingerprint.xlsx", "fingerprint", ALIASES)
 
-    assert parsed["events"] == []
+    assert len(parsed["events"]) == 1
+    assert parsed["events"][0]["employee_id"] is None
+    assert parsed["events"][0]["raw_employee_code"] == "FP-UNKNOWN"
+    assert parsed["events"][0]["punch_at"] == datetime(2026, 11, 1, 7, 50)
     assert parsed["issues"][0]["reason"] == "unknown_employee"
     assert parsed["period_start"] == date(2026, 11, 1)
     assert parsed["period_end"] == date(2026, 11, 1)
