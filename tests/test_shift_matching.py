@@ -83,3 +83,13 @@ def test_invalid_margin_is_rejected():
 
 def test_empty_patterns_are_unmatched():
     assert match(9, 0, [])["status"] == "unmatched"
+
+
+def test_unconfigured_neighbor_still_limits_matching_window():
+    configured = pattern("hk-08", "08:00")
+    unconfigured = {
+        "id": "hk-09", "name": "hk-09", "start_time": time(9, 0),
+        "match_before_minutes": None, "match_after_minutes": None,
+    }
+    assert match(8, 29, [configured, unconfigured])["status"] == "matched"
+    assert match(8, 30, [configured, unconfigured])["status"] == "unmatched"
