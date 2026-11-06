@@ -522,3 +522,34 @@ def test_security_roster_concurrent_approval_is_serialized_on_postgres(postgres_
         assert db.scalar(select(func.count()).select_from(AuditLog).where(
             AuditLog.action == "security_roster_day_approved"
         )) == 1
+
+
+def test_attendance_schema_migration_creates_raw_and_reconciliation_tables(postgres_schema):
+    migrate(postgres_schema, "head")
+    inspector = inspect(postgres_schema)
+
+    assert {
+        "attendance_import_batches",
+        "attendance_punches",
+        "attendance_daily_records",
+    }.issubset(set(inspector.get_table_names()))
+
+    batch_columns = {column["name"] for column in inspector.get_columns("attendance_import_batches")}
+    assert {
+        "source_type", "period_start", "period_end", "file_sha256",
+        "uploaded_by", "status", "row_count", "issue_count",
+    }.issubset(batch_columns)
+
+    punch_columns = {column["name"] for column in inspector.get_columns("attendance_punches")}
+    assert {
+        "employee_id", "raw_employee_code", "raw_employee_name",
+        "punch_at", "raw_timestamp", "source_sheet", "source_row", "event_index",
+    }.issubset(punch_columns)
+
+    daily_columns = {column["name"] for column in inspector.get_columns("attendance_daily_records")}
+    assert {
+        "employee_id", "work_date", "shift_pattern_id", "security_shift_assignment_id",
+        "program_import_batch_id", "fingerprint_import_batch_id",
+        "scheduled_start_at", "scheduled_end_at", "first_clock_in", "last_clock_out",
+        "status", "approved_by", "approved_at",
+    }.issubset(daily_columns)
