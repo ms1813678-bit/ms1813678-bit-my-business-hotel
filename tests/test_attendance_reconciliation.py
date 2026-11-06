@@ -474,3 +474,22 @@ def test_previous_overnight_shift_out_is_not_misclassified_as_next_day_shift_in(
     assert len(result) == 1
     assert result[0]["proposal"]["work_date"] == date(2026, 11, 1)
     assert result[0]["proposal"]["scheduled_end_at"] == datetime(2026, 11, 2, 7, 0)
+
+
+
+def test_missing_security_roster_day_requires_review_even_without_any_punches():
+    result = build_monthly_reconciliation_proposals(
+        employees=[{"id": 7, "department_id": 99}],
+        period_start=date(2026, 11, 1),
+        period_end=date(2026, 11, 1),
+        program_events=[],
+        fingerprint_events=[],
+        patterns_by_department={99: []},
+        security_assignments=[],
+        security_department_id=99,
+        security_approved_dates=set(),
+    )
+    assert len(result) == 1
+    assert result[0]["employee_id"] == 7
+    assert result[0]["proposal"]["status"] == "needs_review"
+    assert "security_roster_assignment_missing" in result[0]["proposal"]["issues"]
