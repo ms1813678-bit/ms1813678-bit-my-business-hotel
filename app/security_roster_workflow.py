@@ -62,6 +62,7 @@ def prepare_security_roster(db, parsed_workbook):
         {"id": item.id, "start_time": item.start_time, "end_time": item.end_time}
         for item in patterns
     ]
+    employee_names = {employee.id: employee.full_name for employee in employees}
     import_issues = parsed_workbook.get("issues", [])
     # Issues without a reliable date cannot be assigned to a particular day;
     # fail closed for the entire workbook rather than silently approving around them.
@@ -84,6 +85,8 @@ def prepare_security_roster(db, parsed_workbook):
         blocking_issues = workbook_blockers + date_issues
         if blocking_issues:
             proposal = {"status": "needs_review", "assignments": [], "issues": ["excel_import_issues_block_this_day"]}
+        for assignment in proposal["assignments"]:
+            assignment["employee_name"] = employee_names[assignment["employee_id"]]
         daily.append({"work_date": record["work_date"], "roster": roster, "proposal": proposal, "import_issues": blocking_issues, "can_confirm": proposal["status"] == "ready_for_admin_review"})
     return {"department_id": department.id, "days": daily, "import_issues": import_issues}
 
