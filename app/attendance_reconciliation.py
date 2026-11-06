@@ -274,18 +274,35 @@ def build_monthly_reconciliation_proposals(
                 pattern = candidate.get("shift") if candidate else None
 
             if pattern is None:
+                unmatched_fingerprint = (
+                    department_id != security_department_id
+                    and (
+                        work_date in non_security_unmatched_dates
+                        or work_date + timedelta(days=1) in non_security_unmatched_dates
+                    )
+                )
+                has_fingerprint_evidence = any(
+                    work_date <= punch.date() <= work_date + timedelta(days=1)
+                    for punch in all_punches
+                )
+                # A missing row in both source files is not proof of an absence:
+                # without an assigned schedule, do not manufacture a daily record.
+                if not program_day and not unmatched_fingerprint and not has_fingerprint_evidence:
+                    continue
+                issue = (
+                    "security_roster_assignment_missing"
+                    if department_id == security_department_id
+                    else "fingerprint_shift_inference_missing"
+                    if program_day
+                    else "fingerprint_shift_unmatched_or_ambiguous"
+                )
                 proposal = {
                     "work_date": work_date, "shift_pattern_id": None,
                     "scheduled_start_at": None, "scheduled_end_at": None,
                     "program_clock_in": program_in, "program_clock_out": program_out,
                     "first_clock_in": None, "last_clock_out": None,
                     "worked_minutes": None,
-                    "issues": (
-                        ["fingerprint_shift_inference_missing"] if program_day
-                        else ["fingerprint_shift_unmatched_or_ambiguous"]
-                        if work_date in non_security_unmatched_dates or work_date + timedelta(days=1) in non_security_unmatched_dates
-                        else ["no_attendance_evidence_or_shift"]
-                    ),
+                    "issues": [issue],
                     "status": "needs_review",
                 }
                 proposals.append({"employee_id": employee_id, "proposal": proposal})
