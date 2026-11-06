@@ -537,3 +537,66 @@ def approve_attendance_month(
     ))
     db.flush()
     return month
+
+
+
+def resolve_unknown_attendance_employee(
+    db, *, issue_id: int, employee_id: int, actor: str
+):
+    """Resolve one unknown-employee source row without changing its raw evidence."""
+    if not actor or not actor.strip():
+        raise ValueError("attendance_issue_resolving_admin_required")
+    issue = db.scalar(
+        select(AttendanceImportIssue)
+        .where(AttendanceImportIssue.id == issue_id)
+        .with_for_update()
+    )
+    if issue is None:
+        raise ValueError("attendance_import_issue_not_found")
+    if issue.reason != "unknown_employee":
+        raise ValueError("attendance_import_issue_not_identity_resolvable")
+    if issue.resolved_at is not None:
+        raise ValueError("attendance_import_issue_already_resolved")
+    batch = db.get(AttendanceImportBatch, issue.import_batch_id)
+    if batch is None or batch.status != "needs_review":
+        raise ValueError("attendance_import_batch_not_open_for_issue_resolution")
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise ValueError("attendance_employee_not_found")
+
+    source_punches = db.scalars(
+        select(AttendancePunch).where(
+            AttendancePunch.import_batch_id == batch.id,
+            AttendancePunch.source_sheet == issue.source_sheet,
+            AttendancePunch.source_row == issue.source_row,
+            AttendancePunch.employee_id.is_(None),
+        ).with_for_update()
+    ).all()
+    if not source_punches:
+        raise ValueError("attendance_unknown_employee_source_punches_not_found")
+
+    for punch in source_punches:
+        punch.employee_id = employee.id
+    issue.resolved_employee_id = employee.id
+    issue.resolved_by = actor.strip()
+    issue.resolved_at = datetime.now(timezone.utc)
+
+    unresolved_count = db.scalar(
+        select(func.count()).select_from(AttendanceImportIssue).where(
+            AttendanceImportIssue.import_batch_id == batch.id,
+            AttendanceImportIssue.resolved_at.is_(None),
+        )
+    ) or 0
+    batch.issue_count = unresolved_count
+    batch.status = "parsed" if unresolved_count == 0 else "needs_review"
+    db.add(AuditLog(
+        actor=actor.strip(),
+        action="attendance_import_unknown_employee_resolved",
+        entity_type="attendance_import_issue",
+        entity_id=str(issue.id),
+        old_value=f"raw_value={issue.raw_value}; unresolved_punches={len(source_punches)}",
+        new_value=f"employee_id={employee.id}; unresolved_issues={unresolved_count}",
+        reason="HR explicitly matched an unknown source identity; raw source values retained",
+    ))
+    db.flush()
+    return issue
