@@ -196,22 +196,6 @@ def prepare_and_persist_monthly_reconciliation(
     ):
         raise ValueError("attendance_import_period_mismatch")
 
-    month = db.scalar(
-        select(AttendanceMonth).where(
-            AttendanceMonth.period_start == period_start,
-            AttendanceMonth.period_end == period_end,
-        ).with_for_update()
-    )
-    if month is None:
-        raise ValueError("attendance_month_import_record_missing")
-    if month.status != "imported":
-        raise ValueError("attendance_month_not_in_imported_state")
-    if (
-        month.program_import_batch_id != program_batch_id
-        or month.fingerprint_import_batch_id != fingerprint_batch_id
-    ):
-        raise ValueError("attendance_month_source_batch_mismatch")
-
     existing = db.scalar(
         select(AttendanceDailyRecord.id).where(
             AttendanceDailyRecord.work_date >= period_start,
@@ -220,6 +204,32 @@ def prepare_and_persist_monthly_reconciliation(
     )
     if existing is not None:
         raise ValueError("attendance_period_already_has_reconciliation_records")
+
+    month = db.scalar(
+        select(AttendanceMonth).where(
+            AttendanceMonth.period_start == period_start,
+            AttendanceMonth.period_end == period_end,
+        ).with_for_update()
+    )
+    if month is None:
+        # Also support pre-existing import batches created before monthly tracking
+        # was introduced, and controlled test/maintenance imports.
+        month = AttendanceMonth(
+            period_start=period_start, period_end=period_end,
+            status="imported", created_by=actor,
+            program_import_batch_id=program_batch_id,
+            fingerprint_import_batch_id=fingerprint_batch_id,
+        )
+        db.add(month)
+        db.flush()
+    if month.status != "imported":
+        raise ValueError("attendance_month_not_in_imported_state")
+    if month.program_import_batch_id not in {None, program_batch_id}:
+        raise ValueError("attendance_month_source_batch_mismatch")
+    if month.fingerprint_import_batch_id not in {None, fingerprint_batch_id}:
+        raise ValueError("attendance_month_source_batch_mismatch")
+    month.program_import_batch_id = program_batch_id
+    month.fingerprint_import_batch_id = fingerprint_batch_id
 
     employees = db.scalars(
         select(Employee).where(
