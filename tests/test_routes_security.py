@@ -1302,3 +1302,49 @@ def test_security_roster_preview_cannot_cross_admin_sessions_or_survive_logout(c
         },
     )
     assert after_logout.status_code == 403
+
+
+def test_attendance_import_route_saves_raw_evidence_but_not_daily_approval(client):
+    from datetime import time
+    from io import BytesIO
+    from openpyxl import Workbook
+    from app.main import SessionLocal
+    from app.models import AttendanceDailyRecord, AttendanceImportBatch, AttendancePunch
+
+    with SessionLocal.begin() as db:
+        db.add(Employee(
+            code="ATT-ROUTE-01", full_name="Attendance Test Employee",
+            department_id=client.test_department_id, position="Test",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+            fingerprint_id="FP-ROUTE-01",
+        ))
+
+    assert login(client).status_code == 303
+    page = client.get("/attendance/import")
+    token = csrf_from(page)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["AC-No.", "Name", "Date", "Clock In", "Clock Out"])
+    sheet.append(["ATT-ROUTE-01", "Attendance Test Employee", date(2026, 11, 1), time(8, 0), time(16, 0)])
+    output = BytesIO()
+    workbook.save(output)
+
+    response = client.post(
+        "/attendance/import",
+        data={"csrf_token": token, "source_type": "program_report"},
+        files={"file": ("program.xlsX", output.getvalue(),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert response.status_code == 200
+    assert "تم تسجيل دفعة الاستيراد" in response.text
+    with SessionLocal() as db:
+        assert db.query(AttendanceImportBatch).count() == 1
+        assert db.query(AttendancePunch).count() == 2
+        assert db.query(AttendanceDailyRecord).count() == 0
+
+
+def test_attendance_import_route_requires_admin_and_csrf(client):
+    assert client.get("/attendance/import").status_code == 401
+    response = client.post("/attendance/import", data={"source_type": "fingerprint"})
+    assert response.status_code == 403
