@@ -261,6 +261,49 @@ def edit_branch(
     return RedirectResponse("/employees", status_code=303)
 
 
+@app.get("/employees/{employee_id}/photo")
+def employee_photo(
+    employee_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    """Serve an employee photo only to an authenticated administrator."""
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        if employee is None or not employee.photo_path:
+            raise HTTPException(status_code=404, detail="صورة الموظف غير موجودة.")
+
+        # Only a stored basename is accepted; never allow a database value to
+        # escape the private photo directory.
+        filename = Path(employee.photo_path).name
+        if filename != employee.photo_path:
+            raise HTTPException(status_code=404, detail="صورة الموظف غير موجودة.")
+        photo_path = EMPLOYEE_PHOTO_DIR / filename
+        try:
+            photo_path.resolve().relative_to(EMPLOYEE_PHOTO_DIR.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404, detail="صورة الموظف غير موجودة.")
+        if not photo_path.is_file():
+            raise HTTPException(status_code=404, detail="صورة الموظف غير موجودة.")
+
+        media_types = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+        }
+        media_type = media_types.get(photo_path.suffix.lower())
+        if media_type is None:
+            raise HTTPException(status_code=404, detail="صيغة صورة الموظف غير مدعومة.")
+        return FileResponse(
+            photo_path,
+            media_type=media_type,
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
     with SessionLocal() as db:
