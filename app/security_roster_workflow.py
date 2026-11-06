@@ -63,16 +63,28 @@ def prepare_security_roster(db, parsed_workbook):
         for item in patterns
     ]
     import_issues = parsed_workbook.get("issues", [])
+    # Issues without a reliable date cannot be assigned to a particular day;
+    # fail closed for the entire workbook rather than silently approving around them.
+    workbook_blockers = [
+        issue for issue in import_issues
+        if issue.get("reason") == "duplicate_employee_header"
+        or issue.get("reason") == "invalid_or_missing_date"
+        or not issue.get("date")
+    ]
     daily = []
     for record in parsed_workbook["records"]:
         roster = {employee_id: value for employee_id, value in record["roster"].items()}
         if set(roster) != set(resolved):
             raise ValueError("daily_roster_employee_mapping_is_incomplete")
         proposal = build_security_day_proposal(roster, pattern_data)
-        date_issues = [issue for issue in import_issues if issue.get("date") == record["work_date"].isoformat() or issue.get("reason") == "duplicate_employee_header"]
-        if date_issues:
+        date_issues = [
+            issue for issue in import_issues
+            if issue.get("date") == record["work_date"].isoformat()
+        ]
+        blocking_issues = workbook_blockers + date_issues
+        if blocking_issues:
             proposal = {"status": "needs_review", "assignments": [], "issues": ["excel_import_issues_block_this_day"]}
-        daily.append({"work_date": record["work_date"], "roster": roster, "proposal": proposal, "import_issues": date_issues, "can_confirm": proposal["status"] == "ready_for_admin_review"})
+        daily.append({"work_date": record["work_date"], "roster": roster, "proposal": proposal, "import_issues": blocking_issues, "can_confirm": proposal["status"] == "ready_for_admin_review"})
     return {"department_id": department.id, "days": daily, "import_issues": import_issues}
 
 
@@ -89,7 +101,12 @@ def confirm_security_roster_day(db, work_date: date, roster: dict, admin: AdminA
         raise ValueError("authenticated_active_admin_required")
     department, employees = resolve_security_employees(db)
     import_issues = import_issues or []
-    if any(issue.get("reason") == "duplicate_employee_header" or issue.get("date") == work_date.isoformat() for issue in import_issues):
+    if any(
+        issue.get("reason") in {"duplicate_employee_header", "invalid_or_missing_date"}
+        or not issue.get("date")
+        or issue.get("date") == work_date.isoformat()
+        for issue in import_issues
+    ):
         raise ValueError("security_roster_import_issues_block_day_approval")
     employee_ids = {employee.id for employee in employees}
     if set(roster) != employee_ids:
