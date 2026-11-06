@@ -195,7 +195,9 @@ def test_persistence_conflict_rolls_back_entire_day(roster_db, monkeypatch):
     original_flush = db.flush
 
     def conflicting_flush(*args, **kwargs):
-        raise IntegrityError("INSERT", {}, Exception("unique constraint conflict"))
+        if db.new:
+            raise IntegrityError("INSERT", {}, Exception("unique constraint conflict"))
+        return original_flush(*args, **kwargs)
 
     monkeypatch.setattr(db, "flush", conflicting_flush)
     with pytest.raises(ValueError, match="approval_conflict_or_persistence_failure"):
