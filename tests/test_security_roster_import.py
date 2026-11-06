@@ -78,3 +78,47 @@ def test_duplicate_employee_headers_are_reported_without_silently_collapsing():
         and issue["column"] == 3
         for issue in result["issues"]
     )
+
+
+def test_employee_code_and_fingerprint_are_valid_exact_headers():
+    from io import BytesIO
+    from openpyxl import Workbook
+    from app.security_roster_import import parse_security_roster_xlsx
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Date", "SEC-01", "FP-02", "Walid"])
+    sheet.append([date(2026, 11, 1), "00:00", "08:00", "16:00"])
+    output = BytesIO()
+    workbook.save(output)
+    parsed = parse_security_roster_xlsx(
+        output.getvalue(),
+        {
+            "Fayez": 1, "SEC-01": 1,
+            "Yasser": 2, "FP-02": 2,
+            "Walid": 3,
+        },
+    )
+    assert parsed["status"] == "parsed_for_review"
+    assert parsed["employee_headers"] == {1: "SEC-01", 2: "FP-02", 3: "Walid"}
+    assert len(parsed["records"]) == 1
+
+
+def test_two_alias_columns_for_same_employee_are_rejected():
+    from io import BytesIO
+    from openpyxl import Workbook
+    from app.security_roster_import import parse_security_roster_xlsx
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Date", "Fayez", "SEC-01", "Yasser", "Walid"])
+    sheet.append([date(2026, 11, 1), "00:00", "08:00", "08:00", "16:00"])
+    output = BytesIO()
+    workbook.save(output)
+    parsed = parse_security_roster_xlsx(
+        output.getvalue(),
+        {"Fayez": 1, "SEC-01": 1, "Yasser": 2, "Walid": 3},
+    )
+    assert parsed["status"] == "needs_review"
+    assert parsed["records"] == []
+    assert parsed["issues"][0]["reason"] == "duplicate_employee_header"
