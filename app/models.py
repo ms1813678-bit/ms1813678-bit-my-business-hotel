@@ -251,6 +251,36 @@ class AttendancePunch(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AttendanceMonth(Base):
+    """Monthly attendance lifecycle; daily approvals alone never close a period."""
+    __tablename__ = "attendance_months"
+    __table_args__ = (
+        CheckConstraint("period_end >= period_start", name="ck_attendance_month_period"),
+        CheckConstraint(
+            "status IN ('imported', 'under_review', 'approved')",
+            name="ck_attendance_month_status",
+        ),
+        UniqueConstraint("period_start", "period_end", name="uq_attendance_month_period"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    program_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    fingerprint_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    status: Mapped[str] = mapped_column(String(24), default="imported", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_reason: Mapped[str | None] = mapped_column(Text)
+
+
 class AttendanceDailyRecord(Base):
     """One employee/work-date reconciliation result, pending HR approval by default."""
     __tablename__ = "attendance_daily_records"
