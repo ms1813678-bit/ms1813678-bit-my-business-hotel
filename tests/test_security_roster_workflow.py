@@ -189,6 +189,9 @@ def test_persistence_conflict_rolls_back_entire_day(roster_db, monkeypatch):
     day = prepare_security_roster(db, parsed)["days"][0]
     # Load expired identity fields before injecting the simulated flush failure.
     _admin_id, _admin_username = admin.id, admin.username
+    approved_admin = AdminAccount(
+        id=_admin_id, username=_admin_username, password_hash="not-used", active=True
+    )
     original_flush = db.flush
 
     def conflicting_flush(*args, **kwargs):
@@ -196,7 +199,7 @@ def test_persistence_conflict_rolls_back_entire_day(roster_db, monkeypatch):
 
     monkeypatch.setattr(db, "flush", conflicting_flush)
     with pytest.raises(ValueError, match="approval_conflict_or_persistence_failure"):
-        confirm_security_roster_day(db, day["work_date"], day["roster"], admin, [])
+        confirm_security_roster_day(db, day["work_date"], day["roster"], approved_admin, [])
     monkeypatch.setattr(db, "flush", original_flush)
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
     assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
