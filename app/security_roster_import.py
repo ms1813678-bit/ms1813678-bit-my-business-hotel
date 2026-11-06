@@ -59,8 +59,8 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
     if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
         raise ValueError("empty_excel_file")
     aliases = {_norm(name): employee_id for name, employee_id in employee_aliases.items()}
-    if len(aliases) != 3 or len(set(aliases.values())) != 3:
-        raise ValueError("exactly_three_unique_security_employee_aliases_required")
+    if len(set(aliases.values())) != 3:
+        raise ValueError("aliases_must_resolve_to_exactly_three_unique_security_employees")
 
     try:
         workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
@@ -78,7 +78,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
             for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
                 normalized = [_norm(v) for v in row]
                 employee_positions = [
-                    (idx, name) for idx, name in enumerate(normalized) if name in aliases
+                    (idx, alias) for idx, alias in enumerate(normalized) if alias in aliases
                 ]
                 date_candidates = [
                     idx for idx, value in enumerate(normalized)
@@ -89,14 +89,14 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
 
                 # Do not collapse repeated employee headers into a dict: doing so
                 # silently discards one of the columns and can misassign shifts.
-                positions_by_name = {}
-                for idx, name in employee_positions:
-                    positions_by_name.setdefault(name, []).append(idx)
+                positions_by_employee = {}
+                for idx, alias in employee_positions:
+                    positions_by_employee.setdefault(aliases[alias], []).append(idx)
                 duplicate_headers = [
                     {"row": row_idx, "column": idx + 1,
                      "employee_header": str(row[idx]).strip(),
                      "reason": "duplicate_employee_header"}
-                    for name, indexes in positions_by_name.items()
+                    for employee_id, indexes in positions_by_employee.items()
                     if len(indexes) > 1
                     for idx in indexes[1:]
                 ]
@@ -109,14 +109,14 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                         "status": "needs_review",
                     }
 
-                found = {name: indexes[0] for name, indexes in positions_by_name.items()}
+                found = {employee_id: indexes[0] for employee_id, indexes in positions_by_employee.items()}
                 if len(found) == 3:
                     header = row
                     employee_cols = {
-                        aliases[name]: idx for name, idx in found.items()
+                        employee_id: idx for employee_id, idx in found.items()
                     }
                     employee_headers = {
-                        aliases[name]: str(row[idx]).strip() for name, idx in found.items()
+                        employee_id: str(row[idx]).strip() for employee_id, idx in found.items()
                     }
                     date_col = date_candidates[0]
                     header_row = row_idx
