@@ -559,7 +559,10 @@ def test_attendance_schema_migration_creates_raw_and_reconciliation_tables(postg
     }.issubset(daily_columns)
 
     issue_columns = {column["name"] for column in inspector.get_columns("attendance_import_issues")}
-    assert {"import_batch_id", "source_sheet", "source_row", "reason", "raw_value", "details"}.issubset(issue_columns)
+    assert {
+        "import_batch_id", "source_sheet", "source_row", "reason", "raw_value", "details",
+        "resolved_employee_id", "resolved_by", "resolved_at",
+    }.issubset(issue_columns)
 
 
 def test_concurrent_postgres_attendance_approval_allows_exactly_one_winner(postgres_schema):
