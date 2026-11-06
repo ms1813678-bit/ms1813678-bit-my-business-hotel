@@ -362,7 +362,8 @@ def build_monthly_reconciliation_proposals(
                         )
                     previous_day_events = [
                         item for item in calendar_program_day
-                        if previous_shift_window[0]
+                        if previous_shift_window
+                        and previous_shift_window[0]
                         <= item["punch_at"]
                         <= previous_shift_window[1]
                     ]
