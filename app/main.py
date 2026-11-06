@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func
 from sqlalchemy.exc import SQLAlchemyError
 from PIL import Image, UnidentifiedImageError
 from starlette.middleware.sessions import SessionMiddleware
@@ -441,15 +441,25 @@ def attendance_reconcile_upload(
 @app.get("/attendance/review", response_class=HTMLResponse)
 def attendance_review_page(
     request: Request,
+    page: int = 1,
     admin: AdminAccount = Depends(get_current_admin),
 ):
+    page_size = 100
+    page = max(1, page)
+    pending_filter = AttendanceDailyRecord.status.in_(["ready_for_review", "needs_review"])
     with SessionLocal() as db:
+        total_records = db.scalar(
+            select(func.count()).select_from(AttendanceDailyRecord).where(pending_filter)
+        ) or 0
+        total_pages = max(1, (total_records + page_size - 1) // page_size)
+        page = min(page, total_pages)
         rows = db.execute(
             select(AttendanceDailyRecord, Employee)
             .join(Employee, Employee.id == AttendanceDailyRecord.employee_id)
-            .where(AttendanceDailyRecord.status.in_(["ready_for_review", "needs_review"]))
-            .order_by(AttendanceDailyRecord.work_date, Employee.full_name)
-            .limit(500)
+            .where(pending_filter)
+            .order_by(AttendanceDailyRecord.work_date, Employee.full_name, AttendanceDailyRecord.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         ).all()
         records = []
         for record, employee in rows:
@@ -481,7 +491,9 @@ def attendance_review_page(
     return templates.TemplateResponse(
         request=request, name="attendance_review.html",
         context={"admin": admin.username, "csrf_token": get_csrf_token(request),
-                 "records": records, "error": None},
+                 "records": records, "error": None, "page": page,
+                 "total_pages": total_pages, "total_records": total_records,
+                 "page_size": page_size},
     )
 
 
