@@ -161,6 +161,15 @@ class AuditLog(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
+@event.listens_for(AuditLog, "before_update")
+def prevent_audit_log_update(mapper, connection, target):
+    raise ValueError("Audit log records are immutable.")
+
+
+@event.listens_for(AuditLog, "before_delete")
+def prevent_audit_log_deletion(mapper, connection, target):
+    raise ValueError("Audit log records cannot be deleted.")
+
 
 class AdminAccount(Base):
     __tablename__ = "admin_accounts"
