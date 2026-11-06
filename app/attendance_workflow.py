@@ -195,7 +195,6 @@ def prepare_and_persist_monthly_reconciliation(
     if security_department is None:
         raise ValueError("security_department_not_configured")
 
-    departments = {item.id: item.name for item in db.scalars(select(Department)).all()}
     patterns_by_department = {}
     for pattern in db.scalars(
         select(ShiftPattern).where(ShiftPattern.active.is_(True))
