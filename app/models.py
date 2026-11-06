@@ -33,6 +33,7 @@ class Employee(Base):
     national_id: Mapped[str | None] = mapped_column(String(20), unique=True)
     phone: Mapped[str | None] = mapped_column(String(30))
     address: Mapped[str | None] = mapped_column(Text)
+    photo_path: Mapped[str | None] = mapped_column(String(255))
     fingerprint_id: Mapped[str | None] = mapped_column(String(50), unique=True)
     department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"))
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.id"))
@@ -88,6 +89,21 @@ class EmployeeChange(Base):
     effective_date: Mapped[date] = mapped_column(Date)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     reason: Mapped[str] = mapped_column(Text)
+
+
+class EmployeeDataChangeRequest(Base):
+    __tablename__ = "employee_data_change_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    field_name: Mapped[str] = mapped_column(String(40))
+    requested_value: Mapped[str] = mapped_column(Text)
+    request_reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[str | None] = mapped_column(String(80))
 
 
 class AuditLog(Base):
