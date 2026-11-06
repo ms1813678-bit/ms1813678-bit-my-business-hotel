@@ -605,13 +605,16 @@ def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_a
     security = Department(name="Security", active=True)
     db_session.add(security)
     db_session.flush()
+    security_employees = []
     for index in range(3):
-        db_session.add(Employee(
+        employee = Employee(
             code=f"SEC-COVER-{index}", full_name=f"Security Cover {index}",
             department_id=security.id, position="Security",
             hire_date=date(2024, 1, 1), status="active",
             basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
-        ))
+        )
+        security_employees.append(employee)
+        db_session.add(employee)
     program = AttendanceImportBatch(
         source_type="program_report", period_start=work_date, period_end=work_date,
         original_filename="program.xlsx", file_sha256="1" * 64,
@@ -636,16 +639,25 @@ def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_a
         entity_type="security_roster", entity_id=work_date.isoformat(),
         reason="Approved roster; blank assignment means OFF",
     ))
+    pattern = ShiftPattern(
+        department_id=security.id, code="SEC-08-20", name="Security 08-20",
+        start_time=time(8, 0), end_time=time(20, 0),
+        match_before_minutes=60, match_after_minutes=60, active=True,
+    )
+    db_session.add(pattern)
+    db_session.flush()
+    db_session.add(SecurityShiftAssignment(
+        employee_id=security_employees[0].id, work_date=work_date,
+        shift_pattern_id=pattern.id, notes="Approved security roster assignment",
+    ))
     db_session.flush()
 
     summary = summarize_attendance_month_coverage(db_session, month)
-    assert summary["unrepresented_employee_days"] == 1
-    assert summary["coverage_examples"] == [{
-        "employee_id": 1,
-        "employee_code": "ATT-001",
-        "employee_name": "Test Employee",
-        "work_date": work_date,
-    }]
+    assert summary["unrepresented_employee_days"] == 2
+    assert {
+        (gap["employee_code"], gap["work_date"])
+        for gap in summary["coverage_examples"]
+    } == {("ATT-001", work_date), ("SEC-COVER-0", work_date)}
 
 
 def test_unknown_employee_resolution_links_raw_punches_and_recalculates_batch_status(db_session):
