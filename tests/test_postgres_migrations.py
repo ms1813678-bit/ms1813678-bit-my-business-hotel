@@ -553,3 +553,6 @@ def test_attendance_schema_migration_creates_raw_and_reconciliation_tables(postg
         "scheduled_start_at", "scheduled_end_at", "first_clock_in", "last_clock_out",
         "status", "approved_by", "approved_at",
     }.issubset(daily_columns)
+
+    issue_columns = {column["name"] for column in inspector.get_columns("attendance_import_issues")}
+    assert {"import_batch_id", "source_sheet", "source_row", "reason", "raw_value", "details"}.issubset(issue_columns)
