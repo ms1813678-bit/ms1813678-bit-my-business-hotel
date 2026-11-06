@@ -292,7 +292,7 @@ def security_roster_confirm(
     request: Request,
     work_date: str = Form(...),
     stage_token: str = Form(...),
-    reviewed: str = Form(...),
+    reviewed: str = Form(""),
     admin: AdminAccount = Depends(get_current_admin),
 ):
     from datetime import date
