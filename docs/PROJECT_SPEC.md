@@ -59,6 +59,8 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Unresolved absence is never classified as final absence.
 - No mobile/GPS attendance, no employee self-check-in, and no individual advance shift roster.
 - Support overnight shifts and midnight boundaries. Ambiguous shift patterns must be flagged, not guessed.
+- Shift matching uses separately configurable before/after margins, each capped at 120 minutes; effective windows are reduced as needed so neighboring shift windows never overlap. Exact midpoint minutes between neighboring starts are left unmatched rather than guessed. Duplicate shift start times (including Security's two 08:00 starts) remain ambiguous to clock-based matching and require the applicable roster/administrator input.
+- AI-assisted attendance review is advisory: it analyzes imported records, proposes matches with reasons, and presents exceptions for HR review. Clear cases may be prepared automatically under approved rules, but attendance is not finally approved and consequential records are not saved as approved without the administrator's confirmation. Core attendance workflows remain usable if AI is unavailable.
 - Configurable shift patterns:
   - Administration: 09:00–17:00
   - Reception: 07:00–15:00, 15:00–23:00, 23:00–07:00
