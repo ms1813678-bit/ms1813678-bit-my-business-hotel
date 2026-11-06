@@ -6,7 +6,7 @@ import json
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog
+from app.models import AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog
 
 
 def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: dict, actor: str):
@@ -92,3 +92,52 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
         db.rollback()
         raise ValueError("attendance_import_persistence_conflict")
     return batch
+
+
+def persist_daily_attendance_proposal(
+    db,
+    *,
+    employee_id: int,
+    proposal: dict,
+    actor: str,
+    program_import_batch_id: int | None = None,
+    fingerprint_import_batch_id: int | None = None,
+    security_shift_assignment_id: int | None = None,
+):
+    """Store a non-approved daily reconciliation proposal for HR review."""
+    if proposal.get("status") not in {"ready_for_review", "needs_review"}:
+        raise ValueError("invalid_attendance_proposal_status")
+    if proposal.get("work_date") is None:
+        raise ValueError("attendance_proposal_work_date_required")
+    record = AttendanceDailyRecord(
+        employee_id=employee_id,
+        work_date=proposal["work_date"],
+        shift_pattern_id=proposal.get("shift_pattern_id"),
+        security_shift_assignment_id=security_shift_assignment_id,
+        program_import_batch_id=program_import_batch_id,
+        fingerprint_import_batch_id=fingerprint_import_batch_id,
+        scheduled_start_at=proposal.get("scheduled_start_at"),
+        scheduled_end_at=proposal.get("scheduled_end_at"),
+        program_clock_in=proposal.get("program_clock_in"),
+        program_clock_out=proposal.get("program_clock_out"),
+        first_clock_in=proposal.get("first_clock_in"),
+        last_clock_out=proposal.get("last_clock_out"),
+        worked_minutes=proposal.get("worked_minutes"),
+        status=proposal["status"],
+        review_notes="; ".join(proposal.get("issues", [])) or None,
+    )
+    db.add(record)
+    db.flush()
+    db.add(AuditLog(
+        actor=actor,
+        action="attendance_day_proposed",
+        entity_type="attendance_daily_record",
+        entity_id=f"{employee_id}:{proposal['work_date'].isoformat()}",
+        new_value=(
+            f"status={record.status}; worked_minutes={record.worked_minutes}; "
+            f"issues={record.review_notes or 'none'}"
+        ),
+        reason="Attendance reconciliation proposal saved for HR review; not approved",
+    ))
+    db.flush()
+    return record
