@@ -537,6 +537,8 @@ def attendance_months_page(
                 .where(
                     AttendanceDailyRecord.work_date >= month.period_start,
                     AttendanceDailyRecord.work_date <= month.period_end,
+                    AttendanceDailyRecord.program_import_batch_id == month.program_import_batch_id,
+                    AttendanceDailyRecord.fingerprint_import_batch_id == month.fingerprint_import_batch_id,
                 )
                 .group_by(AttendanceDailyRecord.status)
             ).all()
