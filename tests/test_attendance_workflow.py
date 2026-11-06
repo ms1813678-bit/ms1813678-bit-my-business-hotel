@@ -338,6 +338,33 @@ def test_monthly_reconciliation_is_blocked_until_both_source_imports_are_clean(d
     assert db_session.scalar(select(func.count()).select_from(AttendanceDailyRecord)) == 0
 
 
+def test_partial_fingerprint_date_range_joins_the_program_month(db_session):
+    program_payload = parsed_payload()
+    program_payload["source_type"] = "program_report"
+    program_payload["period_start"] = date(2026, 11, 1)
+    program_payload["period_end"] = date(2026, 11, 30)
+    program = persist_attendance_import(
+        db_session, file_bytes=b"program-whole-month",
+        filename="program.xlsx", parsed=program_payload, actor="hr-admin",
+    )
+
+    fingerprint_payload = parsed_payload()
+    fingerprint_payload["period_start"] = date(2026, 11, 3)
+    fingerprint_payload["period_end"] = date(2026, 11, 28)
+    fingerprint = persist_attendance_import(
+        db_session, file_bytes=b"fingerprint-punch-days-only",
+        filename="fingerprint.xlsx", parsed=fingerprint_payload, actor="hr-admin",
+    )
+
+    assert fingerprint.period_start == date(2026, 11, 1)
+    assert fingerprint.period_end == date(2026, 11, 30)
+    month = db_session.scalar(select(AttendanceMonth))
+    assert month.period_start == program.period_start
+    assert month.period_end == program.period_end
+    assert month.program_import_batch_id == program.id
+    assert month.fingerprint_import_batch_id == fingerprint.id
+
+
 def test_unresolved_source_batch_can_be_replaced_before_reconciliation(db_session):
     payload = parsed_payload()
     payload["issues"] = [{"sheet": "Sheet1", "row": 2, "reason": "invalid_time_value", "value": "bad"}]
