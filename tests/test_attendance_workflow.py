@@ -278,6 +278,7 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
 
     assert summary == {
         "total": 3, "ready_for_review": 3, "needs_review": 0,
+        "import_issue_count": 0,
         "period_start": work_date, "period_end": work_date,
     }
     records = db_session.scalars(select(AttendanceDailyRecord)).all()
@@ -312,3 +313,69 @@ def test_monthly_reconciliation_refuses_duplicate_period_records(db_session):
             fingerprint_batch_id=fingerprint_batch.id,
             period_start=work_date, period_end=work_date, actor="hr-admin",
         )
+
+
+def test_monthly_reconciliation_with_import_issues_forces_review(db_session):
+    work_date = date(2026, 11, 1)
+    department = db_session.scalar(select(Department).where(Department.name == "Attendance Test"))
+    db_session.add(ShiftPattern(
+        department_id=department.id, code="DAY", name="Day",
+        start_time=time(8, 0), end_time=time(16, 0),
+        match_before_minutes=60, match_after_minutes=60, active=True,
+    ))
+    security = Department(name="Security", active=True)
+    db_session.add(security)
+    db_session.flush()
+    for index in range(3):
+        db_session.add(Employee(
+            code=f"SEC-ISSUE-{index}", full_name=f"Security Issue {index}",
+            department_id=security.id, position="Security",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        ))
+    program = AttendanceImportBatch(
+        source_type="program_report", period_start=work_date, period_end=work_date,
+        original_filename="program.xlsx", file_sha256="e" * 64,
+        uploaded_by="hr-admin", status="needs_review", row_count=2, issue_count=1,
+    )
+    fingerprint = AttendanceImportBatch(
+        source_type="fingerprint", period_start=work_date, period_end=work_date,
+        original_filename="fingerprint.xlsx", file_sha256="f" * 64,
+        uploaded_by="hr-admin", status="parsed", row_count=2, issue_count=0,
+    )
+    db_session.add_all([program, fingerprint])
+    db_session.flush()
+    normal = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    db_session.add_all([
+        AttendancePunch(
+            import_batch_id=program.id, employee_id=normal.id,
+            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
+            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
+            event_type="IN", source_sheet="Sheet1", source_row=2, event_index=0,
+        ),
+        AttendancePunch(
+            import_batch_id=program.id, employee_id=normal.id,
+            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
+            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
+            event_type="OUT", source_sheet="Sheet1", source_row=2, event_index=1,
+        ),
+        AttendancePunch(
+            import_batch_id=fingerprint.id, employee_id=normal.id,
+            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
+            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
+            event_type="PUNCH", source_sheet="Att.log report", source_row=2, event_index=0,
+        ),
+        AttendancePunch(
+            import_batch_id=fingerprint.id, employee_id=normal.id,
+            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
+            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
+            event_type="PUNCH", source_sheet="Att.log report", source_row=3, event_index=0,
+        ),
+    ])
+    summary = prepare_and_persist_monthly_reconciliation(
+        db_session, program_batch_id=program.id, fingerprint_batch_id=fingerprint.id,
+        period_start=work_date, period_end=work_date, actor="hr-admin",
+    )
+    assert summary["import_issue_count"] == 1
+    assert summary["ready_for_review"] == 0
+    assert summary["needs_review"] == summary["total"]
