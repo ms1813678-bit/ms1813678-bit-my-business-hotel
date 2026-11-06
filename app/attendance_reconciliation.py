@@ -207,34 +207,50 @@ def build_monthly_reconciliation_proposals(
             patterns = patterns_by_department.get(department_id, [])
             for calendar_date, day_punches in by_calendar_date.items():
                 first_result = infer_non_security_shift(day_punches[0], patterns)
-                if first_result["status"] != "ready_for_review":
-                    # A calendar day's first event can be the OUT (or an
-                    # intermediate punch) of the previous day's overnight shift.
-                    # If every event fits that already identified shift window,
-                    # it is evidence for the previous work date, not an unmatched day.
-                    previous_candidate = non_security_candidates.get(
-                        calendar_date - timedelta(days=1)
+                # A previous overnight shift can end inside the next day's
+                # configured start window (for example 23:00-07:00 followed
+                # by a 07:00 shift). Its OUT must not be inferred as a new
+                # day's IN merely because both windows contain that timestamp.
+                previous_candidate = non_security_candidates.get(
+                    calendar_date - timedelta(days=1)
+                )
+                previous_shift = (
+                    previous_candidate.get("shift")
+                    if previous_candidate and not previous_candidate.get("conflict")
+                    else None
+                )
+                previous_overnight_window = None
+                if previous_shift:
+                    previous_start, previous_end = shift_window(
+                        calendar_date - timedelta(days=1), previous_shift
                     )
-                    previous_shift = (
-                        previous_candidate.get("shift")
-                        if previous_candidate and not previous_candidate.get("conflict")
-                        else None
-                    )
-                    belongs_to_previous_shift = False
-                    if previous_shift:
-                        previous_start, previous_end = shift_window(
-                            calendar_date - timedelta(days=1), previous_shift
+                    if previous_end.date() > previous_start.date():
+                        previous_overnight_window = (
+                            previous_start - timedelta(minutes=120),
+                            previous_end + timedelta(minutes=120),
                         )
-                        # Only a shift that actually crosses midnight may own
-                        # next-calendar-day punches. A 15:00–23:00 shift must
-                        # never absorb the following day's 00:xx events.
-                        if previous_end.date() > previous_start.date():
-                            previous_window_start = previous_start - timedelta(minutes=120)
-                            previous_window_end = previous_end + timedelta(minutes=120)
-                            belongs_to_previous_shift = all(
-                                previous_window_start <= punch <= previous_window_end
-                                for punch in day_punches
-                            )
+                first_punch_may_be_previous_out = bool(
+                    previous_overnight_window
+                    and previous_overnight_window[0] <= day_punches[0]
+                    <= previous_overnight_window[1]
+                )
+                if first_punch_may_be_previous_out:
+                    first_result = {
+                        "status": "needs_review",
+                        "shift": None,
+                        "work_date": None,
+                        "reason": "first_punch_may_belong_to_previous_overnight_shift",
+                    }
+                if first_result["status"] != "ready_for_review":
+                    # If every event fits that already identified overnight
+                    # shift window, it belongs to the previous work date.
+                    belongs_to_previous_shift = bool(
+                        previous_overnight_window
+                        and all(
+                            previous_overnight_window[0] <= punch <= previous_overnight_window[1]
+                            for punch in day_punches
+                        )
+                    )
                     if not belongs_to_previous_shift:
                         non_security_unmatched_dates.add(calendar_date)
                     continue
