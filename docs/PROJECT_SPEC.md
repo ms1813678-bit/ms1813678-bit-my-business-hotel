@@ -56,6 +56,9 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Flag entry-without-exit, exit-without-entry, missing fingerprints, duplicate events, unknown IDs, and conflicts with leave/absence.
 - Never invent missing fingerprint times. Keep source-file references for later retrieval from the device.
 - Monthly status: Imported → Under Review → Approved. Payroll cannot be finalized until attendance is approved.
+- A monthly attendance record is created when the first source file for an exact period is imported; the program and fingerprint batches must both be linked to the same exact period before reconciliation.
+- Reconciliation moves the month to Under Review. Monthly approval is a separate HR action and is blocked while any generated daily record is not approved, either source batch has import issues, or either source is missing.
+- Monthly approval requires an explicit administrator attestation that all employee/day coverage gaps were checked against both source reports. Because blank source cells are not proof of absence, missing rows must never be silently converted to absences.
 - Unresolved absence is never classified as final absence.
 - No mobile/GPS attendance, no employee self-check-in, and no individual advance shift roster.
 - Support overnight shifts and midnight boundaries. Ambiguous shift patterns must be flagged, not guessed.
