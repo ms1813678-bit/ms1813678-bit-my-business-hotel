@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date, datetime, timezone
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
