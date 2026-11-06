@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation)
+from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation, resolve_unknown_attendance_employee)
 from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
 
 
@@ -575,3 +575,92 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     )
     assert audit is not None
     assert audit.entity_id == str(month.id)
+
+
+
+def test_unknown_employee_resolution_links_raw_punches_and_recalculates_batch_status(db_session):
+    payload = parsed_payload()
+    payload["events"] = [{
+        "employee_id": None,
+        "raw_employee_code": "FP-UNKNOWN",
+        "raw_employee_name": "Unmatched Name",
+        "punch_at": datetime(2026, 11, 1, 7, 50),
+        "raw_timestamp": "07:50",
+        "event_type": "PUNCH",
+        "source_sheet": "Att.log report",
+        "source_row": 9,
+        "event_index": 0,
+    }]
+    payload["issues"] = [{
+        "sheet": "Att.log report", "row": 9,
+        "reason": "unknown_employee", "value": "FP-UNKNOWN",
+    }]
+    batch = persist_attendance_import(
+        db_session, file_bytes=b"unknown-identity-file",
+        filename="fingerprint.xlsx", parsed=payload, actor="hr-admin",
+    )
+    issue = db_session.scalar(select(AttendanceImportIssue).where(
+        AttendanceImportIssue.import_batch_id == batch.id
+    ))
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+
+    resolved = resolve_unknown_attendance_employee(
+        db_session, issue_id=issue.id, employee_id=employee.id, actor="hr-admin"
+    )
+    db_session.flush()
+
+    punch = db_session.scalar(select(AttendancePunch).where(
+        AttendancePunch.import_batch_id == batch.id
+    ))
+    assert punch.employee_id == employee.id
+    assert punch.raw_employee_code == "FP-UNKNOWN"
+    assert punch.raw_timestamp == "07:50"
+    assert resolved.resolved_employee_id == employee.id
+    assert resolved.resolved_by == "hr-admin"
+    assert resolved.resolved_at is not None
+    assert batch.issue_count == 0
+    assert batch.status == "parsed"
+    audit = db_session.scalar(select(AuditLog).where(
+        AuditLog.action == "attendance_import_unknown_employee_resolved"
+    ))
+    assert audit is not None
+    assert audit.actor == "hr-admin"
+
+
+def test_unknown_employee_resolution_rejects_reassignment_and_wrong_issue_type(db_session):
+    payload = parsed_payload()
+    payload["events"] = [{
+        "employee_id": None, "raw_employee_code": "FP-UNKNOWN",
+        "raw_employee_name": "Unknown", "punch_at": datetime(2026, 11, 1, 7, 50),
+        "raw_timestamp": "07:50", "event_type": "PUNCH",
+        "source_sheet": "Att.log report", "source_row": 4, "event_index": 0,
+    }]
+    payload["issues"] = [{
+        "sheet": "Att.log report", "row": 4,
+        "reason": "unknown_employee", "value": "FP-UNKNOWN",
+    }]
+    batch = persist_attendance_import(
+        db_session, file_bytes=b"unknown-identity-file-2",
+        filename="fingerprint.xlsx", parsed=payload, actor="hr-admin",
+    )
+    issue = db_session.scalar(select(AttendanceImportIssue).where(
+        AttendanceImportIssue.import_batch_id == batch.id
+    ))
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    resolve_unknown_attendance_employee(
+        db_session, issue_id=issue.id, employee_id=employee.id, actor="hr-admin"
+    )
+    with pytest.raises(ValueError, match="attendance_import_issue_already_resolved"):
+        resolve_unknown_attendance_employee(
+            db_session, issue_id=issue.id, employee_id=employee.id, actor="hr-admin"
+        )
+    invalid_issue = AttendanceImportIssue(
+        import_batch_id=batch.id, source_sheet="Att.log report",
+        source_row=10, reason="invalid_time_value",
+    )
+    db_session.add(invalid_issue)
+    db_session.flush()
+    with pytest.raises(ValueError, match="attendance_import_issue_not_identity_resolvable"):
+        resolve_unknown_attendance_employee(
+            db_session, issue_id=invalid_issue.id, employee_id=employee.id, actor="hr-admin"
+        )
