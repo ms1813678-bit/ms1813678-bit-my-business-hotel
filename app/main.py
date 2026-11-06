@@ -228,11 +228,21 @@ def _security_roster_aliases(db):
     ).order_by(Employee.id)).all()
     if len(employees) != 3:
         raise ValueError("security_department_must_have_exactly_three_active_employees")
-    names = [employee.full_name for employee in employees]
-    normalized = [" ".join(name.casefold().split()) for name in names]
-    if len(set(normalized)) != 3:
-        raise ValueError("security_employee_names_must_be_unique_for_excel_mapping")
-    return {employee.full_name: employee.id for employee in employees}
+    aliases = {}
+    normalized_owners = {}
+    for employee in employees:
+        for value in (employee.full_name, employee.code, employee.fingerprint_id):
+            if not value:
+                continue
+            key = " ".join(str(value).casefold().split())
+            owner = normalized_owners.get(key)
+            if owner is not None and owner != employee.id:
+                raise ValueError("security_employee_identifiers_are_ambiguous_for_excel_mapping")
+            normalized_owners[key] = employee.id
+            aliases[str(value)] = employee.id
+    if len({value for value in aliases.values()}) != 3:
+        raise ValueError("security_employee_identifiers_must_resolve_to_three_employees")
+    return aliases
 
 
 @app.post("/security-roster/preview", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
