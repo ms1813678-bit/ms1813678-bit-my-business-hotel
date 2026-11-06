@@ -111,3 +111,30 @@ def reconcile_attendance_day(
         "issues": sorted(set(issues)),
         "status": "ready_for_review" if not issues else "needs_review",
     }
+
+
+def resolve_security_shift(employee_id: int, work_date: date, assignment: dict | None, patterns: list[dict]) -> dict:
+    """Use the approved Security roster assignment; never infer Security from a punch."""
+    if assignment is None:
+        return {
+            "status": "needs_review", "shift": None, "work_date": work_date,
+            "reason": "security_roster_assignment_missing",
+        }
+    if assignment.get("employee_id") != employee_id or assignment.get("work_date") != work_date:
+        return {
+            "status": "needs_review", "shift": None, "work_date": work_date,
+            "reason": "security_roster_assignment_identity_mismatch",
+        }
+    pattern_id = assignment.get("shift_pattern_id")
+    matches = [item for item in patterns if item.get("id") == pattern_id]
+    if len(matches) != 1:
+        return {
+            "status": "needs_review", "shift": None, "work_date": work_date,
+            "reason": "security_roster_shift_pattern_missing_or_ambiguous",
+        }
+    return {
+        "status": "ready_for_review",
+        "shift": matches[0],
+        "work_date": work_date,
+        "reason": None,
+    }
