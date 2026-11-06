@@ -549,6 +549,7 @@ def approve_attendance_month(
     if any(row.status != "approved" for row in rows):
         raise ValueError("attendance_month_has_unapproved_daily_records")
 
+    coverage_summary = summarize_attendance_month_coverage(db, month)
     old_status = month.status
     month.status = "approved"
     for batch in batches:
@@ -567,7 +568,8 @@ def approve_attendance_month(
         new_value=(
             f"status=approved; daily_records={len(rows)}; "
             f"program_batch={batches[0].id}; fingerprint_batch={batches[1].id}; "
-            "source_batches=approved; coverage_confirmed=true"
+            "source_batches=approved; coverage_confirmed=true; "
+            f"unrepresented_employee_days={coverage_summary['unrepresented_employee_days']}"
         ),
         reason=reason.strip(),
     ))
