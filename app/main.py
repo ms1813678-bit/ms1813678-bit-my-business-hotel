@@ -156,7 +156,6 @@ def edit_department(
     name = name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="اسم القسم مطلوب.")
-    photo_path = _store_employee_photo(photo)
     with SessionLocal.begin() as db:
         department = db.get(Department, department_id)
         if department is None:
@@ -319,6 +318,7 @@ def create_employee(
                 select(Employee.id).where(getattr(Employee, field_name) == value).limit(1)
             ) is not None:
                 raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
+        photo_path = _store_employee_photo(photo)
         employee = Employee(
             code=allocate_employee_code(db), full_name=full_name,
             national_id=national_id, phone=phone.strip() or None,
