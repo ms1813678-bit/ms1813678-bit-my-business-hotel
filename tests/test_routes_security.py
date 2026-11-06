@@ -1283,10 +1283,13 @@ def test_security_roster_preview_cannot_cross_admin_sessions_or_survive_logout(c
         )
         assert cross_session.status_code == 403
 
+    staged_path = tmp_path / "staging" / f"{stage_token}.xlsx"
+    assert staged_path.exists()
     logout = client.post(
         "/logout", data={"csrf_token": first_csrf}, follow_redirects=False
     )
     assert logout.status_code == 303
+    assert not staged_path.exists()
     assert login(client).status_code == 303
     new_csrf = csrf_from(client.get("/security-roster"))
     after_logout = client.post(
