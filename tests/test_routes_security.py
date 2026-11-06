@@ -1136,3 +1136,83 @@ def test_security_roster_upload_preview_and_daily_confirmation(client):
         ))
         assert audit is not None
         assert audit.actor == "integration-admin"
+
+
+def test_security_roster_expired_preview_is_rejected_and_deleted(monkeypatch, tmp_path):
+    import os
+    import time
+    from starlette.requests import Request
+    from fastapi import HTTPException
+    from app import main as main_module
+
+    staging = tmp_path / "staging"
+    monkeypatch.setattr(main_module, "SECURITY_ROSTER_STAGING_DIR", staging)
+    monkeypatch.setattr(main_module, "SECURITY_ROSTER_STAGING_TTL_SECONDS", 60)
+    staging.mkdir()
+    token = "expired-preview-token"
+    path = staging / f"{token}.xlsx"
+    path.write_bytes(b"synthetic workbook")
+    old_time = time.time() - 120
+    os.utime(path, (old_time, old_time))
+
+    request = Request({
+        "type": "http", "method": "POST", "scheme": "http",
+        "path": "/", "raw_path": b"/", "query_string": b"",
+        "headers": [], "server": ("testserver", 80),
+        "client": ("testclient", 50000), "http_version": "1.1",
+    })
+    request.session = {"security_roster_stage": token}
+
+    with pytest.raises(HTTPException) as exc:
+        main_module._load_staged_security_roster(token, request)
+
+    assert exc.value.status_code == 410
+    assert not path.exists()
+
+
+def test_security_roster_cleanup_removes_expired_files_without_new_upload(monkeypatch, tmp_path):
+    import os
+    from app import main as main_module
+
+    staging = tmp_path / "staging"
+    monkeypatch.setattr(main_module, "SECURITY_ROSTER_STAGING_DIR", staging)
+    monkeypatch.setattr(main_module, "SECURITY_ROSTER_STAGING_TTL_SECONDS", 60)
+    staging.mkdir()
+    expired = staging / "expired.xlsx"
+    fresh = staging / "fresh.xlsx"
+    expired.write_bytes(b"old")
+    fresh.write_bytes(b"new")
+    os.utime(expired, (100, 100))
+    os.utime(fresh, (950, 950))
+
+    removed = main_module._cleanup_expired_security_roster_files(now=1000)
+
+    assert removed == 1
+    assert not expired.exists()
+    assert fresh.exists()
+
+
+def test_security_roster_preview_token_is_bound_to_its_own_session(monkeypatch, tmp_path):
+    from starlette.requests import Request
+    from fastapi import HTTPException
+    from app import main as main_module
+
+    staging = tmp_path / "staging"
+    monkeypatch.setattr(main_module, "SECURITY_ROSTER_STAGING_DIR", staging)
+    staging.mkdir()
+    token = "admin-one-preview-token"
+    (staging / f"{token}.xlsx").write_bytes(b"synthetic workbook")
+
+    second_admin_request = Request({
+        "type": "http", "method": "POST", "scheme": "http",
+        "path": "/", "raw_path": b"/", "query_string": b"",
+        "headers": [], "server": ("testserver", 80),
+        "client": ("testclient", 50001), "http_version": "1.1",
+    })
+    second_admin_request.session = {"admin_username": "admin-two", "security_roster_stage": "different-token"}
+
+    with pytest.raises(HTTPException) as exc:
+        main_module._load_staged_security_roster(token, second_admin_request)
+
+    assert exc.value.status_code == 403
+    assert (staging / f"{token}.xlsx").exists()
