@@ -596,6 +596,9 @@ def resolve_unknown_attendance_employee(
     issue.resolved_employee_id = employee.id
     issue.resolved_by = actor.strip()
     issue.resolved_at = datetime.now(timezone.utc)
+    # SessionLocal disables autoflush; persist the resolution before counting
+    # remaining unresolved issues in this batch.
+    db.flush()
 
     unresolved_count = db.scalar(
         select(func.count()).select_from(AttendanceImportIssue).where(
