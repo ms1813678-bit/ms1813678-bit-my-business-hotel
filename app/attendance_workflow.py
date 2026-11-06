@@ -269,10 +269,12 @@ def prepare_and_persist_monthly_reconciliation(
     all_employees = db.scalars(
         select(Employee).where(Employee.hire_date <= period_end).order_by(Employee.id)
     ).all()
+    # Load the full service history so an employee with only a future
+    # rehire/start period is not incorrectly treated as active in this month.
     service_period_rows = db.scalars(
-        select(EmployeeServicePeriod).where(
-            EmployeeServicePeriod.start_date <= period_end
-        ).order_by(EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date)
+        select(EmployeeServicePeriod).order_by(
+            EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date
+        )
     ).all()
     service_periods_by_employee = {}
     for service_period in service_period_rows:
@@ -650,13 +652,9 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
         select(Employee).where(Employee.hire_date <= month.period_end).order_by(Employee.id)
     ).all()
     service_rows = db.scalars(
-        select(EmployeeServicePeriod).where(
-            EmployeeServicePeriod.start_date <= month.period_end,
-            or_(
-                EmployeeServicePeriod.end_date.is_(None),
-                EmployeeServicePeriod.end_date >= month.period_start,
-            ),
-        ).order_by(EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date)
+        select(EmployeeServicePeriod).order_by(
+            EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date
+        )
     ).all()
     service_by_employee = {}
     for row in service_rows:
