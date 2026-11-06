@@ -286,6 +286,8 @@ class AttendanceDailyRecord(Base):
     scheduled_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     program_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     program_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    approved_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    approved_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     first_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     last_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     worked_minutes: Mapped[int | None] = mapped_column(Integer)
