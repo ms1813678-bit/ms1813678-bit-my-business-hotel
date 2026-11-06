@@ -62,7 +62,7 @@ class ShiftPattern(Base):
     code: Mapped[str] = mapped_column(String(40))
     name: Mapped[str] = mapped_column(String(100))
     start_time: Mapped[time] = mapped_column(Time)
-    end_time: Mapped[datetime.time] = mapped_column(Time)
+    end_time: Mapped[time] = mapped_column(Time)
     # HR must configure this explicitly; no unapproved matching window is assumed.
     match_window_minutes: Mapped[int | None] = mapped_column(Integer)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
