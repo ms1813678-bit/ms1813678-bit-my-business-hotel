@@ -56,13 +56,16 @@ def match_shift_by_clock(clock_in: datetime, patterns: list[dict]) -> dict:
         start = pattern.get("start_time")
         if start is None:
             continue
+        # Every active shift start constrains neighboring windows, even if its
+        # own margins are not configured. This prevents a configured shift
+        # from claiming clock-ins that could belong to an unconfigured shift.
+        starts.append(_minutes(start))
         before = pattern.get("match_before_minutes")
         after = pattern.get("match_after_minutes")
-        if before is None or after is None:
-            continue
-        if not 0 <= before <= MAX_MATCH_MINUTES or not 0 <= after <= MAX_MATCH_MINUTES:
+        if before is not None and not 0 <= before <= MAX_MATCH_MINUTES:
             raise ValueError("Matching margins must be between 0 and 120 minutes.")
-        starts.append(_minutes(start))
+        if after is not None and not 0 <= after <= MAX_MATCH_MINUTES:
+            raise ValueError("Matching margins must be between 0 and 120 minutes.")
 
     if not starts:
         return {"status": "unmatched", "shift": None, "reason": "matching_margins_not_configured"}
