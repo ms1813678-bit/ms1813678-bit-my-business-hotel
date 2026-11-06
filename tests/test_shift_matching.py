@@ -104,3 +104,10 @@ def test_duplicate_start_is_ambiguous_even_if_one_margin_is_unset():
     result = match(8, 0, [configured, unconfigured])
     assert result["status"] == "ambiguous"
     assert result["shift"] is None
+
+
+def test_single_shift_keeps_full_configured_margins():
+    p = [pattern("admin", "09:00", 120, 120)]
+    assert match(7, 0, p)["status"] == "matched"
+    assert match(11, 0, p)["status"] == "matched"
+    assert match(11, 1, p)["status"] == "unmatched"
