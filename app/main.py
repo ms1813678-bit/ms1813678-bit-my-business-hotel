@@ -317,17 +317,36 @@ def security_roster_confirm(
             )
         # Keep the staged workbook available so the administrator can approve
         # each clean date independently; TTL cleanup removes it after one hour.
+        # Rebuild the preview after commit so the remaining dates can be
+        # approved from the same workbook without uploading it again.
+        from app.models import SecurityShiftAssignment
+        with SessionLocal() as db:
+            aliases = _security_roster_aliases(db)
+            refreshed = parse_security_roster_xlsx(raw, aliases)
+            refreshed_preview = prepare_security_roster(db, refreshed)
+            approved_dates = set(db.scalars(
+                select(SecurityShiftAssignment.work_date).where(
+                    SecurityShiftAssignment.work_date.in_(
+                        [day["work_date"] for day in refreshed_preview["days"]]
+                    )
+                )
+            ).all())
+            for day in refreshed_preview["days"]:
+                if day["work_date"] in approved_dates:
+                    day["can_confirm"] = False
+                    day["already_approved"] = True
         return templates.TemplateResponse(
             request=request,
             name="security_roster.html",
             context={
                 "admin": admin.username,
                 "csrf_token": get_csrf_token(request),
-                "days": [],
-                "issues": [],
+                "days": refreshed_preview["days"],
+                "issues": refreshed_preview["import_issues"],
                 "error": None,
                 "success": f"تم اعتماد جدول يوم {selected_date.isoformat()} بنجاح.",
                 "filename": "ملف جدول الأمن",
+                "stage_token": stage_token,
             },
         )
     except (ValueError, KeyError) as exc:
