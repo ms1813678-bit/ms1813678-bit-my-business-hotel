@@ -69,3 +69,38 @@ def test_negative_window_is_rejected():
         pass
     else:
         raise AssertionError("Negative matching window must be rejected.")
+
+def test_matches_exactly_at_configured_window_boundary():
+    result = match_shift_by_clock(
+        datetime(2026, 11, 1, 7, 30),
+        [pattern("reception-morning", "07:00", 30)],
+    )
+    assert result["status"] == "matched"
+
+
+def test_midnight_shift_matches_just_before_midnight_with_wraparound():
+    result = match_shift_by_clock(
+        datetime(2026, 11, 1, 23, 55),
+        [pattern("security-midnight", "00:00", 10)],
+    )
+    assert result["status"] == "matched"
+    assert result["shift"]["id"] == "security-midnight"
+
+
+def test_zero_window_matches_only_exact_start_time():
+    exact = match_shift_by_clock(
+        datetime(2026, 11, 1, 9, 0),
+        [pattern("administration", "09:00", 0)],
+    )
+    one_minute_late = match_shift_by_clock(
+        datetime(2026, 11, 1, 9, 1),
+        [pattern("administration", "09:00", 0)],
+    )
+    assert exact["status"] == "matched"
+    assert one_minute_late["status"] == "unmatched"
+
+
+def test_empty_shift_list_is_unmatched():
+    result = match_shift_by_clock(datetime(2026, 11, 1, 9, 0), [])
+    assert result["status"] == "unmatched"
+    assert result["shift"] is None
