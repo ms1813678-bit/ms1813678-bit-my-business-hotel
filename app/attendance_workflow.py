@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
+from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
 
 
 def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: dict, actor: str):
@@ -53,6 +53,29 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
     )
     db.add(batch)
     db.flush()
+
+    month = db.scalar(
+        select(AttendanceMonth).where(
+            AttendanceMonth.period_start == period_start,
+            AttendanceMonth.period_end == period_end,
+        ).with_for_update()
+    )
+    if month is None:
+        month = AttendanceMonth(
+            period_start=period_start, period_end=period_end,
+            status="imported", created_by=actor,
+        )
+        db.add(month)
+        db.flush()
+    if month.status != "imported":
+        raise ValueError("attendance_month_already_under_review")
+    batch_field = (
+        "program_import_batch_id" if source_type == "program_report"
+        else "fingerprint_import_batch_id"
+    )
+    if getattr(month, batch_field) is not None:
+        raise ValueError("attendance_month_source_already_imported")
+    setattr(month, batch_field, batch.id)
 
     for event in events:
         db.add(AttendancePunch(
@@ -167,6 +190,27 @@ def prepare_and_persist_monthly_reconciliation(
         raise ValueError("fingerprint_batch_not_found")
     if program_batch.status not in {"parsed", "needs_review"} or fingerprint_batch.status not in {"parsed", "needs_review"}:
         raise ValueError("attendance_import_batch_not_ready_for_reconciliation")
+    if (
+        program_batch.period_start != period_start or program_batch.period_end != period_end
+        or fingerprint_batch.period_start != period_start or fingerprint_batch.period_end != period_end
+    ):
+        raise ValueError("attendance_import_period_mismatch")
+
+    month = db.scalar(
+        select(AttendanceMonth).where(
+            AttendanceMonth.period_start == period_start,
+            AttendanceMonth.period_end == period_end,
+        ).with_for_update()
+    )
+    if month is None:
+        raise ValueError("attendance_month_import_record_missing")
+    if month.status != "imported":
+        raise ValueError("attendance_month_not_in_imported_state")
+    if (
+        month.program_import_batch_id != program_batch_id
+        or month.fingerprint_import_batch_id != fingerprint_batch_id
+    ):
+        raise ValueError("attendance_month_source_batch_mismatch")
 
     existing = db.scalar(
         select(AttendanceDailyRecord.id).where(
@@ -292,6 +336,9 @@ def prepare_and_persist_monthly_reconciliation(
         else:
             review_count += 1
 
+    month.status = "under_review"
+    month.reviewed_by = actor
+    month.reviewed_at = datetime.now(timezone.utc)
     db.add(AuditLog(
         actor=actor,
         action="attendance_month_reconciliation_created",
@@ -367,3 +414,73 @@ def approve_attendance_day(
     ))
     db.flush()
     return record
+
+
+def approve_attendance_month(
+    db,
+    *,
+    month_id: int,
+    actor: str,
+    reason: str,
+    coverage_confirmed: bool,
+):
+    """Close a month only after all daily rows and source issues are resolved.
+
+    coverage_confirmed is an explicit HR attestation that all employee/day
+    coverage gaps were checked; blank source cells are not absences.
+    """
+    if not actor or not actor.strip():
+        raise ValueError("attendance_approving_admin_required")
+    if not reason or not reason.strip():
+        raise ValueError("attendance_month_approval_reason_required")
+    if coverage_confirmed is not True:
+        raise ValueError("attendance_month_coverage_confirmation_required")
+
+    month = db.scalar(
+        select(AttendanceMonth).where(AttendanceMonth.id == month_id).with_for_update()
+    )
+    if month is None:
+        raise ValueError("attendance_month_not_found")
+    if month.status == "approved":
+        raise ValueError("attendance_month_already_approved")
+    if month.status != "under_review":
+        raise ValueError("attendance_month_not_under_review")
+    if month.program_import_batch_id is None or month.fingerprint_import_batch_id is None:
+        raise ValueError("attendance_month_sources_incomplete")
+
+    batches = [
+        db.get(AttendanceImportBatch, month.program_import_batch_id),
+        db.get(AttendanceImportBatch, month.fingerprint_import_batch_id),
+    ]
+    if any(batch is None for batch in batches):
+        raise ValueError("attendance_month_source_batch_missing")
+    if any(batch.issue_count for batch in batches):
+        raise ValueError("attendance_month_has_unresolved_import_issues")
+
+    rows = db.scalars(
+        select(AttendanceDailyRecord).where(
+            AttendanceDailyRecord.work_date >= month.period_start,
+            AttendanceDailyRecord.work_date <= month.period_end,
+        ).with_for_update()
+    ).all()
+    if not rows:
+        raise ValueError("attendance_month_has_no_daily_records")
+    if any(row.status != "approved" for row in rows):
+        raise ValueError("attendance_month_has_unapproved_daily_records")
+
+    old_status = month.status
+    month.status = "approved"
+    month.approved_by = actor
+    month.approved_at = datetime.now(timezone.utc)
+    month.approval_reason = reason.strip()
+    db.add(AuditLog(
+        actor=actor,
+        action="attendance_month_approved",
+        entity_type="attendance_month",
+        entity_id=str(month.id),
+        old_value=f"status={old_status}; daily_records={len(rows)}",
+        new_value=f"status=approved; daily_records={len(rows)}; coverage_confirmed=true",
+        reason=reason.strip(),
+    ))
+    db.flush()
+    return month
