@@ -597,6 +597,10 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     )
     assert audit is not None
     assert audit.entity_id == str(month.id)
+    assert "coverage_confirmed=true" in audit.new_value
+    # The unrelated active employee has no record for this date and remains a
+    # visible coverage gap even though HR explicitly attested to reviewing it.
+    assert "unrepresented_employee_days=1" in audit.new_value
 
 
 
