@@ -148,3 +148,34 @@ def test_forged_admin_identity_cannot_confirm_roster(roster_db):
     with pytest.raises(ValueError, match="authenticated_active_admin_required"):
         confirm_security_roster_day(db, day["work_date"], day["roster"], forged_admin, [])
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
+
+
+def test_audit_log_orm_update_is_rejected(roster_db):
+    db, employees, admin = roster_db
+    entry = AuditLog(
+        actor="admin", action="test_event", entity_type="test",
+        entity_id="1", reason="immutable test",
+    )
+    db.add(entry)
+    db.commit()
+    entry.reason = "tampered"
+    with pytest.raises(ValueError, match="immutable"):
+        db.flush()
+    db.rollback()
+    persisted = db.get(AuditLog, entry.id)
+    assert persisted.reason == "immutable test"
+
+
+def test_audit_log_orm_delete_is_rejected(roster_db):
+    db, employees, admin = roster_db
+    entry = AuditLog(
+        actor="admin", action="test_event", entity_type="test",
+        entity_id="2", reason="immutable test",
+    )
+    db.add(entry)
+    db.commit()
+    db.delete(entry)
+    with pytest.raises(ValueError, match="cannot be deleted"):
+        db.flush()
+    db.rollback()
+    assert db.get(AuditLog, entry.id) is not None
