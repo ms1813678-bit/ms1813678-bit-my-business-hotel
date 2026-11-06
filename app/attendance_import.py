@@ -5,7 +5,7 @@ or infers employee identities by fuzzy matching.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from io import BytesIO
 from pathlib import Path
 import re
@@ -100,6 +100,140 @@ def _load_rows(file_bytes: bytes, filename: str):
     raise ValueError("unsupported_attendance_file_extension")
 
 
+def _parse_att_log_matrix(sheet_name: str, rows: list, aliases: dict):
+    """Parse the fingerprint terminal's day-columns / employee-block report layout."""
+    period_match = None
+    for row in rows[:8]:
+        for value in row:
+            if value is None:
+                continue
+            match = re.search(
+                r"(\\d{4}-\\d{2}-\\d{2})\\s*(?:~|–|\\bto\\b)\\s*(\\d{4}-\\d{2}-\\d{2})",
+                str(value), re.IGNORECASE,
+            )
+            if match:
+                try:
+                    period_match = (
+                        datetime.strptime(match.group(1), "%Y-%m-%d").date(),
+                        datetime.strptime(match.group(2), "%Y-%m-%d").date(),
+                    )
+                except ValueError:
+                    period_match = None
+                break
+        if period_match:
+            break
+    if period_match is None:
+        return None
+    period_start, period_end = period_match
+    if period_end < period_start or period_start.day != 1 or (
+        period_start.year, period_start.month
+    ) != (period_end.year, period_end.month):
+        return {
+            "events": [], "issues": [{
+                "sheet": sheet_name, "row": 1,
+                "reason": "invalid_or_missing_date", "value": str(period_match),
+            }], "dates": [period_start, period_end],
+        }
+
+    day_header_index = None
+    day_columns = {}
+    for row_index, row in enumerate(rows[:10]):
+        candidate = {}
+        for column_index, value in enumerate(row):
+            if isinstance(value, (int, float)) and int(value) == value:
+                day = int(value)
+            elif isinstance(value, str) and value.strip().isdigit():
+                day = int(value.strip())
+            else:
+                continue
+            if 1 <= day <= 31 and day not in candidate.values():
+                candidate[column_index] = day
+        expected_days = (period_end - period_start).days + 1
+        if set(candidate.values()) == set(range(1, expected_days + 1)):
+            day_header_index, day_columns = row_index, candidate
+            break
+    if day_header_index is None:
+        return {
+            "events": [], "issues": [{
+                "sheet": sheet_name, "row": 1,
+                "reason": "missing_day_columns", "value": "day columns do not cover report period",
+            }], "dates": [period_start, period_end],
+        }
+
+    events, issues = [], []
+    for header_index, row in enumerate(rows):
+        id_marker = next(
+            (index for index, value in enumerate(row) if normalize(value) in {"id:", "id"}),
+            None,
+        )
+        if id_marker is None:
+            continue
+        name_marker = next(
+            (index for index, value in enumerate(row) if normalize(value) in {"name:", "name"}),
+            None,
+        )
+
+        def first_after(index):
+            if index is None:
+                return None
+            return next(
+                (value for value in row[index + 1:] if value is not None and str(value).strip()),
+                None,
+            )
+
+        raw_code = first_after(id_marker)
+        raw_name = first_after(name_marker)
+        if header_index + 1 >= len(rows):
+            continue
+        data_row_index = header_index + 1
+        data_row = rows[data_row_index]
+        # Do not consume another employee's metadata row as punch data.
+        if any(normalize(value) in {"id:", "id"} for value in data_row):
+            continue
+
+        identity = raw_code if raw_code not in (None, "") else raw_name
+        employee_id = aliases.get(normalize(identity))
+        row_events = []
+        event_index = 0
+        for column_index, day in day_columns.items():
+            raw_value = data_row[column_index] if column_index < len(data_row) else None
+            if raw_value in (None, ""):
+                continue
+            tokens = _time_tokens(raw_value)
+            if not tokens:
+                issues.append({
+                    "sheet": sheet_name, "row": data_row_index + 1,
+                    "reason": "invalid_time_value", "value": str(raw_value),
+                })
+                continue
+            work_date = period_start + timedelta(days=day - 1)
+            for punch_time in tokens:
+                row_events.append({
+                    "employee_id": employee_id,
+                    "raw_employee_code": str(raw_code) if raw_code not in (None, "") else None,
+                    "raw_employee_name": str(raw_name) if raw_name not in (None, "") else None,
+                    "punch_at": datetime.combine(work_date, punch_time),
+                    "raw_timestamp": str(raw_value),
+                    "event_type": "PUNCH",
+                    "source_sheet": sheet_name,
+                    "source_row": data_row_index + 1,
+                    "event_index": event_index,
+                })
+                event_index += 1
+        if employee_id is None and row_events:
+            issues.append({
+                "sheet": sheet_name, "row": data_row_index + 1,
+                "reason": "unknown_employee", "value": str(identity or ""),
+            })
+        events.extend(row_events)
+
+    return {
+        "events": events,
+        "issues": issues,
+        "dates": [period_start, period_end],
+    }
+
+
 def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str, employee_aliases: dict):
     """Return raw-positioned punch events and issues for HR review.
 
@@ -144,6 +278,13 @@ def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str
                 columns = {key: value[0] for key, value in found.items() if value}
                 break
         if header_index is None:
+            if source_type == "fingerprint":
+                matrix_result = _parse_att_log_matrix(sheet_name, rows, aliases)
+                if matrix_result is not None:
+                    events.extend(matrix_result["events"])
+                    issues.extend(matrix_result["issues"])
+                    dates.extend(matrix_result["dates"])
+                    continue
             continue
 
         for row_index in range(header_index + 1, len(rows)):
