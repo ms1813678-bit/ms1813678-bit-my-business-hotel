@@ -3,104 +3,83 @@ from datetime import datetime, time
 from app.shift_matching import match_shift_by_clock
 
 
-def pattern(identifier, start, window=30):
+def pattern(identifier, start, before=120, after=120, **extra):
     return {
         "id": identifier,
         "name": identifier,
         "start_time": time.fromisoformat(start),
-        "match_window_minutes": window,
+        "match_before_minutes": before,
+        "match_after_minutes": after,
+        **extra,
     }
 
 
-def test_matches_clock_inside_configured_window():
-    result = match_shift_by_clock(
-        datetime(2026, 11, 1, 7, 12),
-        [pattern("reception-morning", "07:00", 20)],
-    )
-    assert result["status"] == "matched"
-    assert result["shift"]["id"] == "reception-morning"
+def match(hour, minute, patterns, day=1):
+    return match_shift_by_clock(datetime(2026, 11, day, hour, minute), patterns)
 
 
-def test_clock_outside_window_is_not_guessed():
-    result = match_shift_by_clock(
-        datetime(2026, 11, 1, 7, 31),
-        [pattern("reception-morning", "07:00", 30)],
-    )
-    assert result["status"] == "unmatched"
-    assert result["shift"] is None
+def test_matches_inside_configured_before_and_after_margins():
+    p = [pattern("admin", "09:00", 30, 45)]
+    assert match(8, 30, p)["status"] == "matched"
+    assert match(9, 45, p)["status"] == "matched"
+    assert match(9, 46, p)["status"] == "unmatched"
 
 
-def test_overnight_shift_matches_after_midnight_by_clock():
-    result = match_shift_by_clock(
-        datetime(2026, 11, 2, 0, 5),
-        [pattern("reception-night", "23:00", 90)],
-    )
-    assert result["status"] == "matched"
-    assert result["shift"]["id"] == "reception-night"
+def test_two_shifts_have_no_overlap_and_midpoint_is_unmatched():
+    p = [pattern("morning", "07:00"), pattern("evening", "15:00")]
+    assert match(10, 59, p)["shift"]["id"] == "morning"
+    assert match(11, 0, p)["status"] == "unmatched"
+    assert match(11, 1, p)["shift"]["id"] == "evening"
 
 
-def test_overlapping_shift_windows_are_sent_for_manual_review():
-    result = match_shift_by_clock(
-        datetime(2026, 11, 1, 14, 58),
-        [
-            pattern("reception-morning", "07:00", 500),
-            pattern("reception-evening", "15:00", 30),
-        ],
-    )
+def test_duplicate_start_times_are_ambiguous_even_at_exact_start():
+    p = [pattern("security-12h", "08:00"), pattern("security-8h", "08:00")]
+    result = match(8, 0, p)
     assert result["status"] == "ambiguous"
     assert result["shift"] is None
 
 
-def test_unconfigured_window_disables_automatic_matching():
-    result = match_shift_by_clock(
-        datetime(2026, 11, 1, 9, 0),
-        [pattern("administration", "09:00", None)],
-    )
-    assert result["status"] == "unmatched"
+def test_close_shift_starts_are_trimmed_to_prevent_overlap():
+    p = [pattern("hk-08", "08:00"), pattern("hk-09", "09:00")]
+    assert match(8, 29, p)["shift"]["id"] == "hk-08"
+    assert match(8, 30, p)["status"] == "unmatched"
+    assert match(8, 31, p)["shift"]["id"] == "hk-09"
 
 
-def test_negative_window_is_rejected():
+def test_overnight_start_matches_after_midnight():
+    p = [pattern("night", "23:00")]
+    assert match(0, 5, p, day=2)["shift"]["id"] == "night"
+    assert match(22, 0, p)["shift"]["id"] == "night"
+
+
+def test_midnight_start_matches_before_midnight():
+    p = [pattern("midnight", "00:00")]
+    assert match(23, 55, p)["shift"]["id"] == "midnight"
+
+
+def test_zero_margins_only_match_exact_start():
+    p = [pattern("zero", "09:00", 0, 0)]
+    assert match(9, 0, p)["status"] == "matched"
+    assert match(9, 1, p)["status"] == "unmatched"
+
+
+def test_legacy_field_is_not_used_by_matcher():
+    p = [{
+        "id": "legacy", "name": "legacy", "start_time": time(9, 0),
+        "match_window_minutes": 120,
+    }]
+    assert match(9, 0, p)["status"] == "unmatched"
+
+
+def test_invalid_margin_is_rejected():
+    p = [pattern("bad", "09:00", 121, 0)]
     try:
-        match_shift_by_clock(
-            datetime(2026, 11, 1, 9, 0),
-            [pattern("invalid", "09:00", -1)],
-        )
+        match(9, 0, p)
     except ValueError:
         pass
     else:
-        raise AssertionError("Negative matching window must be rejected.")
-
-def test_matches_exactly_at_configured_window_boundary():
-    result = match_shift_by_clock(
-        datetime(2026, 11, 1, 7, 30),
-        [pattern("reception-morning", "07:00", 30)],
-    )
-    assert result["status"] == "matched"
+        raise AssertionError("Margins above 120 minutes must be rejected.")
 
 
-def test_midnight_shift_matches_just_before_midnight_with_wraparound():
-    result = match_shift_by_clock(
-        datetime(2026, 11, 1, 23, 55),
-        [pattern("security-midnight", "00:00", 10)],
-    )
-    assert result["status"] == "matched"
-    assert result["shift"]["id"] == "security-midnight"
-
-
-def test_zero_window_matches_only_exact_start_time():
-    exact = match_shift_by_clock(
-        datetime(2026, 11, 1, 9, 0),
-        [pattern("administration", "09:00", 0)],
-    )
-    one_minute_late = match_shift_by_clock(
-        datetime(2026, 11, 1, 9, 1),
-        [pattern("administration", "09:00", 0)],
-    )
-    assert exact["status"] == "matched"
-    assert one_minute_late["status"] == "unmatched"
-
-
-def test_empty_shift_list_is_unmatched():
-    result = match_shift_by_clock(datetime(2026, 11, 1, 9, 0), [])
-    assert result["status"] == "unmatched"
-    assert result["shift"] is None
+def test_empty_patterns_are_unmatched():
+    assert match(9, 0, [])["status"] == "unmatched"
