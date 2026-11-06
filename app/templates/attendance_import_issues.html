@@ -44,7 +44,7 @@
           <select id="employee-{{ issue.id }}" name="employee_id" required>
             <option value="">اختر الموظف</option>
             {% for employee in employees %}
-            <option value="{{ employee.id }}">{{ employee.code }} — {{ employee.full_name }} — {{ employee.department.name }}</option>
+            <option value="{{ employee.id }}">{{ employee.code }} — {{ employee.full_name }}</option>
             {% endfor %}
           </select>
           <button type="submit">تأكيد ربط البصمات بهذا الموظف وتسجيل المراجعة</button>
