@@ -7,8 +7,8 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import (approve_attendance_day, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation)
-from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
+from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation)
+from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
 
 
 @pytest.fixture
@@ -474,3 +474,79 @@ def test_hr_approval_requires_reason_and_positive_duration(db_session):
             clock_out=datetime(2026, 11, 1, 8, 0),
             actor="hr-admin", reason="Invalid interval",
         )
+
+
+def test_monthly_imports_create_one_imported_month_and_link_both_sources(db_session):
+    program_payload = parsed_payload()
+    program_payload["source_type"] = "program_report"
+    fingerprint_payload = parsed_payload()
+    fingerprint_payload["source_type"] = "fingerprint"
+    program = persist_attendance_import(
+        db_session, file_bytes=b"program-month-file", filename="program.xlsx",
+        parsed=program_payload, actor="hr-admin",
+    )
+    fingerprint = persist_attendance_import(
+        db_session, file_bytes=b"fingerprint-month-file", filename="fingerprint.xlsx",
+        parsed=fingerprint_payload, actor="hr-admin",
+    )
+    month = db_session.scalar(select(AttendanceMonth))
+    assert month is not None
+    assert month.status == "imported"
+    assert month.program_import_batch_id == program.id
+    assert month.fingerprint_import_batch_id == fingerprint.id
+    assert month.created_by == "hr-admin"
+
+
+def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session):
+    work_date = date(2026, 11, 1)
+    program = AttendanceImportBatch(
+        source_type="program_report", period_start=work_date, period_end=work_date,
+        original_filename="program.xlsx", file_sha256="1" * 64,
+        uploaded_by="hr-admin", status="parsed",
+    )
+    fingerprint = AttendanceImportBatch(
+        source_type="fingerprint", period_start=work_date, period_end=work_date,
+        original_filename="fingerprint.xlsx", file_sha256="2" * 64,
+        uploaded_by="hr-admin", status="parsed",
+    )
+    db_session.add_all([program, fingerprint])
+    db_session.flush()
+    month = AttendanceMonth(
+        period_start=work_date, period_end=work_date,
+        program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
+        status="under_review", created_by="hr-admin",
+    )
+    db_session.add(month)
+    pending = AttendanceDailyRecord(
+        employee_id=1, work_date=work_date, status="needs_review",
+    )
+    db_session.add(pending)
+    db_session.flush()
+
+    with pytest.raises(ValueError, match="attendance_month_has_unapproved_daily_records"):
+        approve_attendance_month(
+            db_session, month_id=month.id, actor="hr-admin",
+            reason="Reviewed the month", coverage_confirmed=True,
+        )
+    pending.status = "approved"
+    pending.approved_by = "hr-admin"
+    pending.approved_at = datetime(2026, 11, 2)
+    with pytest.raises(ValueError, match="attendance_month_coverage_confirmation_required"):
+        approve_attendance_month(
+            db_session, month_id=month.id, actor="hr-admin",
+            reason="Reviewed the month", coverage_confirmed=False,
+        )
+    approved = approve_attendance_month(
+        db_session, month_id=month.id, actor="hr-admin",
+        reason="All employee/day gaps checked against source reports",
+        coverage_confirmed=True,
+    )
+    assert approved.status == "approved"
+    assert approved.approved_by == "hr-admin"
+    assert approved.approved_at is not None
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "attendance_month_approved")
+    )
+    assert audit is not None
+    assert audit.entity_id == str(month.id)
