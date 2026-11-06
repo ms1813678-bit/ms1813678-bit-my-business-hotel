@@ -445,3 +445,80 @@ def test_shift_matching_margins_migration_backfills_and_reupgrades(postgres_sche
                 FROM shift_patterns WHERE code = 'LEGACY-150'
             """)
         ).one() == (120, 120)
+
+
+def test_security_roster_concurrent_approval_is_serialized_on_postgres(postgres_schema):
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import time
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import sessionmaker
+
+    from app.models import (
+        AdminAccount, AuditLog, Department, Employee,
+        SecurityShiftAssignment, ShiftPattern,
+    )
+    from app.security_roster_workflow import confirm_security_roster_day
+
+    test_engine = postgres_schema
+    migrate(test_engine, "head")
+    factory = sessionmaker(bind=test_engine, expire_on_commit=False)
+
+    with factory.begin() as db:
+        department = Department(name="Security", active=True)
+        admin = AdminAccount(
+            username="concurrent-roster-admin",
+            password_hash="synthetic-test-hash",
+            active=True,
+        )
+        db.add_all([department, admin])
+        db.flush()
+        employee_ids = []
+        for index, name in enumerate(("Fayez", "Yasser", "Walid"), start=1):
+            employee = Employee(
+                code=f"SEC-CON-{index}", full_name=name,
+                department_id=department.id, position="Security",
+                hire_date=date(2024, 1, 1), status="active",
+                basic_salary=5000, daily_hours=8,
+            )
+            db.add(employee)
+            db.flush()
+            employee_ids.append(employee.id)
+        for code, start, end in (
+            ("MIDNIGHT", time(0, 0), time(8, 0)),
+            ("MORNING", time(8, 0), time(16, 0)),
+            ("EVENING", time(16, 0), time(0, 0)),
+        ):
+            db.add(ShiftPattern(
+                department_id=department.id, code=code, name=code,
+                start_time=start, end_time=end, active=True,
+                match_before_minutes=60, match_after_minutes=60,
+            ))
+        admin_id = admin.id
+        db.flush()
+
+    roster = {
+        employee_ids[0]: time(0, 0),
+        employee_ids[1]: time(8, 0),
+        employee_ids[2]: time(16, 0),
+    }
+    work_date = date(2026, 11, 1)
+
+    def approve(_):
+        try:
+            with factory.begin() as db:
+                admin = db.get(AdminAccount, admin_id)
+                confirm_security_roster_day(db, work_date, roster, admin)
+            return "approved"
+        except ValueError:
+            return "rejected"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(approve, range(2)))
+
+    assert outcomes.count("approved") == 1
+    assert outcomes.count("rejected") == 1
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 3
+        assert db.scalar(select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "security_roster_day_approved"
+        )) == 1
