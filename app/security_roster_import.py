@@ -156,6 +156,11 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                         roster[employee_id] = shift
                 if len(roster) == 3:
                     records.append({"work_date": work_date, "roster": roster})
+            if not records and not issues:
+                issues.append({
+                    "row": header_row,
+                    "reason": "no_valid_roster_rows",
+                })
             return {
                 "sheet_name": sheet.title,
                 "employee_headers": employee_headers,
