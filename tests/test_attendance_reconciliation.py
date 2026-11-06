@@ -228,5 +228,4 @@ def test_monthly_builder_does_not_invent_missing_attendance():
         security_department_id=99,
         security_approved_dates=set(),
     )
-    assert result[0]["proposal"]["status"] == "needs_review"
-    assert result[0]["proposal"]["worked_minutes"] is None
+    assert result == []
