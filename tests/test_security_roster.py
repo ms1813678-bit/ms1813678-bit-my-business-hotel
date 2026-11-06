@@ -9,6 +9,7 @@ PATTERNS = [
     {"id": 3, "start_time": time(0, 0), "end_time": time(8, 0)},
     {"id": 4, "start_time": time(8, 0), "end_time": time(16, 0)},
     {"id": 5, "start_time": time(16, 0), "end_time": time(0, 0)},
+    {"id": 6, "start_time": time(0, 0), "end_time": time(12, 0)},
 ]
 
 
