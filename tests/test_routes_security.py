@@ -711,3 +711,78 @@ def test_employee_creation_audits_record_and_rejects_duplicate_identifiers(clien
 
     with SessionLocal() as db:
         assert db.query(Employee).count() == 1
+
+
+def test_employee_probation_dates_are_optional_validated_and_audited(client):
+    from app.main import SessionLocal
+    from app.models import EmployeeChange
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Probation Dates Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "probation_start_date": "2025-01-01",
+            "probation_end_date": "2025-03-31",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Probation Dates Test").one()
+        employee_id = employee.id
+        assert employee.probation_start_date == date(2025, 1, 1)
+        assert employee.probation_end_date == date(2025, 3, 31)
+
+    invalid = client.post(
+        f"/employees/{employee_id}/edit",
+        data={
+            "csrf_token": token,
+            "full_name": "Probation Dates Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+            "probation_start_date": "2025-04-01",
+            "probation_end_date": "2025-03-01",
+            "effective_date": "2025-04-01",
+            "reason": "Invalid probation range",
+        },
+        follow_redirects=False,
+    )
+    assert invalid.status_code == 400
+
+    updated = client.post(
+        f"/employees/{employee_id}/edit",
+        data={
+            "csrf_token": token,
+            "full_name": "Probation Dates Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+            "probation_start_date": "2025-01-01",
+            "probation_end_date": "2025-04-30",
+            "effective_date": "2025-04-01",
+            "reason": "Probation period extended",
+        },
+        follow_redirects=False,
+    )
+    assert updated.status_code == 303
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        changes = db.query(EmployeeChange).filter_by(
+            employee_id=employee_id,
+            field_name="probation_end_date",
+        ).all()
+        assert employee.probation_end_date == date(2025, 4, 30)
+        assert len(changes) == 1
+        assert changes[0].effective_date == date(2025, 4, 1)
+        assert changes[0].reason == "Probation period extended"
