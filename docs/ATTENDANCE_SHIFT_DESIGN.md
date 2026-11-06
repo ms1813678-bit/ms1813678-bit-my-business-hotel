@@ -33,9 +33,12 @@
 
 AI may analyze attendance evidence and prepare shift suggestions with explanations. Clear cases can be prepared under approved rules; uncertain cases are presented to HR with the proposed result and reason. The administrator must confirm before consequential attendance records are approved or saved as final. AI is optional and must not block normal operation.
 
-## Not yet implemented in this stage
+## Current implementation boundary
 
-The security roster upload/editor, attendance import and reconciliation, monthly attendance review/approval, and payroll gate belong to the following attendance stages. This foundation does not claim those workflows are complete.
+The repository now includes the protected Security roster preview/confirmation workflow, both attendance workbook import paths, raw punch preservation, monthly reconciliation, paginated HR daily review/approval, explicit monthly coverage attestation, and a payroll-safe approval state. The detailed acceptance rules are maintained in `docs/PROJECT_SPEC.md`.
+
+The AI-assisted review described above is not yet connected to an AI provider. Current shift matching and reconciliation are deterministic rule-based preparation only; they do not claim to be AI. AI suggestions/explanations remain a separately gated integration (planned with the local AI assistant stage). Human review and approval remain mandatory, and the attendance workflow remains usable without AI.
+
 
 
 ## Attendance evidence foundation (revision 0010)
@@ -51,7 +54,9 @@ The repository now includes an initial, non-approving evidence layer:
 
 The implementation now includes protected Excel import for both sources, exact employee identity matching, persisted raw punches and import issues, monthly reconciliation proposals, shift-aware overnight pairing, a protected HR review page, and explicit per-day approval with reason and immutable audit entry. Approval writes final HR-approved clock values separately from imported evidence. The month builder does not fabricate absences when there is neither a configured shift nor attendance evidence, and approved Security OFF days do not create attendance rows.
 
-Still outstanding before this stage is accepted: verify full-month behavior against synthetic copies of the hotel's real export layouts; add a true concurrent PostgreSQL approval test; finish the remaining security-roster staging/cleanup edge tests if CI does not already cover them; verify import issues are individually resolvable; and complete the end-to-end Ubuntu/Windows checks. Payroll must consume only records whose status is approved and the final approved clock values, never raw punches or unapproved proposals. The payroll gate itself belongs to the later payroll stage and must be tested before production use.
+Implementation and automated acceptance coverage now include the program-first/fingerprint-supplement workflow, the actual ZKTeco `Att.log report` day-column structure (including adjacent concatenated time tokens), exact employee mapping, unresolved-identity correction, overnight pairing, duplicate event review, effective-dated department transfers, Security roster rules, daily and monthly approvals, coverage-gap reporting, and concurrent PostgreSQL attendance approval. The current GitHub Actions run on the development branch passed 188 tests on the primary runner and 181 platform-independent tests on Windows; the Windows job intentionally excludes PostgreSQL migration tests.
+
+Remaining acceptance items are deliberately external to this code-only CI result: HR must run the real three-person Security roster workbook through preview and confirmation; the AI-assisted explanation/suggestion integration remains for the local AI stage; and the full Windows installation/database acceptance remains scheduled for the final Windows stage. Payroll must consume only records whose status is approved and the final approved clock values, never raw punches or unapproved proposals.
 
 
 ### Reconciliation proposal rules
