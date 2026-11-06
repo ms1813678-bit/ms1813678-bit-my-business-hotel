@@ -518,9 +518,25 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
         status="under_review", created_by="hr-admin",
     )
     db_session.add(month)
+    db_session.flush()
     pending = AttendanceDailyRecord(
         employee_id=1, work_date=work_date, status="needs_review",
+        program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
     )
+    # An unrelated historical row in the same calendar range must not affect this
+    # month's approval decision or counts.
+    other_employee = Employee(
+        code="ATT-OTHER", full_name="Other Historical Employee",
+        department_id=db_session.scalar(select(Employee.department_id).where(Employee.id == 1)),
+        position="Test", hire_date=date(2024, 1, 1), status="active",
+        basic_salary=Decimal("4000"), daily_hours=Decimal("8"),
+    )
+    db_session.add(other_employee)
+    db_session.flush()
+    db_session.add(AttendanceDailyRecord(
+        employee_id=other_employee.id, work_date=work_date, status="needs_review",
+    ))
     db_session.add(pending)
     db_session.flush()
 
@@ -529,6 +545,13 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
             db_session, month_id=month.id, actor="hr-admin",
             reason="Reviewed the month", coverage_confirmed=True,
         )
+    program.status = "needs_review"
+    with pytest.raises(ValueError, match="attendance_month_source_batch_not_ready_for_approval"):
+        approve_attendance_month(
+            db_session, month_id=month.id, actor="hr-admin",
+            reason="Reviewed the month", coverage_confirmed=True,
+        )
+    program.status = "parsed"
     pending.status = "approved"
     pending.approved_by = "hr-admin"
     pending.approved_at = datetime(2026, 11, 2)
@@ -545,6 +568,8 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     assert approved.status == "approved"
     assert approved.approved_by == "hr-admin"
     assert approved.approved_at is not None
+    assert program.status == "approved"
+    assert fingerprint.status == "approved"
     audit = db_session.scalar(
         select(AuditLog).where(AuditLog.action == "attendance_month_approved")
     )
