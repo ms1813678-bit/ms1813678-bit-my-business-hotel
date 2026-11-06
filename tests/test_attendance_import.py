@@ -133,7 +133,7 @@ def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens()
         ["Stat.Date:", "2026-10-01 ~ 2026-10-31"],
         ["Att. Time", None, "2026-10-01 ~ 2026-10-31"],
         days,
-        ["ID:", None, "1", None, None, None, None, None, "Name:", None, "Employee One"],
+        ["ID:", None, 1.0, None, None, None, None, None, "Name:", None, "Employee One"],
         ["00:2507:5016:09", "15:48 23:54"] + [None] * 29,
         ["ID:", None, "5", None, None, None, None, None, "Name:", None, "Employee Two"],
         ["08:0208:0216:5816:58"] + [None] * 30,
