@@ -12,11 +12,11 @@ depends_on = None
 def upgrade():
     op.add_column(
         "shift_patterns",
-        sa.Column("match_before_minutes", sa.Integer(), nullable=False, server_default="120"),
+        sa.Column("match_before_minutes", sa.Integer(), nullable=True),
     )
     op.add_column(
         "shift_patterns",
-        sa.Column("match_after_minutes", sa.Integer(), nullable=False, server_default="120"),
+        sa.Column("match_after_minutes", sa.Integer(), nullable=True),
     )
     # Preserve existing symmetric configuration where it was explicitly set.
     op.execute(
