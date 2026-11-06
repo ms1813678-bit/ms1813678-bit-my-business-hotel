@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -27,6 +29,46 @@ from app.security_roster_workflow import prepare_security_roster, confirm_securi
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
 SECURITY_ROSTER_STAGING_DIR = Path("var") / "security_roster_staging"
 SECURITY_ROSTER_STAGING_TTL_SECONDS = 60 * 60
+SECURITY_ROSTER_CLEANUP_INTERVAL_SECONDS = 5 * 60
+
+
+def _cleanup_expired_security_roster_files(now: float | None = None) -> int:
+    """Delete expired staged workbooks independently of upload/preview actions."""
+    if not SECURITY_ROSTER_STAGING_DIR.exists():
+        return 0
+    current_time = time_module.time() if now is None else now
+    removed = 0
+    for candidate in SECURITY_ROSTER_STAGING_DIR.glob("*.xlsx"):
+        try:
+            if current_time - candidate.stat().st_mtime > SECURITY_ROSTER_STAGING_TTL_SECONDS:
+                candidate.unlink(missing_ok=True)
+                removed += 1
+        except FileNotFoundError:
+            continue
+        except OSError:
+            # A transient filesystem problem must not stop the cleanup loop.
+            continue
+    return removed
+
+
+async def _security_roster_cleanup_loop() -> None:
+    while True:
+        _cleanup_expired_security_roster_files()
+        await asyncio.sleep(SECURITY_ROSTER_CLEANUP_INTERVAL_SECONDS)
+
+
+@asynccontextmanager
+async def _app_lifespan(application):
+    cleanup_task = asyncio.create_task(_security_roster_cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+
 
 EMPLOYEE_PHOTO_DIR = Path("var") / "employee_photos"
 EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
@@ -58,7 +100,7 @@ def _store_employee_photo(upload: UploadFile | None) -> str | None:
     return filename
 
 
-app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs")
+app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs", lifespan=_app_lifespan)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.session_secret,
@@ -111,6 +153,9 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
                 context={"error": "اسم المستخدم أو كلمة المرور غير صحيحة.", "csrf_token": get_csrf_token(request)},
                 status_code=401,
             )
+        staged_token = request.session.get("security_roster_stage")
+        if isinstance(staged_token, str):
+            _clear_staged_security_roster(staged_token, request)
         request.session.clear()
         request.session["admin_username"] = admin.username
         request.session["admin_session_version"] = admin.session_version
@@ -120,6 +165,9 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 
 @app.post("/logout", dependencies=[Depends(csrf_protect)])
 def logout(request: Request):
+    staged_token = request.session.get("security_roster_stage")
+    if isinstance(staged_token, str):
+        _clear_staged_security_roster(staged_token, request)
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -158,12 +206,7 @@ def _stage_security_roster(raw: bytes, request: Request) -> str:
     except OSError:
         pass
     now = time_module.time()
-    for candidate in SECURITY_ROSTER_STAGING_DIR.glob("*.xlsx"):
-        try:
-            if now - candidate.stat().st_mtime > SECURITY_ROSTER_STAGING_TTL_SECONDS:
-                candidate.unlink(missing_ok=True)
-        except OSError:
-            continue
+    _cleanup_expired_security_roster_files(now)
     token = secrets.token_urlsafe(32)
     path = SECURITY_ROSTER_STAGING_DIR / f"{token}.xlsx"
     path.write_bytes(raw)
