@@ -108,7 +108,7 @@ def _parse_att_log_matrix(sheet_name: str, rows: list, aliases: dict):
             if value is None:
                 continue
             match = re.search(
-                r"(\\d{4}-\\d{2}-\\d{2})\\s*(?:~|–|\\bto\\b)\\s*(\\d{4}-\\d{2}-\\d{2})",
+                r"(\d{4}-\d{2}-\d{2})\s*(?:~|–|\bto\b)\s*(\d{4}-\d{2}-\d{2})",
                 str(value), re.IGNORECASE,
             )
             if match:
