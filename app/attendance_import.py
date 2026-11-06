@@ -19,12 +19,12 @@ IN_HEADERS = {"clock in", "check in", "in time", "وقت الحضور", "دخو�
 OUT_HEADERS = {"clock out", "check out", "out time", "وقت الانصراف", "خروج"}
 EVENT_HEADERS = {"check time", "punch time", "attendance time", "att. time", "time", "وقت البصمة", "وقت"}
 EVENT_TYPE_HEADERS = {"state", "status", "event type", "type", "الحالة", "نوع الحركة"}
-TIME_TOKEN = re.compile(r"(?<!\\d)([01]?\\d|2[0-3]):([0-5]\\d)(?::([0-5]\\d))?(?!\\d)")
+TIME_TOKEN = re.compile(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(?!\d)")
 
 
 def normalize(value) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
-    return re.sub(r"\\s+", " ", text)
+    return re.sub(r"\s+", " ", text)
 
 
 def _date_value(value, datemode=0):
