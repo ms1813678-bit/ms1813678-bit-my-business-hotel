@@ -231,10 +231,11 @@ def employees_page(request: Request, admin: AdminAccount = Depends(get_current_a
         branches = db.scalars(select(Branch).where(Branch.active.is_(True)).order_by(Branch.name)).all()
         all_departments = db.scalars(select(Department).order_by(Department.name)).all()
         all_branches = db.scalars(select(Branch).order_by(Branch.name)).all()
+        employee_changes = db.scalars(select(EmployeeChange).order_by(EmployeeChange.effective_date.desc(), EmployeeChange.id.desc())).all()
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
         return templates.TemplateResponse(
             request=request, name="employees.html",
-            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employees": employees, "csrf_token": get_csrf_token(request)},
+            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employee_changes": employee_changes, "employees": employees, "csrf_token": get_csrf_token(request)},
         )
 
 
