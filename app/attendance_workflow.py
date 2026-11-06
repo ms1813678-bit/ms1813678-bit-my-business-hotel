@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog
+from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
 
 
 def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: dict, actor: str):
@@ -141,3 +142,164 @@ def persist_daily_attendance_proposal(
     ))
     db.flush()
     return record
+
+
+
+def prepare_and_persist_monthly_reconciliation(
+    db,
+    *,
+    program_batch_id: int,
+    fingerprint_batch_id: int,
+    period_start: date,
+    period_end: date,
+    actor: str,
+) -> dict:
+    """Build and persist one month of unapproved daily proposals from both source files."""
+    from app.attendance_reconciliation import build_monthly_reconciliation_proposals
+
+    if period_end < period_start:
+        raise ValueError("attendance_period_is_invalid")
+    program_batch = db.get(AttendanceImportBatch, program_batch_id)
+    fingerprint_batch = db.get(AttendanceImportBatch, fingerprint_batch_id)
+    if program_batch is None or program_batch.source_type != "program_report":
+        raise ValueError("program_report_batch_not_found")
+    if fingerprint_batch is None or fingerprint_batch.source_type != "fingerprint":
+        raise ValueError("fingerprint_batch_not_found")
+    if program_batch.status != "parsed" or fingerprint_batch.status != "parsed":
+        raise ValueError("resolve_import_issues_before_reconciliation")
+
+    existing = db.scalar(
+        select(AttendanceDailyRecord.id).where(
+            AttendanceDailyRecord.work_date >= period_start,
+            AttendanceDailyRecord.work_date <= period_end,
+        ).limit(1)
+    )
+    if existing is not None:
+        raise ValueError("attendance_period_already_has_reconciliation_records")
+
+    employees = db.scalars(
+        select(Employee).where(
+            Employee.status == "active",
+            Employee.hire_date <= period_end,
+        ).order_by(Employee.id)
+    ).all()
+    if not employees:
+        raise ValueError("no_active_employees_in_attendance_period")
+
+    security_department = db.scalar(
+        select(Department).where(
+            Department.name == "Security",
+            Department.active.is_(True),
+        )
+    )
+    if security_department is None:
+        raise ValueError("security_department_not_configured")
+
+    departments = {item.id: item.name for item in db.scalars(select(Department)).all()}
+    patterns_by_department = {}
+    for pattern in db.scalars(
+        select(ShiftPattern).where(ShiftPattern.active.is_(True))
+    ).all():
+        patterns_by_department.setdefault(pattern.department_id, []).append({
+            "id": pattern.id,
+            "name": pattern.name,
+            "start_time": pattern.start_time,
+            "end_time": pattern.end_time,
+            "match_before_minutes": pattern.match_before_minutes,
+            "match_after_minutes": pattern.match_after_minutes,
+        })
+
+    assignments = db.scalars(
+        select(SecurityShiftAssignment).where(
+            SecurityShiftAssignment.work_date >= period_start,
+            SecurityShiftAssignment.work_date <= period_end,
+        )
+    ).all()
+    security_assignment_data = [{
+        "id": item.id,
+        "employee_id": item.employee_id,
+        "work_date": item.work_date,
+        "shift_pattern_id": item.shift_pattern_id,
+    } for item in assignments]
+
+    approved_rows = db.scalars(
+        select(AuditLog.entity_id).where(
+            AuditLog.action == "security_roster_day_approved",
+            AuditLog.entity_type == "security_roster",
+        )
+    ).all()
+    security_approved_dates = set()
+    for raw_date in approved_rows:
+        try:
+            approved_date = date.fromisoformat(raw_date)
+        except (TypeError, ValueError):
+            continue
+        if period_start <= approved_date <= period_end:
+            security_approved_dates.add(approved_date)
+
+    punches = db.scalars(
+        select(AttendancePunch).where(
+            AttendancePunch.import_batch_id.in_([program_batch_id, fingerprint_batch_id])
+        ).order_by(AttendancePunch.punch_at, AttendancePunch.id)
+    ).all()
+    program_events, fingerprint_events = [], []
+    for punch in punches:
+        if punch.employee_id is None or punch.punch_at is None:
+            continue
+        item = {"employee_id": punch.employee_id, "punch_at": punch.punch_at,
+                "event_type": punch.event_type}
+        if punch.import_batch_id == program_batch_id:
+            program_events.append(item)
+        elif punch.import_batch_id == fingerprint_batch_id:
+            fingerprint_events.append(item)
+
+    proposals = build_monthly_reconciliation_proposals(
+        employees=[{
+            "id": item.id, "department_id": item.department_id,
+            "hire_date": item.hire_date,
+        } for item in employees],
+        period_start=period_start,
+        period_end=period_end,
+        program_events=program_events,
+        fingerprint_events=fingerprint_events,
+        patterns_by_department=patterns_by_department,
+        security_assignments=security_assignment_data,
+        security_department_id=security_department.id,
+        security_approved_dates=security_approved_dates,
+    )
+    if not proposals:
+        raise ValueError("no_attendance_proposals_generated")
+
+    ready_count = 0
+    review_count = 0
+    for item in proposals:
+        persist_daily_attendance_proposal(
+            db,
+            employee_id=item["employee_id"],
+            proposal=item["proposal"],
+            actor=actor,
+            program_import_batch_id=program_batch_id,
+            fingerprint_import_batch_id=fingerprint_batch_id,
+            security_shift_assignment_id=item.get("security_shift_assignment_id"),
+        )
+        if item["proposal"]["status"] == "ready_for_review":
+            ready_count += 1
+        else:
+            review_count += 1
+
+    db.add(AuditLog(
+        actor=actor,
+        action="attendance_month_reconciliation_created",
+        entity_type="attendance_month",
+        entity_id=f"{period_start.isoformat()}..{period_end.isoformat()}",
+        new_value=f"proposals={len(proposals)}; ready={ready_count}; needs_review={review_count}",
+        reason="Monthly attendance reconciliation created; pending HR review and approval",
+    ))
+    db.flush()
+    return {
+        "total": len(proposals),
+        "ready_for_review": ready_count,
+        "needs_review": review_count,
+        "period_start": period_start,
+        "period_end": period_end,
+    }
