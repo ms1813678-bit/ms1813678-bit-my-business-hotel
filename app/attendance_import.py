@@ -166,8 +166,10 @@ def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str
             # enter the HR review workflow as an import batch.
             dates.append(work_date)
             if employee_id is None:
-                issues.append({"sheet": sheet_name, "row": row_index + 1, "reason": "unknown_employee", "value": str(employee_key)})
-                continue
+                issues.append({
+                    "sheet": sheet_name, "row": row_index + 1,
+                    "reason": "unknown_employee", "value": str(employee_key),
+                })
 
             values = []
             if source_type == "program_report":
