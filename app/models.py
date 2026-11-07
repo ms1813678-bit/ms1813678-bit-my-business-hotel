@@ -537,7 +537,8 @@ class PayrollLine(Base):
     __tablename__ = "payroll_lines"
     __table_args__ = (
         UniqueConstraint("payroll_period_id", "employee_id", name="uq_payroll_line_period_employee"),
-        CheckConstraint("basic_salary_snapshot >= 0", name="ck_payroll_line_base_salary_nonnegative"),
+        CheckConstraint("basic_salary_snapshot >= 0 AND monthly_basic_salary_snapshot >= 0", name="ck_payroll_line_base_salary_nonnegative"),
+        CheckConstraint("payable_service_days BETWEEN 0 AND 31", name="ck_payroll_line_service_days"),
         CheckConstraint(
             "attendance_bonus >= 0 AND performance_bonus >= 0 AND occupancy_bonus >= 0 "
             "AND overtime_amount >= 0 AND other_bonus >= 0 "
@@ -559,6 +560,8 @@ class PayrollLine(Base):
     department_name_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
     position_snapshot: Mapped[str] = mapped_column(String(120), nullable=False)
     basic_salary_snapshot: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    monthly_basic_salary_snapshot: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payable_service_days: Mapped[int] = mapped_column(Integer, nullable=False)
     daily_hours_snapshot: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     attendance_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     performance_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
