@@ -25,6 +25,7 @@ from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
 from app.advance_workflow import approve_advance, create_advance, mark_advance_paid, reject_advance
 from app.staff_actions_workflow import approve_staff_action, cancel_staff_action, create_staff_action, record_employee_acknowledgement
+from app.reports import build_hr_workbook
 from app.payroll_workflow import (
     add_payroll_payment,
     approve_payroll_run,
@@ -1678,6 +1679,46 @@ def add_payroll_payment_route(
     except (ValueError, SQLAlchemyError):
         return RedirectResponse(f"/payroll/runs/{run_id}?error=payment", status_code=303)
     return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    today = date.today()
+    default_start = date(today.year, today.month, 1)
+    return templates.TemplateResponse(
+        request=request,
+        name="reports.html",
+        context={
+            "start_date": request.query_params.get("start_date", default_start.isoformat()),
+            "end_date": request.query_params.get("end_date", today.isoformat()),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@app.get("/reports/export.xlsx")
+def export_hr_reports(
+    start_date: date,
+    end_date: date,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal() as db:
+            content = build_hr_workbook(db, start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="تعذر إنشاء التقرير بسبب خطأ في قاعدة البيانات.")
+    filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}.xlsx"
+    from urllib.parse import quote
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @app.get("/employees", response_class=HTMLResponse)
