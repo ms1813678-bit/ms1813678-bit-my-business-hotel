@@ -222,3 +222,42 @@ Security/operational decisions:
 - Both scripts now reject an empty database password and pass `--no-password` to PostgreSQL client tools so an unexpected interactive prompt fails instead of hanging.
 - Updated the Windows recovery guide with these restrictions.
 - These are source-level safeguards only. They still require execution under the target Windows PowerShell/PostgreSQL versions, including a disposable local database and a deliberately remote-host rejection test.
+
+
+## 17. Coordinator re-review of PR #16 and recovery scripts (2026-11-07)
+
+A fresh GitHub review confirmed that PR #16 is no longer documentation-only, despite its current PR body still describing it that way. Its actual changed-file list is:
+- `.gitignore`
+- `app/main.py`
+- `docs/BACKUP_RESTORE_WINDOWS.md`
+- `docs/TEAM1_FOUNDATION_AUDIT.md`
+- `scripts/backup_database.ps1`
+- `scripts/restore_database.ps1`
+- `tests/test_routes_security.py`
+
+The PR description must be corrected to match these files and the actual code/security/recovery scope before review can be completed.
+
+### Latest CI evidence
+
+The latest PR-triggered workflow for head `aad6c20e6b122c41e6e6ec37bbbc195607c23b45` is run #711 (run ID `42391698392`). Both jobs completed with failure:
+- Linux: `Run pytest (Python 3.11)`
+- Windows: `Windows runner compatibility (Python 3.11)`
+
+GitHub returned no step summaries or logs for either job. The failure cause is therefore unknown; do not classify it as an application regression or an infrastructure-only failure without further evidence. The current PR head is not CI-verified.
+
+### Recovery-script review limits and additional acceptance
+
+The backup script creates a PostgreSQL custom-format dump, copies employee photos, and writes a SHA-256 checksum for the database dump. The restore script checks the dump checksum, restricts the database host to localhost, requires an exact confirmation, refuses a database containing user relations, stages the photo directory, and requests a single-transaction PostgreSQL restore.
+
+Source review is not sufficient to approve recovery. Additional disposable-database acceptance must prove:
+1. A successful backup can be listed with `pg_restore --list`.
+2. Restore into a newly created empty database preserves employee, service-period, attendance, and audit data.
+3. Employee photo files are verified by count and per-file checksum, not only by the database dump checksum.
+4. A corrupted dump is rejected before database or photo changes.
+5. A non-empty database and a non-local PostgreSQL host are rejected.
+6. A failed backup cannot be mistaken for a complete backup (incomplete output should be marked/removed safely).
+7. The scripts execute successfully under the actual Windows PowerShell and PostgreSQL versions on the target computer.
+
+### Coordinator decision
+
+PR #16 remains Draft and must not be merged until its description is corrected, the latest CI failure is diagnosed with usable logs, and the recovery acceptance tests are recorded. No real employee or payroll data may be used for these tests. No Windows 11 target-device execution or live PostgreSQL recovery has been performed by this review.
