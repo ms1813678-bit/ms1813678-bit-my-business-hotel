@@ -78,10 +78,10 @@ The monthly approval service is **not yet wired to an HTTP route or screen**. Th
 
 ## Tests and validation
 
-- I executed 26 targeted local tests in an isolated SQLite harness using the current Workstream 2 parser/proposal/workflow logic and a minimal model surface. They passed: 26 passed.
+- Before the HR-confirmed fixed-three-person rule was added, 26 targeted behavior checks passed in an isolated SQLite harness. The newly added fixed-team regression tests have **not yet been executed**; do not treat the earlier 26 checks as validation of the latest changes.
 - These are targeted local behavior tests, **not** the complete repository pytest suite and not a substitute for PostgreSQL integration or Windows validation.
 - The container does not have `psycopg` or `xlrd`; package installation was attempted but the environment has no package-index network access. Therefore I could not execute the full project suite locally or exercise the legacy `.xls` reader locally.
-- Latest available GitHub Actions run #679 was created for a preceding PR head and both Ubuntu/PostgreSQL and Windows jobs failed in about one to two seconds. Raw job metadata shows empty runner names and zero job steps; downloadable job logs are unavailable (404/BlobNotFound). The same no-runner/no-step pattern appears in earlier runs. This is not evidence that test assertions ran and failed; the runner/service startup cause remains unknown.
+- Latest inspected GitHub Actions run #697 (run ID `42367444575`) was associated with the preceding PR head, and both Ubuntu/PostgreSQL and Windows jobs failed. Job metadata returned `steps: null` and no logs, so there is no evidence that pytest assertions ran. The latest fixed-team test commit has no associated PR-triggered run visible yet. The runner/service startup cause remains unknown.
 - Current branch head still needs a real CI run with runners started and test steps executed. No Ubuntu/PostgreSQL or Windows CI pass is claimed.
 
 ## Shared-file integration work requested from Workstream 1 / coordinator
