@@ -5,7 +5,7 @@ must be integrated by the owning shared-schema/payroll workstreams.
 """
 from calendar import monthrange
 from datetime import date
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
 
 
 CENT = Decimal("0.01")
@@ -39,6 +39,9 @@ def build_repayment_schedule(
 
     total_cents = int((amount / CENT).to_integral_exact())
     base_cents, remainder_cents = divmod(total_cents, installment_count)
+    if installment_count > total_cents:
+        raise ValueError("Installment count cannot exceed the number of available cents.")
+
     schedule = []
     payroll_month = date(request_date.year, request_date.month, 1)
 
