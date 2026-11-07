@@ -79,8 +79,12 @@ def test_confirm_roster_persists_all_three_assignments_and_audit(roster_db):
     parsed = _parsed(employees)
     prepared = prepare_security_roster(db, parsed)
     day = prepared["days"][0]
-    confirm_security_roster_day(db, day["work_date"], day["roster"], admin, parsed["issues"])
+    result = confirm_security_roster_day(
+        db, day["work_date"], day["roster"], admin, parsed["issues"]
+    )
     db.commit()
+    assert len(result["assignments"]) == 3
+    assert {item["duration_hours"] for item in result["assignments"]} == {8}
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 3
     audit = db.scalar(select(AuditLog).where(AuditLog.action == "security_roster_day_approved"))
     assert audit is not None
