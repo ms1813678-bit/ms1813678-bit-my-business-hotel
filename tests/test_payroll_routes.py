@@ -275,7 +275,7 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         actions = db.scalars(select(StaffAction)).all()
         assert run.status == "closed"
         assert advance.status == "deducted"
-        assert advance.deducted_payroll_run_id == run_id
+        assert advance.payroll_run_id == run_id
         assert all(action.payroll_run_id == run_id for action in actions)
         assert all(action.payroll_applied_at is not None for action in actions)
 
