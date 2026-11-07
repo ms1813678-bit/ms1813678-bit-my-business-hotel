@@ -23,7 +23,8 @@ from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
-from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
+from app.advance_workflow import approve_advance, create_advance, mark_advance_paid, reject_advance
+from app.models import AdvanceRequest, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
@@ -1200,6 +1201,117 @@ def cancel_leave_record(
     except (ValueError, SQLAlchemyError):
         return RedirectResponse("/leave?error=cancel", status_code=303)
     return RedirectResponse("/leave", status_code=303)
+
+
+@app.get("/advances", response_class=HTMLResponse)
+def advances_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
+    with SessionLocal() as db:
+        employees = db.scalars(
+            select(Employee).where(Employee.status == "active").order_by(Employee.code)
+        ).all()
+        all_employees = db.scalars(select(Employee).order_by(Employee.code)).all()
+        requests = db.scalars(
+            select(AdvanceRequest).order_by(
+                AdvanceRequest.request_date.desc(), AdvanceRequest.id.desc()
+            )
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="advances.html",
+            context={
+                "employees": employees,
+                "requests": requests,
+                "employee_names": {e.id: e.full_name for e in all_employees},
+                "employee_codes": {e.id: e.code for e in all_employees},
+                "today": date.today().isoformat(),
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+            },
+        )
+
+
+@app.post("/advances", dependencies=[Depends(csrf_protect)])
+def create_advance_request(
+    employee_id: int = Form(...),
+    request_date: date = Form(...),
+    amount: Decimal = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            create_advance(
+                db,
+                employee_id=employee_id,
+                request_date=request_date,
+                amount=amount,
+                reason=reason,
+                actor=admin.username,
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/advances?error=request", status_code=303)
+    return RedirectResponse("/advances", status_code=303)
+
+
+@app.post("/advances/{request_id}/approve", dependencies=[Depends(csrf_protect)])
+def approve_advance_request(
+    request_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            request = db.scalar(
+                select(AdvanceRequest)
+                .where(AdvanceRequest.id == request_id)
+                .with_for_update()
+            )
+            if request is None:
+                return RedirectResponse("/advances?error=record", status_code=303)
+            approve_advance(db, request, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/advances?error=approve", status_code=303)
+    return RedirectResponse("/advances", status_code=303)
+
+
+@app.post("/advances/{request_id}/reject", dependencies=[Depends(csrf_protect)])
+def reject_advance_request(
+    request_id: int,
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            request = db.scalar(
+                select(AdvanceRequest)
+                .where(AdvanceRequest.id == request_id)
+                .with_for_update()
+            )
+            if request is None:
+                return RedirectResponse("/advances?error=record", status_code=303)
+            reject_advance(db, request, admin.username, reason)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/advances?error=reject", status_code=303)
+    return RedirectResponse("/advances", status_code=303)
+
+
+@app.post("/advances/{request_id}/paid", dependencies=[Depends(csrf_protect)])
+def mark_advance_request_paid(
+    request_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            request = db.scalar(
+                select(AdvanceRequest)
+                .where(AdvanceRequest.id == request_id)
+                .with_for_update()
+            )
+            if request is None:
+                return RedirectResponse("/advances?error=record", status_code=303)
+            mark_advance_paid(db, request, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/advances?error=paid", status_code=303)
+    return RedirectResponse("/advances", status_code=303)
 
 
 @app.get("/employees", response_class=HTMLResponse)
