@@ -461,6 +461,38 @@ class AdvanceRequest(Base):
     deducted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     payroll_run_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_runs.id", ondelete="RESTRICT"))
 
+class AdvanceInstallment(Base):
+    """Immutable repayment schedule entry consumed by exactly one payroll run at a time."""
+    __tablename__ = "advance_installments"
+    __table_args__ = (
+        UniqueConstraint("advance_request_id", "installment_number", name="uq_advance_installments_number"),
+        UniqueConstraint("advance_request_id", "payroll_month", name="uq_advance_installments_payroll_month"),
+        CheckConstraint("installment_number >= 1", name="ck_advance_installments_number"),
+        CheckConstraint("amount > 0", name="ck_advance_installments_amount"),
+        CheckConstraint(
+            "status IN ('scheduled', 'applied', 'reversed', 'cancelled')",
+            name="ck_advance_installments_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    advance_request_id: Mapped[int] = mapped_column(
+        ForeignKey("advance_requests.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    installment_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payroll_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    scheduled_payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="scheduled", nullable=False)
+    applied_payroll_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payroll_runs.id", ondelete="RESTRICT"), index=True
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reversal_reference: Mapped[str | None] = mapped_column(String(200))
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class StaffAction(Base):
     __tablename__ = "staff_actions"
     __table_args__ = (
@@ -612,37 +644,3 @@ class PayrollPayment(Base):
     reference: Mapped[str | None] = mapped_column(String(200))
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-
-class SystemSetting(Base):
-    __tablename__ = "system_settings"
-    key: Mapped[str] = mapped_column(String(100), primary_key=True)
-    value: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_by: Mapped[str] = mapped_column(String(80), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-
-class BackupRun(Base):
-    __tablename__ = "backup_runs"
-    __table_args__ = (
-        CheckConstraint(
-            "backup_type IN ('daily', 'weekly', 'quarterly', 'manual', 'pre_restore')",
-            name="ck_backup_runs_type",
-        ),
-        CheckConstraint(
-            "status IN ('success', 'failed')",
-            name="ck_backup_runs_status",
-        ),
-        CheckConstraint("size_bytes >= 0", name="ck_backup_runs_size"),
-    )
-    id: Mapped[int] = mapped_column(primary_key=True)
-    backup_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    archive_path: Mapped[str | None] = mapped_column(Text)
-    sha256: Mapped[str | None] = mapped_column(String(64))
-    size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
-    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    initiated_by: Mapped[str] = mapped_column(String(80), nullable=False)
-    error_message: Mapped[str | None] = mapped_column(Text)
