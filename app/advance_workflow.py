@@ -52,8 +52,11 @@ def create_advance(
 ) -> AdvanceRequest:
     if request_date.day < 15 or request_date.day > 22:
         raise ValueError("Advance requests are allowed only from day 15 through day 22.")
-    if request_date > date.today():
+    today = date.today()
+    if request_date > today:
         raise ValueError("An advance request date cannot be in the future.")
+    if (request_date.year, request_date.month) != (today.year, today.month):
+        raise ValueError("Advance requests must be recorded in the current month.")
     if amount <= 0 or not reason.strip():
         raise ValueError("Enter a positive amount and a reason.")
 
