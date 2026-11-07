@@ -427,3 +427,35 @@ class LeaveBalanceTransaction(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AdvanceRequest(Base):
+    __tablename__ = "advance_requests"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_advance_requests_amount_positive"),
+        CheckConstraint("salary_basis > 0", name="ck_advance_requests_salary_positive"),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'paid', 'deducted')",
+            name="ck_advance_requests_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    request_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    payroll_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    salary_basis: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_by: Mapped[str | None] = mapped_column(String(80))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    paid_by: Mapped[str | None] = mapped_column(String(80))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deducted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
