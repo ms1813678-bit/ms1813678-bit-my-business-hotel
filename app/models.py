@@ -427,3 +427,36 @@ class LeaveBalanceTransaction(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AdvanceRequest(Base):
+    __tablename__ = "advance_requests"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_advance_requests_amount_positive"),
+        CheckConstraint(
+            "status IN ('pending', 'approved', 'rejected', 'disbursed', 'deducted', 'cancelled')",
+            name="ck_advance_requests_status",
+        ),
+        CheckConstraint(
+            "repayment_month > salary_month",
+            name="ck_advance_requests_repayment_after_salary_month",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    request_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    salary_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    repayment_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    decided_by: Mapped[str | None] = mapped_column(String(80))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    disbursed_by: Mapped[str | None] = mapped_column(String(80))
+    disbursed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deducted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
