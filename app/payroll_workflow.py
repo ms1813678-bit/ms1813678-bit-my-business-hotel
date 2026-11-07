@@ -298,6 +298,11 @@ def update_payroll_item(
             normalized = Decimal(str(value or 0))
             if normalized < 0:
                 raise ValueError("Payroll values cannot be negative.")
+            if key == "overtime_hours" and normalized > 0:
+                raise ValueError(
+                    "Overtime cannot be added until explicit management approval "
+                    "is recorded in the payroll workflow."
+                )
         old[key] = str(getattr(item, key))
         new[key] = str(normalized)
         setattr(item, key, normalized)
