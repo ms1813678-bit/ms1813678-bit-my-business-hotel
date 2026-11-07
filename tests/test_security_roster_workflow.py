@@ -385,3 +385,76 @@ def test_unmapped_roster_employee_header_blocks_day_confirmation(roster_db):
     assert prepared["days"][0]["proposal"]["issues"] == [
         "excel_import_issues_block_this_day"
     ]
+
+
+def test_adjacent_roster_dates_flag_overnight_overlap_for_hr_review(roster_db):
+    db, employees, _admin = roster_db
+    department = db.scalar(select(Department).where(Department.name == "Security"))
+    db.add(ShiftPattern(
+        department_id=department.id, code="LATE-20-04", name="Late overnight",
+        start_time=time(20, 0), end_time=time(4, 0), active=True,
+        match_before_minutes=60, match_after_minutes=60,
+    ))
+    db.flush()
+
+    first = _parsed(employees, date(2026, 11, 1))
+    first["records"][0]["roster"] = {
+        employees[0].id: time(20, 0),
+        employees[1].id: time(8, 0),
+        employees[2].id: time(16, 0),
+    }
+    second = _parsed(employees, date(2026, 11, 2))
+    second["records"][0]["roster"] = {
+        employees[0].id: time(0, 0),
+        employees[1].id: time(8, 0),
+        employees[2].id: time(16, 0),
+    }
+    first["records"].extend(second["records"])
+
+    prepared = prepare_security_roster(db, first)
+
+    assert len(prepared["days"]) == 2
+    assert all(day["can_confirm"] is False for day in prepared["days"])
+    assert all(day["proposal"]["status"] == "needs_review" for day in prepared["days"])
+    assert any(
+        issue.startswith("overlapping_security_shifts_across_work_dates:")
+        for day in prepared["days"]
+        for issue in day["proposal"]["issues"]
+    )
+    assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
+
+
+def test_confirmation_rechecks_overnight_overlap_with_adjacent_approved_day(roster_db):
+    db, employees, admin = roster_db
+    department = db.scalar(select(Department).where(Department.name == "Security"))
+    db.add(ShiftPattern(
+        department_id=department.id, code="LATE-20-04", name="Late overnight",
+        start_time=time(20, 0), end_time=time(4, 0), active=True,
+        match_before_minutes=60, match_after_minutes=60,
+    ))
+    db.flush()
+
+    first_roster = {
+        employees[0].id: time(20, 0),
+        employees[1].id: time(8, 0),
+        employees[2].id: time(16, 0),
+    }
+    second_roster = {
+        employees[0].id: time(0, 0),
+        employees[1].id: time(8, 0),
+        employees[2].id: time(16, 0),
+    }
+    confirm_security_roster_day(
+        db, date(2026, 11, 1), first_roster, admin, [],
+    )
+    db.commit()
+
+    with pytest.raises(
+        ValueError,
+        match="security_roster_shift_overlaps_adjacent_approved_day",
+    ):
+        confirm_security_roster_day(
+            db, date(2026, 11, 2), second_roster, admin, [],
+        )
+    db.rollback()
+    assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 3
