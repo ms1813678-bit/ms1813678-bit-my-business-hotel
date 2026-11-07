@@ -214,3 +214,33 @@ def test_staff_action_mutations_require_csrf(staff_action_client):
     assert client.post("/staff-actions", data={}).status_code == 403
     login(client)
     assert client.post("/staff-actions/1/approve", data={}).status_code == 403
+
+
+def test_duplicate_active_financial_action_is_rejected(staff_action_client):
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    payload = {
+        "csrf_token": token,
+        "employee_id": client.test_employee_id,
+        "kind": "sanction",
+        "category": "salary_deduction",
+        "title": "Duplicate protection test",
+        "is_financial": "yes",
+        "amount": "125.00",
+        "payroll_month": "2026-12-01",
+        "reason": "Synthetic duplicate prevention",
+    }
+
+    first = client.post("/staff-actions", data=payload, follow_redirects=False)
+    second = client.post("/staff-actions", data=payload, follow_redirects=False)
+
+    assert first.status_code == 303
+    assert first.headers["location"] == "/staff-actions"
+    assert second.status_code == 303
+    assert "error=create" in second.headers["location"]
+
+    with client.test_session_factory() as db:
+        actions = db.scalars(select(StaffAction)).all()
+        assert len(actions) == 1
+        assert actions[0].amount == Decimal("125.00")
