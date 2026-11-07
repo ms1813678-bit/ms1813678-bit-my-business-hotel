@@ -42,7 +42,7 @@ $confirmation = Read-Host "This will restore database '$dbName'. Type RESTORE-$d
 if ($confirmation -cne "RESTORE-$dbName") { throw "Confirmation did not match; no changes made." }
 $env:PGPASSWORD = $dbPassword
 try {
-    $tableCount = (& $psql.Source "--host=$($uri.Host)" "--port=$dbPort" "--username=$dbUser" "--dbname=$dbName" "--tuples-only" "--no-align" "--command=SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%';")
+    $tableCount = (& $psql.Source "--host=$($uri.Host)" "--port=$dbPort" "--username=$dbUser" "--dbname=$dbName" "--tuples-only" "--no-align" "--command=SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p','S','v','m','f') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%';")
     if ($LASTEXITCODE -ne 0) { throw "Could not verify that the target database is empty." }
     if ([int]("$tableCount".Trim()) -ne 0) { throw "Target database is not empty. Restore stopped to avoid overwriting data. Use a newly created empty database with the matching name." }
 
@@ -52,8 +52,10 @@ try {
     $photoPrevious = Join-Path $ProjectRoot "var\employee_photos.before-restore"
     if (Test-Path -LiteralPath $photoStage) { Remove-Item -LiteralPath $photoStage -Recurse -Force }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $photoTarget) | Out-Null
-    if (Test-Path -LiteralPath $photoSource -PathType Container) { Copy-Item -LiteralPath $photoSource -Destination $photoStage -Recurse -Force }
-    else { New-Item -ItemType Directory -Path $photoStage | Out-Null }
+    New-Item -ItemType Directory -Path $photoStage | Out-Null
+    if (Test-Path -LiteralPath $photoSource -PathType Container) {
+        Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoStage -Recurse -Force
+    }
     if (Test-Path -LiteralPath $photoPrevious) { throw "Previous restore safety folder already exists: $photoPrevious" }
     if (Test-Path -LiteralPath $photoTarget) { Move-Item -LiteralPath $photoTarget -Destination $photoPrevious }
     Move-Item -LiteralPath $photoStage -Destination $photoTarget
