@@ -80,15 +80,13 @@ it can be considered a usable assistant feature.
 
 ## Validation status — updated 2026-11-07
 
-The latest observed Actions run for head commit
-`168437db73a989a7a5453c71eb6f007864b7cea1` is run `42362940529`.
-Both jobs completed with failure:
-- `Run pytest (Python 3.11)`
-- `Windows runner compatibility (Python 3.11)`
+The latest Actions run for commit `d9005463d44591f07167f235f43c125af2ee0d43`
+is run `42363551615`. Both Linux pytest and Windows compatibility jobs completed
+with failure. A retry of both failed jobs was accepted by GitHub, but the retried
+jobs again completed with failure. The job-steps endpoint returned empty step
+lists, and the log endpoint is unavailable (`BlobNotFound`); therefore the
+underlying cause remains unknown and must not be guessed.
 
-The GitHub Actions job endpoint returned no step records for either job,
-and downloading either job log returned `BlobNotFound`. Therefore the
-underlying failure is still not diagnosable from the available run data.
-No successful test execution is claimed, and the newly added tests have not
-been run locally in this environment. Do not treat this branch as validated
-or ready to merge until the CI failure is diagnosed and all required checks pass.
+No successful test execution is claimed. Tests have not been run locally in this
+environment. The branch is not validated or ready to merge until CI failures
+can be diagnosed and all required checks pass.
