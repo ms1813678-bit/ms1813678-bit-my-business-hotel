@@ -11,6 +11,15 @@ from app.models import AdvanceRequest, AuditLog, Employee
 RESERVING_STATUSES = ("pending", "approved", "paid")
 
 
+def payroll_month_for_advance(request_date: date) -> date:
+    """Return the salary period charged for an advance request.
+
+    The salary period is the request month; payroll is paid on the fifth of the
+    following month. This keeps accounting month separate from payout date.
+    """
+    return date(request_date.year, request_date.month, 1)
+
+
 def next_payroll_month(request_date: date) -> date:
     if request_date.month == 12:
         return date(request_date.year + 1, 1, 1)
@@ -69,7 +78,7 @@ def create_advance(
     if salary <= 0:
         raise ValueError("The employee must have a positive basic salary.")
 
-    payroll_month = next_payroll_month(request_date)
+    payroll_month = payroll_month_for_advance(request_date)
     cap = (salary * Decimal("0.25")).quantize(Decimal("0.01"))
     already_reserved = reserved_amount(db, employee_id, payroll_month)
     if already_reserved + amount > cap:
