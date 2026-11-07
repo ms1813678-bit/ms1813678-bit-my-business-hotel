@@ -54,7 +54,7 @@
 {% if e.status == "active" %}
 <form method="post" action="/employees/{{ e.id }}/archive" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" required placeholder="سبب الأرشفة"><button type="submit">أرشفة</button></form>
 {% elif e.status == "archived" %}
-<form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="date" name="new_hire_date" required><input name="reason" required placeholder="سبب إعادة التعيين"><button type="submit">إعادة تعيين</button></form>
+<form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="date" name="new_hire_date" max="{{ today }}" required><input name="reason" required placeholder="سبب إعادة التعيين"><button type="submit">إعادة تعيين</button></form>
 {% endif %}
 </td></tr>{% else %}<tr><td colspan="6">لا يوجد موظفون مسجلون بعد.</td></tr>{% endfor %}
 </tbody></table></div></section>
