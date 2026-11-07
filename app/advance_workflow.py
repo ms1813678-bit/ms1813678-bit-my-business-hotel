@@ -11,7 +11,17 @@ from app.models import AdvanceRequest, AuditLog, Employee
 RESERVING_STATUSES = ("pending", "approved", "paid")
 
 
+def payroll_month_for_advance(request_date: date) -> date:
+    """Return the salary period the advance is charged against.
+
+    Payroll for this month is paid on the 5th of the following month.
+    Example: a 15 September advance belongs to September payroll, paid 5 October.
+    """
+    return date(request_date.year, request_date.month, 1)
+
+
 def next_payroll_month(request_date: date) -> date:
+    """Legacy helper retained for callers; not used to assign an advance."""
     if request_date.month == 12:
         return date(request_date.year + 1, 1, 1)
     return date(request_date.year, request_date.month + 1, 1)
@@ -65,7 +75,7 @@ def create_advance(
     if salary <= 0:
         raise ValueError("The employee must have a positive basic salary.")
 
-    payroll_month = next_payroll_month(request_date)
+    payroll_month = payroll_month_for_advance(request_date)
     cap = (salary * Decimal("0.25")).quantize(Decimal("0.01"))
     already_outstanding = outstanding_amount(db, employee_id)
     if already_outstanding + amount > cap:
