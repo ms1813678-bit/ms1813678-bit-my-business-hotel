@@ -17,7 +17,7 @@
   {% if error %}
   <section class="notice error">
     {% if error == "request" %}تعذر تسجيل السلفة. تحقق من أن تاريخ الطلب بين يوم 15 و22، وأن المبلغ ضمن الحد المسموح، وأن الموظف نشط.
-    {% elif error == "approve" %}تعذر اعتماد السلفة. تحقق من حالتها ومن الحد الشهري المسموح.
+    {% elif error == "approve" %}تعذر اعتماد السلفة. تحقق من حالتها ومن حد إجمالي السلف القائمة.
     {% elif error == "reject" %}تعذر رفض الطلب. يجب إدخال سبب الرفض وأن تكون الحالة معلقة.
     {% elif error == "paid" %}لا يمكن تسجيل الصرف إلا بعد اعتماد السلفة.
     {% else %}السجل المطلوب غير موجود.{% endif %}
@@ -26,7 +26,7 @@
 
   <section class="notice">
     <h2>تسجيل طلب سلفة / New advance request</h2>
-    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. إجمالي السلف المحجوزة للموظف في الشهر الواحد لا يتجاوز 25% من راتبه الأساسي. المبلغ المصروف يُخصم كاملًا من راتب الشهر التالي.</p>
+    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. إجمالي السلف القائمة غير المخصومة على الموظف لا يتجاوز 25% من راتبه الأساسي، حتى لو كانت الطلبات في أشهر مختلفة. المبلغ المصروف يُخصم كاملًا من راتب الشهر التالي.</p>
     <form method="post" action="/advances">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="form-grid">
@@ -39,6 +39,26 @@
       </div>
       <button type="submit">تسجيل الطلب / Submit request</button>
     </form>
+  </section>
+
+  <section class="notice">
+    <h2>ملخص السلف لكل موظف / Employee advance summary</h2>
+    <div class="table-wrap"><table><thead><tr>
+      <th>الموظف</th><th>آخر سلفة</th><th>إجمالي السلف التاريخي</th><th>المخصوم</th><th>القائم</th><th>حد 25%</th><th>المتاح</th>
+    </tr></thead><tbody>
+    {% for e in employees %}
+    {% set s = advance_summary.get(e.id) %}
+    <tr>
+      <td>{{ e.code }} — {{ e.full_name }}</td>
+      <td>{% if s.latest %}{{ "%.2f"|format(s.latest.amount) }} ج · {{ s.latest.request_date.strftime("%d/%m/%Y") }}{% else %}—{% endif %}</td>
+      <td>{{ "%.2f"|format(s.total) }} ج</td>
+      <td>{{ "%.2f"|format(s.deducted) }} ج</td>
+      <td>{{ "%.2f"|format(s.outstanding) }} ج</td>
+      <td>{{ "%.2f"|format(s.limit) }} ج</td>
+      <td>{{ "%.2f"|format(s.available) }} ج</td>
+    </tr>
+    {% else %}<tr><td colspan="7">لا يوجد موظفون حاليون.</td></tr>{% endfor %}
+    </tbody></table></div>
   </section>
 
   <section class="notice">
