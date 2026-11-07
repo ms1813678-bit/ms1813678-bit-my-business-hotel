@@ -1280,7 +1280,7 @@ def advances_page(request: Request, admin: AdminAccount = Depends(get_current_ad
                 if item.status in {"pending", "approved", "paid"}:
                     remaining = Decimal(item.amount) - Decimal(applied)
                 else:
-                    remaining = Decimal(item.amount) - Decimal(applied)
+                    remaining = Decimal("0.00")
                 if item.advance_type == "regular":
                     regular_outstanding += max(Decimal("0.00"), remaining)
                 else:
