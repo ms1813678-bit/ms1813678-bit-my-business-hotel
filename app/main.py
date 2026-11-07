@@ -1096,6 +1096,8 @@ def edit_employee(
         employee = db.get(Employee, employee_id)
         if employee is None:
             raise HTTPException(status_code=404, detail="الموظف غير موجود.")
+        if effective_date < employee.hire_date:
+            raise HTTPException(status_code=400, detail="تاريخ سريان التعديل لا يمكن أن يسبق تاريخ تعيين الموظف.")
         department = db.get(Department, department_id)
         if department is None or not department.active:
             raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
@@ -1218,6 +1220,8 @@ def review_employee_data_change_request(
         if decision == "apply":
             if effective_date is None:
                 raise HTTPException(status_code=400, detail="تاريخ سريان التعديل مطلوب عند الموافقة.")
+            if effective_date < employee.hire_date:
+                raise HTTPException(status_code=400, detail="تاريخ سريان التعديل لا يمكن أن يسبق تاريخ تعيين الموظف.")
             if change_request.field_name not in EMPLOYEE_PHOTO_FIELDS:
                 raise HTTPException(status_code=400, detail="حقل التعديل غير مسموح.")
             old_value = getattr(employee, change_request.field_name)
