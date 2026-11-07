@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إدارة السلف | M.Y. Business Hotel</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة السلف</h1>
+      <p class="muted">Employee advances · HR administrator only</p></div>
+    <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a> · <a href="/leave">الإجازات</a></nav>
+  </header>
+
+  {% if error %}
+  <section class="notice error">
+    {% if error == "request" %}تعذر تسجيل السلفة. راجع أن التاريخ من يوم 15 إلى 22، والمبلغ لا يتجاوز الحد المتاح (25% من الأساسي)، وأن الموظف نشط.
+    {% elif error == "decision" %}تعذر تنفيذ القرار. تأكد أن الطلب ما زال معلقًا وأدخل سبب الرفض إذا كنت ترفضه.
+    {% elif error == "disburse" %}لا يمكن صرف إلا سلفة معتمدة، ويجب إدخال مرجع أو سبب الصرف.
+    {% elif error == "cancel" %}لا يمكن إلغاء السلفة في حالتها الحالية أو بدون سبب.
+    {% else %}تعذر تنفيذ العملية.{% endif %}
+  </section>
+  {% endif %}
+
+  <section class="notice">
+    <h2>تسجيل طلب سلفة / New advance request</h2>
+    <p class="muted">يقبل النظام الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. إجمالي السلف المعتمدة أو المعلقة أو المصروفة للموظف في الشهر لا يتجاوز 25% من الراتب الأساسي. تُجدول للاستقطاع من راتب الشهر التالي.</p>
+    <form method="post" action="/advances">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>الموظف / Employee
+          <select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }} ({{ "%.2f"|format(e.basic_salary) }} ج.م أساسي)</option>{% endfor %}</select>
+        </label>
+        <label>مبلغ السلفة / Amount (EGP)
+          <input type="number" name="amount" min="0.01" step="0.01" required>
+        </label>
+        <label>السبب / Reason
+          <input name="reason" maxlength="2000" required>
+        </label>
+      </div>
+      <button type="submit">تسجيل الطلب / Submit request</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>سجل السلف / Advance history</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>الموظف</th><th>تاريخ الطلب</th><th>المبلغ</th><th>شهر الطلب</th><th>شهر الاستقطاع</th><th>الحالة</th><th>السبب / الإجراء</th></tr></thead>
+      <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ employee_codes.get(r.employee_id, "—") }} — {{ employee_names.get(r.employee_id, "—") }}</td>
+        <td>{{ r.request_date.strftime("%d/%m/%Y") }}</td>
+        <td>{{ "%.2f"|format(r.amount) }} ج.م</td>
+        <td>{{ r.salary_month.strftime("%m/%Y") }}</td>
+        <td>{{ r.repayment_month.strftime("%m/%Y") }}</td>
+        <td>
+          {% if r.status == "pending" %}معلق
+          {% elif r.status == "approved" %}معتمد
+          {% elif r.status == "rejected" %}مرفوض
+          {% elif r.status == "disbursed" %}تم الصرف
+          {% elif r.status == "deducted" %}تم الاستقطاع
+          {% elif r.status == "cancelled" %}ملغي
+          {% else %}{{ r.status }}{% endif %}
+        </td>
+        <td>
+          <div>{{ r.reason }}</div>
+          {% if r.decision_reason %}<small class="muted">ملاحظة القرار: {{ r.decision_reason }}</small>{% endif %}
+          {% if r.status == "pending" %}
+          <form method="post" action="/advances/{{ r.id }}/approve" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="reason" placeholder="ملاحظة الاعتماد (اختياري)">
+            <button type="submit">اعتماد</button>
+          </form>
+          <form method="post" action="/advances/{{ r.id }}/reject" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="reason" placeholder="سبب الرفض" required>
+            <button type="submit">رفض</button>
+          </form>
+          <form method="post" action="/advances/{{ r.id }}/cancel" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="reason" placeholder="سبب الإلغاء" required>
+            <button type="submit">إلغاء</button>
+          </form>
+          {% elif r.status == "approved" %}
+          <form method="post" action="/advances/{{ r.id }}/disburse" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="reason" placeholder="مرجع/سبب الصرف" required>
+            <button type="submit">تأكيد الصرف</button>
+          </form>
+          <form method="post" action="/advances/{{ r.id }}/cancel" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="reason" placeholder="سبب الإلغاء" required>
+            <button type="submit">إلغاء</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">لا توجد طلبات سلف مسجلة.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+  <section class="notice">
+    <h2>ملاحظة ربط الرواتب</h2>
+    <p>تُحفظ السلفة المصروفة مع شهر الاستقطاع التالي. ربطها بخصم فعلي داخل مسير الرواتب وتغيير حالتها إلى «تم الاستقطاع» سيتم في مرحلة وحدة الرواتب، لمنع خصم المبلغ مرتين.</p>
+  </section>
+</main>
+</body>
+</html>
