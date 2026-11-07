@@ -50,7 +50,7 @@
   <section class="notice">
     <h2>ملخص السلف لكل موظف / Employee advance summary</h2>
     <div class="table-wrap"><table><thead><tr>
-      <th>الموظف</th><th>آخر سلفة</th><th>إجمالي السلف التاريخي</th><th>المخصوم</th><th>القائم</th><th>حد 25%</th><th>المتاح</th>
+      <th>الموظف</th><th>آخر سلفة</th><th>إجمالي السلف التاريخي</th><th>المخصوم</th><th>قائم عادي</th><th>قائم مقسط</th><th>حد 25% للعادي</th><th>المتاح للعادي</th>
     </tr></thead><tbody>
     {% for e in employees %}
     {% set s = advance_summary.get(e.id) %}
@@ -59,7 +59,8 @@
       <td>{% if s.latest %}{{ "%.2f"|format(s.latest.amount) }} ج · {{ s.latest.request_date.strftime("%d/%m/%Y") }}{% else %}—{% endif %}</td>
       <td>{{ "%.2f"|format(s.total) }} ج</td>
       <td>{{ "%.2f"|format(s.deducted) }} ج</td>
-      <td>{{ "%.2f"|format(s.outstanding) }} ج</td>
+      <td>{{ "%.2f"|format(s.regular_outstanding) }} ج</td>
+      <td>{{ "%.2f"|format(s.installment_outstanding) }} ج</td>
       <td>{{ "%.2f"|format(s.limit) }} ج</td>
       <td>{{ "%.2f"|format(s.available) }} ج</td>
     </tr>
@@ -102,7 +103,7 @@
     </tbody></table></div>
   </section>
   <section class="notice">
-    <p><strong>ملاحظة:</strong> الـ25% يطبق على السلفة الشهرية العادية فقط. السلفة المقسطة لا تخضع له، ويمكن أن تتجاوز الراتب، وخصمها يتم حسب جدول الأقساط. هذه الوحدة تسجل السلفة واعتمادها وصرفها والشهر المستحق للخصم. ربط الخصم الفعلي بدورة الرواتب سيتم عند استكمال وحدة الرواتب، ولن يتم اعتبار السلفة مخصومة قبل ذلك.</p>
+    <p><strong>ملاحظة:</strong> ملخص السلف يفصل بين الرصيد العادي والرصيد المقسط. الـ25% يطبق على السلفة الشهرية العادية فقط. السلفة المقسطة لا تخضع له، ويمكن أن تتجاوز الراتب، وخصمها يتم حسب جدول الأقساط. هذه الوحدة تسجل السلفة واعتمادها وصرفها والشهر المستحق للخصم. ربط الخصم الفعلي بدورة الرواتب سيتم عند استكمال وحدة الرواتب، ولن يتم اعتبار السلفة مخصومة قبل ذلك.</p>
   </section>
 </main>
 </body>
