@@ -19,7 +19,7 @@ from app.models import (
     PayrollItem,
     PayrollRun,
 )
-from app.reports import build_hr_workbook, validate_workbook
+from app.reports import build_hr_pdf, build_hr_workbook, validate_workbook
 
 
 def test_hr_report_contains_all_expected_sheets():
@@ -142,6 +142,20 @@ def test_hr_report_preserves_employee_and_payroll_history():
                 assert workbook["Payroll"].cell(2, 5).value == "Name at payroll time"
             finally:
                 workbook.close()
+    finally:
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+
+def test_hr_pdf_export_creates_a_valid_pdf_document():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine) as db:
+            content = build_hr_pdf(db, date(2026, 10, 1), date(2026, 10, 31))
+        assert content.startswith(b"%PDF-")
+        assert len(content) > 1000
     finally:
         Base.metadata.drop_all(engine)
         engine.dispose()
