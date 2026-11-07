@@ -20,6 +20,9 @@ $manifestPath = Join-Path $BackupFolder "manifest.json"
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "manifest.json is missing." }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($manifest.format_version -ne 1) { throw "Unsupported backup format version." }
+if ([string]$manifest.database_dump -ne "database.dump" -or [string]$manifest.employee_photos_directory -ne "employee_photos") {
+    throw "Backup manifest contains an unsupported path; restore aborted."
+}
 $dumpPath = Join-Path $BackupFolder ([string]$manifest.database_dump)
 if (-not (Test-Path -LiteralPath $dumpPath -PathType Leaf)) { throw "Database dump is missing." }
 $actualHash = (Get-FileHash -LiteralPath $dumpPath -Algorithm SHA256).Hash
@@ -53,9 +56,9 @@ try {
     if (Test-Path -LiteralPath $photoStage) { Remove-Item -LiteralPath $photoStage -Recurse -Force }
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $photoTarget) | Out-Null
     New-Item -ItemType Directory -Path $photoStage | Out-Null
-    if (Test-Path -LiteralPath $photoSource -PathType Container) {
-        Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoStage -Recurse -Force
-    }
+    if (-not (Test-Path -LiteralPath $photoSource -PathType Container)) { throw "Employee photo backup folder is missing." }
+    $photoItems = @(Get-ChildItem -LiteralPath $photoSource -Force)
+    if ($photoItems.Count -gt 0) { Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoStage -Recurse -Force }
     if (Test-Path -LiteralPath $photoPrevious) { throw "Previous restore safety folder already exists: $photoPrevious" }
     if (Test-Path -LiteralPath $photoTarget) { Move-Item -LiteralPath $photoTarget -Destination $photoPrevious }
     Move-Item -LiteralPath $photoStage -Destination $photoTarget
