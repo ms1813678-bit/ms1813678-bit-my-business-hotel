@@ -21,8 +21,8 @@ scheduler. No existing payroll implementation was replaced.
 ## Offline assistant foundation
 
 `app/payroll_assistant.py` provides local, read-only payroll arithmetic checks,
-duplicate source-ID detection, snapshot comparison, and Arabic/English command
-classification. It has no network client and cannot change or approve payroll data.
+duplicate source-ID detection, snapshot comparison, overtime approval checks,
+overtime hours/amount consistency checks, and Arabic/English command classification. It has no network client and cannot change or approve payroll data.
 This is a deterministic offline assistant foundation, not a connected generative
 language model or a complete chat UI. Currency rounding uses the same ROUND_HALF_UP
 policy as the payroll math module.
@@ -42,6 +42,10 @@ count, gross earnings, deductions, net payroll, paid/remaining amounts, and
 fully/partially/unpaid employee counts. Payment totals are linked to each payroll
 item, and the comparison is calculated from the same selected payroll runs.
 A synthetic regression case checks partial payment amounts and status counts.
+The Excel report writer also prefixes formula-like user text (including values
+starting with whitespace followed by `=`, `+`, `-`, or `@`) so spreadsheet
+software treats exported user-controlled strings as literal text. Regression
+tests cover these prefixes and confirm numeric values remain numeric.
 
 The payroll route acceptance test also verifies that a second request for
 the same month is rejected and does not create a duplicate run. Boundary tests
@@ -54,8 +58,9 @@ The current payroll schema stores overtime hours and amount but has no persisted
 management approval state or approver identity. Until Team 1 adds and integrates
 that approval workflow in the shared model and route, Team 4 blocks positive
 overtime-hour edits in the payroll workflow. The offline assistant also flags
-overtime unless approval is explicitly represented as `True`. This is a
-fail-closed interim safeguard, not a replacement for a real approval workflow.
+overtime unless approval is explicitly represented as `True`; it also flags
+mismatches where overtime hours are present without an amount or an amount is
+present without hours. This is a fail-closed interim safeguard, not a replacement for a real approval workflow.
 A route regression test verifies that an unapproved overtime submission is
 rejected without changing the payroll item. Positive overtime remains unavailable
 until the approval data and controls are implemented and reviewed.
@@ -88,5 +93,7 @@ lists, and the log endpoint is unavailable (`BlobNotFound`); therefore the
 underlying cause remains unknown and must not be guessed.
 
 No successful test execution is claimed. Tests have not been run locally in this
-environment. The branch is not validated or ready to merge until CI failures
-can be diagnosed and all required checks pass.
+environment. The latest head commit `c3556b760cdd1b1fcc30ee233516f77f808b7ad8`
+currently has no associated workflow run or combined status. The branch is not
+validated or ready to merge until CI is triggered, failures are diagnosed, and
+all required checks pass.
