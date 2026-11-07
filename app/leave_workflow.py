@@ -144,3 +144,61 @@ def cancel_leave(db: Session, record: LeaveRecord, actor: str, reason: str) -> N
         new_value="cancelled",
         reason=reason.strip(),
     ))
+
+
+
+def update_draft_leave(
+    db: Session,
+    record: LeaveRecord,
+    *,
+    start_date,
+    end_date,
+    charged_days: Decimal,
+    reason: str,
+    actor: str,
+) -> None:
+    """Edit a draft leave record and retain an immutable before/after audit entry."""
+    if record.status != "draft":
+        raise ValueError("Only draft leave records can be edited.")
+    if end_date < start_date:
+        raise ValueError("End date cannot be earlier than start date.")
+    charged_days = Decimal(str(charged_days)).quantize(Decimal("0.01"))
+    if charged_days <= 0:
+        raise ValueError("Charged leave days must be positive.")
+    if not reason.strip():
+        raise ValueError("A reason is required.")
+
+    overlap = db.scalar(
+        select(LeaveRecord.id).where(
+            LeaveRecord.employee_id == record.employee_id,
+            LeaveRecord.id != record.id,
+            LeaveRecord.status.in_(("draft", "confirmed")),
+            LeaveRecord.start_date <= end_date,
+            LeaveRecord.end_date >= start_date,
+        ).limit(1)
+    )
+    if overlap is not None:
+        raise ValueError("The edited leave dates overlap another active leave record.")
+
+    old_value = (
+        f"{record.start_date.isoformat()}|{record.end_date.isoformat()}|"
+        f"{record.charged_days}|{record.reason}"
+    )
+    new_calendar_days = (end_date - start_date).days + 1
+    record.start_date = start_date
+    record.end_date = end_date
+    record.calendar_days = new_calendar_days
+    record.charged_days = charged_days
+    record.reason = reason.strip()
+    db.add(AuditLog(
+        actor=actor,
+        action="leave_draft_updated",
+        entity_type="leave_record",
+        entity_id=str(record.id),
+        old_value=old_value,
+        new_value=(
+            f"{start_date.isoformat()}|{end_date.isoformat()}|"
+            f"{charged_days}|{reason.strip()}"
+        ),
+        reason=f"Draft leave record edited by HR: {reason.strip()}",
+    ))
