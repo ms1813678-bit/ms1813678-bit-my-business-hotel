@@ -51,6 +51,11 @@
 <label>سبب الطلب<input name="request_reason" required maxlength="1000"></label>
 <button type="submit">تسجيل الطلب للمراجعة</button></form></details>
 <details><summary>سجل تغييرات الموظف</summary><ul>{% for change in employee_changes if change.employee_id == e.id %}<li>{{ change.effective_date }} — {{ change.field_name }}: {{ change.old_value or '—' }} ← {{ change.new_value or '—' }} ({{ change.reason }})</li>{% else %}<li>لا توجد تغييرات مسجلة.</li>{% endfor %}</ul></details>
+<details><summary>سجل فترات الخدمة</summary><ul>
+{% for period in service_periods if period.employee_id == e.id %}
+<li>{{ period.start_date.strftime("%d/%m/%Y") }} — {% if period.end_date %}{{ period.end_date.strftime("%d/%m/%Y") }}{% else %}مستمرة{% endif %}{% if period.start_reason %} ({{ period.start_reason }}){% endif %}{% if period.end_reason %} — سبب الانتهاء: {{ period.end_reason }}{% endif %}</li>
+{% else %}<li>لا توجد فترات خدمة مسجلة.</li>{% endfor %}
+</ul></details>
 {% if e.status == "active" %}
 <form method="post" action="/employees/{{ e.id }}/archive" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" required placeholder="سبب الأرشفة"><button type="submit">أرشفة</button></form>
 {% elif e.status == "archived" %}
