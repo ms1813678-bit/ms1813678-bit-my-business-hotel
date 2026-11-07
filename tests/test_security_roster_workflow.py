@@ -209,6 +209,72 @@ def test_persistence_conflict_rolls_back_entire_day(roster_db, monkeypatch):
 
 
 
+
+def test_two_person_day_uses_twelve_hour_patterns_and_third_is_off(roster_db):
+    db, employees, admin = roster_db
+    department = db.scalar(select(Department).where(Department.name == "Security"))
+    db.add_all([
+        ShiftPattern(
+            department_id=department.id, code="TWO_A", name="Two A",
+            start_time=time(8, 0), end_time=time(20, 0), active=True,
+            match_before_minutes=60, match_after_minutes=60,
+        ),
+        ShiftPattern(
+            department_id=department.id, code="TWO_B", name="Two B",
+            start_time=time(20, 0), end_time=time(8, 0), active=True,
+            match_before_minutes=60, match_after_minutes=60,
+        ),
+    ])
+    db.flush()
+    roster = {
+        employees[0].id: time(8, 0),
+        employees[1].id: time(20, 0),
+        employees[2].id: "OFF",
+    }
+    parsed = {
+        "employee_headers": {employee.id: employee.full_name for employee in employees},
+        "records": [{"work_date": date(2026, 11, 3), "roster": roster}],
+        "issues": [], "status": "parsed_for_review",
+    }
+    prepared = prepare_security_roster(db, parsed)
+    assert prepared["days"][0]["can_confirm"] is True
+    result = confirm_security_roster_day(db, date(2026, 11, 3), roster, admin, [])
+    db.commit()
+    assert len(result["assignments"]) == 2
+    assert {item["duration_hours"] for item in result["assignments"]} == {12}
+
+
+def test_one_working_guard_is_rejected_even_with_three_employee_roster():
+    from app.security_roster import build_security_day_proposal
+    proposal = build_security_day_proposal(
+        {1: time(8, 0), 2: "OFF", 3: "OFF"},
+        [{"id": 1, "start_time": time(8, 0), "end_time": time(20, 0)}],
+    )
+    assert proposal["status"] == "needs_review"
+    assert proposal["assignments"] == []
+    assert "daily_security_working_count_must_be_two_or_three" in proposal["issues"]
+
+
+def test_two_or_four_configured_active_security_employees_are_rejected(roster_db):
+    db, employees, _admin = roster_db
+    department = db.scalar(select(Department).where(Department.name == "Security"))
+    employees[2].status = "inactive"
+    db.flush()
+    with pytest.raises(ValueError, match="security_department_must_have_exactly_three_active_employees"):
+        prepare_security_roster(db, _parsed(employees[:2]))
+    employees[2].status = "active"
+    db.flush()
+    fourth = Employee(
+        code="SEC-04", full_name="Synthetic fourth", department_id=department.id,
+        position="Security", hire_date=date(2024, 1, 1),
+        basic_salary=Decimal("5000"), daily_hours=Decimal("8"), status="active",
+    )
+    db.add(fourth)
+    db.flush()
+    with pytest.raises(ValueError, match="security_department_must_have_exactly_three_active_employees"):
+        prepare_security_roster(db, _parsed(employees))
+
+
 def test_unmapped_roster_employee_header_blocks_day_confirmation(roster_db):
     db, employees, _admin = roster_db
     parsed = _parsed(employees)
