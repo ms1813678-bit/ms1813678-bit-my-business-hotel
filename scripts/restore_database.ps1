@@ -19,7 +19,7 @@ $BackupFolder = [System.IO.Path]::GetFullPath($BackupFolder)
 $manifestPath = Join-Path $BackupFolder "manifest.json"
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "manifest.json is missing." }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.format_version -ne 1) { throw "Unsupported backup format version." }
+if ($manifest.format_version -notin @(1, 2)) { throw "Unsupported backup format version." }
 if ([string]$manifest.database_dump -ne "database.dump" -or [string]$manifest.employee_photos_directory -ne "employee_photos") {
     throw "Backup manifest contains an unsupported path; restore aborted."
 }
@@ -59,7 +59,24 @@ try {
     New-Item -ItemType Directory -Path $photoStage | Out-Null
     if (-not (Test-Path -LiteralPath $photoSource -PathType Container)) { throw "Employee photo backup folder is missing." }
     $photoItems = @(Get-ChildItem -LiteralPath $photoSource -Force)
-    if ($photoItems.Count -gt 0) { Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoStage -Recurse -Force }
+    foreach ($item in $photoItems) {
+        Copy-Item -LiteralPath $item.FullName -Destination $photoStage -Recurse -Force
+    }
+    if ($manifest.format_version -eq 2) {
+        $photoRootFull = [System.IO.Path]::GetFullPath($photoSource).TrimEnd('\','/') + [System.IO.Path]::DirectorySeparatorChar
+        foreach ($photoRecord in @($manifest.employee_photos)) {
+            $relativePath = [string]$photoRecord.path
+            if ([string]::IsNullOrWhiteSpace($relativePath) -or [System.IO.Path]::IsPathRooted($relativePath)) { throw "Invalid employee photo path in manifest." }
+            $candidateFull = [System.IO.Path]::GetFullPath((Join-Path $photoSource $relativePath))
+            if (-not $candidateFull.StartsWith($photoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) { throw "Employee photo path escapes the backup folder." }
+            if (-not (Test-Path -LiteralPath $candidateFull -PathType Leaf)) { throw "Employee photo is missing from backup: $relativePath" }
+            $photoInfo = Get-Item -LiteralPath $candidateFull
+            if ($photoInfo.Length -ne [long]$photoRecord.length) { throw "Employee photo length mismatch: $relativePath" }
+            $photoHash = (Get-FileHash -LiteralPath $candidateFull -Algorithm SHA256).Hash
+            if ($photoHash -ne [string]$photoRecord.sha256) { throw "Employee photo checksum mismatch: $relativePath" }
+        }
+        if (@($manifest.employee_photos).Count -ne [int]$manifest.employee_photo_count) { throw "Employee photo manifest count mismatch." }
+    }
     if (Test-Path -LiteralPath $photoPrevious) { throw "Previous restore safety folder already exists: $photoPrevious" }
     $hadPreviousPhotos = Test-Path -LiteralPath $photoTarget
     if ($hadPreviousPhotos) { Move-Item -LiteralPath $photoTarget -Destination $photoPrevious }
