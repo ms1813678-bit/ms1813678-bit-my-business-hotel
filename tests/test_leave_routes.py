@@ -327,8 +327,8 @@ def valid_advance_date():
     return date(today.year, today.month - 1, 16)
 
 
-def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client):
-    from app.advance_workflow import next_payroll_month
+def test_advance_window_cap_approval_payment_and_request_payroll_month(leave_client):
+    from app.advance_workflow import payroll_month_for_advance
 
     client = leave_client
     login(client)
@@ -368,7 +368,7 @@ def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client
         request_id = request.id
         assert request.status == "pending"
         assert request.salary_basis == Decimal("5000.00")
-        assert request.payroll_month == next_payroll_month(requested_on)
+        assert request.payroll_month == payroll_month_for_advance(requested_on)
 
     approved = client.post(
         f"/advances/{request_id}/approve",
@@ -447,3 +447,143 @@ def test_advance_request_outside_window_and_unauthorized_access_are_rejected(lea
     assert "error=request" in response.headers["location"]
     with client.test_session_factory() as db:
         assert db.scalars(select(AdvanceRequest)).all() == []
+
+
+
+def test_draft_leave_edit_records_before_and_after_audit(leave_client):
+    from app.leave_workflow import update_draft_leave
+
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/leave"))
+    start = date.today() + timedelta(days=20)
+    response = client.post(
+        "/leave/records",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "leave_type_id": client.test_annual_id,
+            "start_date": start.isoformat(),
+            "end_date": (start + timedelta(days=1)).isoformat(),
+            "charged_days": "2",
+            "reason": "Original draft reason",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        record = db.scalar(select(LeaveRecord))
+        record_id = record.id
+        update_draft_leave(
+            db, record,
+            start_date=start + timedelta(days=1),
+            end_date=start + timedelta(days=2),
+            charged_days=Decimal("2.00"),
+            reason="Updated draft reason",
+            actor="leave-admin",
+        )
+        db.commit()
+
+    with client.test_session_factory() as db:
+        record = db.get(LeaveRecord, record_id)
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "leave_draft_updated",
+                AuditLog.entity_id == str(record_id),
+            )
+        )
+        assert record.start_date == start + timedelta(days=1)
+        assert record.reason == "Updated draft reason"
+        assert audit is not None
+        assert "Original draft reason" in audit.old_value
+        assert "Updated draft reason" in audit.new_value
+
+
+def test_draft_leave_edit_cannot_charge_more_than_calendar_days(leave_client):
+    from app.leave_workflow import update_draft_leave
+
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/leave"))
+    start = date.today() + timedelta(days=20)
+    response = client.post(
+        "/leave/records",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "leave_type_id": client.test_annual_id,
+            "start_date": start.isoformat(),
+            "end_date": (start + timedelta(days=1)).isoformat(),
+            "charged_days": "1",
+            "reason": "Synthetic bounded charge test",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        record = db.scalar(select(LeaveRecord))
+        with pytest.raises(ValueError, match="cannot exceed calendar days"):
+            update_draft_leave(
+                db, record,
+                start_date=start,
+                end_date=start + timedelta(days=1),
+                charged_days=Decimal("2.01"),
+                reason="Attempted excessive charge",
+                actor="leave-admin",
+            )
+
+
+def test_balance_entry_requires_nonblank_reason(leave_client):
+    from app.leave_workflow import add_balance_entry
+
+    client = leave_client
+    with client.test_session_factory() as db:
+        leave_type = db.get(LeaveType, client.test_annual_id)
+        with pytest.raises(ValueError, match="reason is required"):
+            add_balance_entry(
+                db,
+                employee_id=client.test_employee_id,
+                leave_type=leave_type,
+                transaction_type="opening",
+                days_delta=Decimal("5"),
+                reason="   ",
+                actor="leave-admin",
+            )
+
+
+def test_confirmed_leave_cannot_be_edited(leave_client):
+    from app.leave_workflow import update_draft_leave
+
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/leave"))
+    start = date.today() + timedelta(days=20)
+    with client.test_session_factory() as db:
+        from app.models import LeaveRecord
+        record = LeaveRecord(
+            employee_id=client.test_employee_id,
+            leave_type_id=client.test_annual_id,
+            start_date=start,
+            end_date=start,
+            calendar_days=1,
+            charged_days=Decimal("1.00"),
+            reason="Confirmed record",
+            status="confirmed",
+            created_by="leave-admin",
+            confirmed_by="leave-admin",
+        )
+        db.add(record)
+        db.commit()
+        record_id = record.id
+        record = db.get(LeaveRecord, record_id)
+        with pytest.raises(ValueError, match="Only draft"):
+            update_draft_leave(
+                db, record,
+                start_date=start,
+                end_date=start,
+                charged_days=Decimal("1.00"),
+                reason="Attempted edit",
+                actor="leave-admin",
+            )

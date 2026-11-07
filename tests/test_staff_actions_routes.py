@@ -162,6 +162,41 @@ def test_financial_sanction_requires_approval_and_employee_acknowledgement(staff
         assert "employee_action_acknowledgement_recorded" in actions
 
 
+def test_staff_action_approval_rejects_inactive_employee(staff_action_client):
+    from app.staff_actions_workflow import approve_staff_action
+
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    response = client.post(
+        "/staff-actions",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "kind": "reward",
+            "category": "certificate",
+            "title": "Pending certificate",
+            "reason": "Synthetic approval guard",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.scalar(select(StaffAction))
+        item_id = item.id
+        employee = db.get(Employee, client.test_employee_id)
+        employee.status = "archived"
+        db.commit()
+        item = db.get(StaffAction, item_id)
+        with pytest.raises(ValueError, match="employee is not active"):
+            approve_staff_action(db, item, "staff-action-admin")
+        db.rollback()
+
+    with client.test_session_factory() as db:
+        assert db.get(StaffAction, item_id).status == "draft"
+
+
 def test_nonfinancial_reward_does_not_create_payroll_amount(staff_action_client):
     client = staff_action_client
     login(client)
@@ -214,3 +249,127 @@ def test_staff_action_mutations_require_csrf(staff_action_client):
     assert client.post("/staff-actions", data={}).status_code == 403
     login(client)
     assert client.post("/staff-actions/1/approve", data={}).status_code == 403
+
+
+def test_duplicate_active_financial_action_is_rejected(staff_action_client):
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    payload = {
+        "csrf_token": token,
+        "employee_id": client.test_employee_id,
+        "kind": "sanction",
+        "category": "salary_deduction",
+        "title": "Duplicate protection test",
+        "is_financial": "yes",
+        "amount": "125.00",
+        "payroll_month": "2026-12-01",
+        "reason": "Synthetic duplicate prevention",
+    }
+
+    first = client.post("/staff-actions", data=payload, follow_redirects=False)
+    second = client.post("/staff-actions", data=payload, follow_redirects=False)
+
+    assert first.status_code == 303
+    assert first.headers["location"] == "/staff-actions"
+    assert second.status_code == 303
+    assert "error=create" in second.headers["location"]
+
+    with client.test_session_factory() as db:
+        actions = db.scalars(select(StaffAction)).all()
+        assert len(actions) == 1
+        assert actions[0].amount == Decimal("125.00")
+
+
+
+def test_draft_staff_action_edit_records_before_and_after_audit(staff_action_client):
+    from app.staff_actions_workflow import update_draft_staff_action
+
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    response = client.post(
+        "/staff-actions",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "kind": "reward",
+            "category": "financial_reward",
+            "title": "Draft performance reward",
+            "is_financial": "yes",
+            "amount": "300.00",
+            "payroll_month": "2026-12-01",
+            "reason": "Original reward reason",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.scalar(select(StaffAction))
+        item_id = item.id
+        update_draft_staff_action(
+            db, item,
+            category="financial_reward",
+            title="Updated performance reward",
+            is_financial=True,
+            amount=Decimal("350.00"),
+            payroll_month=date(2026, 12, 1),
+            reason="Updated reward reason",
+            actor="staff-action-admin",
+        )
+        db.commit()
+
+    with client.test_session_factory() as db:
+        item = db.get(StaffAction, item_id)
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "reward_draft_updated",
+                AuditLog.entity_id == str(item_id),
+            )
+        )
+        assert item.title == "Updated performance reward"
+        assert item.amount == Decimal("350.00")
+        assert audit is not None
+        assert "Original reward reason" in audit.old_value
+        assert "Updated reward reason" in audit.new_value
+
+
+def test_approved_staff_action_cannot_be_edited(staff_action_client):
+    from app.staff_actions_workflow import update_draft_staff_action
+
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    response = client.post(
+        "/staff-actions",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "kind": "reward",
+            "category": "certificate",
+            "title": "Approved certificate",
+            "reason": "Synthetic approved certificate",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.scalar(select(StaffAction))
+        item_id = item.id
+        item = db.get(StaffAction, item_id)
+        item.status = "approved"
+        db.commit()
+        item = db.get(StaffAction, item_id)
+        with pytest.raises(ValueError, match="Only draft"):
+            update_draft_staff_action(
+                db, item,
+                category="certificate",
+                title="Edited certificate",
+                is_financial=False,
+                amount=None,
+                payroll_month=None,
+                reason="Attempted edit",
+                actor="staff-action-admin",
+            )
