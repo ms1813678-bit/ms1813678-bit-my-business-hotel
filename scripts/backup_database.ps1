@@ -2,6 +2,7 @@
 param([string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot), [string]$BackupRoot = "")
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
 function Read-DotEnv([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Missing .env file: $Path" }
     $values = @{}
@@ -18,6 +19,7 @@ function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
     & $Exe @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Exe failed with exit code $LASTEXITCODE" }
 }
+
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $settings = Read-DotEnv (Join-Path $ProjectRoot ".env")
 $dbUrl = [string]$settings["DATABASE_URL"]
@@ -31,37 +33,72 @@ $dbPassword = [Uri]::UnescapeDataString($userInfo[1])
 $dbName = [Uri]::UnescapeDataString($uri.AbsolutePath.Trim('/'))
 $dbPort = if ($uri.IsDefaultPort) { "5432" } else { [string]$uri.Port }
 $pgDump = Get-Command pg_dump -ErrorAction SilentlyContinue
-if (-not $pgDump) { throw "pg_dump was not found. Install PostgreSQL client tools and add their bin folder to PATH." }
+$pgRestore = Get-Command pg_restore -ErrorAction SilentlyContinue
+if (-not $pgDump -or -not $pgRestore) { throw "pg_dump and pg_restore must be installed and available in PATH." }
 if ([string]::IsNullOrWhiteSpace($BackupRoot)) { $BackupRoot = Join-Path $ProjectRoot "backups" }
 New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $destination = Join-Path $BackupRoot "MY-HR-$stamp"
-New-Item -ItemType Directory -Path $destination | Out-Null
+$workingDestination = Join-Path $BackupRoot "MY-HR-$stamp.incomplete"
+if ((Test-Path -LiteralPath $destination) -or (Test-Path -LiteralPath $workingDestination)) { throw "A backup with this timestamp already exists; retry in a moment." }
+New-Item -ItemType Directory -Path $workingDestination | Out-Null
 $env:PGPASSWORD = $dbPassword
 try {
-    $dumpPath = Join-Path $destination "database.dump"
+    $dumpPath = Join-Path $workingDestination "database.dump"
     Invoke-Checked $pgDump.Source @("--host=$($uri.Host)", "--port=$dbPort", "--username=$dbUser", "--dbname=$dbName", "--no-password", "--format=custom", "--no-owner", "--no-acl", "--file=$dumpPath")
-} finally { Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue }
-$photoSource = Join-Path $ProjectRoot "var\employee_photos"
-$photoDestination = Join-Path $destination "employee_photos"
-New-Item -ItemType Directory -Path $photoDestination | Out-Null
-if (Test-Path -LiteralPath $photoSource -PathType Container) {
-    $photoItems = @(Get-ChildItem -LiteralPath $photoSource -Force)
-    if ($photoItems.Count -gt 0) { Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoDestination -Recurse -Force }
+    if (-not (Test-Path -LiteralPath $dumpPath -PathType Leaf) -or (Get-Item -LiteralPath $dumpPath).Length -le 0) { throw "pg_dump did not produce a non-empty database dump." }
+    $archiveListing = & $pgRestore.Source "--list" $dumpPath
+    if ($LASTEXITCODE -ne 0 -or -not $archiveListing) { throw "pg_restore --list could not validate the database dump." }
+} catch {
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    throw
+} finally {
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
 }
-$hash = (Get-FileHash -LiteralPath $dumpPath -Algorithm SHA256).Hash
-$manifest = [ordered]@{
-    format_version = 1
-    created_at_local = (Get-Date).ToString("o")
-    database_name = $dbName
-    database_dump = "database.dump"
-    database_dump_sha256 = $hash
-    employee_photos_directory = "employee_photos"
-    employee_photo_count = @(Get-ChildItem -LiteralPath $photoDestination -File -Recurse).Count
-    includes_env_file = $false
-    note = "Keep the matching .env/session secret separately and securely. Restore only into an empty database."
+
+try {
+    $photoSource = Join-Path $ProjectRoot "var\employee_photos"
+    $photoDestination = Join-Path $workingDestination "employee_photos"
+    New-Item -ItemType Directory -Path $photoDestination | Out-Null
+    if (Test-Path -LiteralPath $photoSource -PathType Container) {
+        $photoItems = @(Get-ChildItem -LiteralPath $photoSource -Force)
+        foreach ($item in $photoItems) {
+            Copy-Item -LiteralPath $item.FullName -Destination $photoDestination -Recurse -Force
+        }
+    }
+    $photoManifest = @()
+    $sourceFiles = @()
+    if (Test-Path -LiteralPath $photoSource -PathType Container) { $sourceFiles = @(Get-ChildItem -LiteralPath $photoSource -File -Recurse -Force) }
+    foreach ($sourceFile in $sourceFiles) {
+        $relativePath = $sourceFile.FullName.Substring($photoSource.Length).TrimStart('\','/') -replace '\\','/'
+        $copiedPath = Join-Path $photoDestination $relativePath
+        if (-not (Test-Path -LiteralPath $copiedPath -PathType Leaf)) { throw "Employee photo was not copied: $relativePath" }
+        $sourceHash = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+        $copiedHash = (Get-FileHash -LiteralPath $copiedPath -Algorithm SHA256).Hash
+        if ($sourceHash -ne $copiedHash) { throw "Employee photo checksum mismatch: $relativePath" }
+        $photoManifest += [ordered]@{ path = $relativePath; length = $sourceFile.Length; sha256 = $sourceHash }
+    }
+    $hash = (Get-FileHash -LiteralPath (Join-Path $workingDestination "database.dump") -Algorithm SHA256).Hash
+    $manifest = [ordered]@{
+        format_version = 2
+        created_at_local = (Get-Date).ToString("o")
+        database_name = $dbName
+        database_dump = "database.dump"
+        database_dump_sha256 = $hash
+        employee_photos_directory = "employee_photos"
+        employee_photo_count = $photoManifest.Count
+        employee_photos = $photoManifest
+        includes_env_file = $false
+        backup_complete = $true
+        note = "Keep the matching .env/session secret separately and securely. Restore only into an empty database."
+    }
+    $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $workingDestination "manifest.json") -Encoding UTF8
+    Move-Item -LiteralPath $workingDestination -Destination $destination
+    Write-Host "Backup completed: $destination"
+    Write-Host "Database dump SHA-256: $hash"
+    Write-Host "Employee photos verified: $($photoManifest.Count)"
+    Write-Host "The .env file and passwords were NOT copied into the backup."
+} catch {
+    Write-Error "Backup did not complete. The temporary folder is marked .incomplete and must not be used: $workingDestination"
+    throw
 }
-$manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $destination "manifest.json") -Encoding UTF8
-Write-Host "Backup completed: $destination"
-Write-Host "Database dump SHA-256: $hash"
-Write-Host "The .env file and passwords were NOT copied into the backup."
