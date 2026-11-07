@@ -12,6 +12,7 @@ on:
       - main
       - feature/auth-security
       - work/leave-management-foundation
+      - work/rewards-sanctions-v2
   workflow_dispatch:
 
 permissions:
