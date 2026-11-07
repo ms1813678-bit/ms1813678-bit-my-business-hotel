@@ -25,7 +25,23 @@ from app.models import (
     PayrollPayment,
     PayrollRun,
 )
-from app.reports import build_hr_pdf, build_hr_workbook, validate_workbook
+from app.reports import _excel_safe_value, build_hr_pdf, build_hr_workbook, validate_workbook
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("=HYPERLINK(\"https://example.invalid\",\"click\")", "'=HYPERLINK(\"https://example.invalid\",\"click\")"),
+        ("  +SUM(1,2)", "'  +SUM(1,2)"),
+        ("-cmd|/C calc", "'-cmd|/C calc"),
+        ("@SUM(A1:A2)", "'@SUM(A1:A2)"),
+        ("Ordinary employee name", "Ordinary employee name"),
+        (8000.0, 8000.0),
+        (-12.5, -12.5),
+    ],
+)
+def test_excel_export_treats_formula_like_text_as_literal(value, expected):
+    assert _excel_safe_value(value) == expected
 
 
 def test_hr_report_contains_all_expected_sheets():
