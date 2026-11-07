@@ -162,6 +162,41 @@ def test_financial_sanction_requires_approval_and_employee_acknowledgement(staff
         assert "employee_action_acknowledgement_recorded" in actions
 
 
+def test_staff_action_approval_rejects_inactive_employee(staff_action_client):
+    from app.staff_actions_workflow import approve_staff_action
+
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    response = client.post(
+        "/staff-actions",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "kind": "reward",
+            "category": "certificate",
+            "title": "Pending certificate",
+            "reason": "Synthetic approval guard",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.scalar(select(StaffAction))
+        item_id = item.id
+        employee = db.get(Employee, client.test_employee_id)
+        employee.status = "archived"
+        db.commit()
+        item = db.get(StaffAction, item_id)
+        with pytest.raises(ValueError, match="employee is not active"):
+            approve_staff_action(db, item, "staff-action-admin")
+        db.rollback()
+
+    with client.test_session_factory() as db:
+        assert db.get(StaffAction, item_id).status == "draft"
+
+
 def test_nonfinancial_reward_does_not_create_payroll_amount(staff_action_client):
     client = staff_action_client
     login(client)
