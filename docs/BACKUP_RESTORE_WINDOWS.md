@@ -6,7 +6,7 @@ These scripts are a first implementation of a local recovery procedure. They hav
 
 - PostgreSQL database in custom pg_dump format (database.dump).
 - The complete var/employee_photos directory, kept alongside the database dump.
-- A manifest with database name, timestamp, and SHA-256 checksum of the database dump.
+- A version 2 manifest with database name, timestamp, a SHA-256 checksum of the database dump, and a SHA-256 checksum plus byte length for every employee photo.
 
 The backup deliberately excludes .env, the session secret, database passwords, logs, temporary attendance uploads, and security-roster staging files. Keep the .env file and recovery credentials in a separate secure location. A database dump alone is not a complete recovery point because employee photos are stored on disk.
 
@@ -31,7 +31,7 @@ Optional destination:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup_database.ps1 -BackupRoot "D:\MY-HR-Backups"
 ```
 
-A timestamped folder is created under backups by default. Copy completed backups to a separate physical drive. Protect that drive with BitLocker or equivalent encryption and restrict access; backups contain sensitive employee and payroll information.
+A timestamped folder is created under backups by default. The working folder ends in `.incomplete` and is not a valid backup. It is renamed to the final timestamped folder only after the dump archive is checked, every photo is copied and checksum-verified, and the completion manifest is written. If the process stops early, do not restore from the `.incomplete` folder. Copy completed backups to a separate physical drive. Protect that drive with BitLocker or equivalent encryption and restrict access; backups contain sensitive employee and payroll information.
 
 ## Restore a backup
 
@@ -44,7 +44,7 @@ A timestamped folder is created under backups by default. Copy completed backups
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\restore_database.ps1 -BackupFolder "D:\MY-HR-Backups\MY-HR-YYYYMMDD-HHMMSS"
 ```
 
-5. Type the exact confirmation requested by the script. The script verifies the dump checksum and refuses a non-empty database.
+5. Type the exact confirmation requested by the script. The script verifies the dump checksum, and for version 2 backups verifies each photo path, byte length, and SHA-256 checksum before replacing the current photo directory. It refuses a non-empty database. Version 1 backups remain readable for backward compatibility but do not contain per-photo checksums.
 6. Start the application and verify login, employee list, former employees, attendance history, and employee photos.
 
 The restore script preserves the previous employee-photo folder as var\employee_photos.before-restore after a successful restore. Do not delete it until the restored system has been checked. If database restore fails, the script attempts to put the previous photo folder back.
@@ -52,8 +52,9 @@ The restore script preserves the previous employee-photo folder as var\employee_
 ## Acceptance tests still required
 
 - Create a backup from a disposable PostgreSQL database with test employees and photos.
-- Verify the dump with pg_restore --list.
+- Verify the dump with pg_restore --list. The backup script now performs this check before marking the backup complete.
 - Restore into a fresh empty database and compare employee counts, service-period counts, attendance records, and photo checksums.
+- Confirm that each version 2 employee-photo checksum is validated before any existing photo directory is moved.
 - Test a corrupted dump and confirm checksum validation stops restore before any database change.
 - Test restore against a non-empty database and confirm it refuses.
 - Verify the scripts under the actual Windows PowerShell version and PostgreSQL version installed on the target PC.
