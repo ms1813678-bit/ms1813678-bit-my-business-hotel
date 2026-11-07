@@ -5,6 +5,8 @@ on:
     branches:
       - feature/auth-security
       - feature/platform-hardening
+      - work/employee-lifecycle-acceptance
+      - work/employee-lifecycle-ui
   pull_request:
     branches:
       - main
