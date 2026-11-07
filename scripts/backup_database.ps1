@@ -44,7 +44,10 @@ try {
 $photoSource = Join-Path $ProjectRoot "var\employee_photos"
 $photoDestination = Join-Path $destination "employee_photos"
 New-Item -ItemType Directory -Path $photoDestination | Out-Null
-if (Test-Path -LiteralPath $photoSource -PathType Container) { Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoDestination -Recurse -Force }
+if (Test-Path -LiteralPath $photoSource -PathType Container) {
+    $photoItems = @(Get-ChildItem -LiteralPath $photoSource -Force)
+    if ($photoItems.Count -gt 0) { Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoDestination -Recurse -Force }
+}
 $hash = (Get-FileHash -LiteralPath $dumpPath -Algorithm SHA256).Hash
 $manifest = [ordered]@{
     format_version = 1
