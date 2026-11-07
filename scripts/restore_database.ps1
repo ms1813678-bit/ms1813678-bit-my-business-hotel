@@ -60,14 +60,15 @@ try {
     $photoItems = @(Get-ChildItem -LiteralPath $photoSource -Force)
     if ($photoItems.Count -gt 0) { Copy-Item -Path (Join-Path $photoSource "*") -Destination $photoStage -Recurse -Force }
     if (Test-Path -LiteralPath $photoPrevious) { throw "Previous restore safety folder already exists: $photoPrevious" }
-    if (Test-Path -LiteralPath $photoTarget) { Move-Item -LiteralPath $photoTarget -Destination $photoPrevious }
-    Move-Item -LiteralPath $photoStage -Destination $photoTarget
+    $hadPreviousPhotos = Test-Path -LiteralPath $photoTarget
+    if ($hadPreviousPhotos) { Move-Item -LiteralPath $photoTarget -Destination $photoPrevious }
     try {
+        Move-Item -LiteralPath $photoStage -Destination $photoTarget
         & $pgRestore.Source "--host=$($uri.Host)" "--port=$dbPort" "--username=$dbUser" "--dbname=$dbName" "--no-owner" "--no-acl" "--exit-on-error" "--single-transaction" $dumpPath
         if ($LASTEXITCODE -ne 0) { throw "pg_restore failed with exit code $LASTEXITCODE" }
     } catch {
         if (Test-Path -LiteralPath $photoTarget) { Remove-Item -LiteralPath $photoTarget -Recurse -Force }
-        if (Test-Path -LiteralPath $photoPrevious) { Move-Item -LiteralPath $photoPrevious -Destination $photoTarget }
+        if ($hadPreviousPhotos -and (Test-Path -LiteralPath $photoPrevious)) { Move-Item -LiteralPath $photoPrevious -Destination $photoTarget }
         throw
     }
     Write-Host "Restore completed. Previous employee photos, if any, remain in: $photoPrevious"
