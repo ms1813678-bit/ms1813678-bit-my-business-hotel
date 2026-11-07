@@ -206,3 +206,11 @@ Security/operational decisions:
 - Restore is intentionally restricted to a fresh empty database with the same name recorded in the backup.
 
 **Important limitation:** these PowerShell scripts have only received source review. They have not been executed under Windows PowerShell, against PostgreSQL, or on the target Windows 11 PC. In particular, the end-to-end backup/restore and rollback scenarios remain unverified. Do not treat this as approved disaster recovery until the acceptance tests in `docs/BACKUP_RESTORE_WINDOWS.md` pass.
+
+
+## 15. Sensitive runtime-file ignore rules (2026-11-07)
+
+- Added explicit Git ignore rules for `var/employee_photos/`, `var/security_roster_staging/`, and `var/attendance_uploads/`. These paths may contain employee-identifying photos or uploaded attendance/security evidence and must not be committed as application source.
+- Existing `backups/` and `.env` ignore rules remain in place.
+- The change is committed on the Team 1 integration branch. It protects future untracked files; it does not automatically remove any sensitive files that may already be tracked in Git history. A repository-wide tracked-file/history check remains required before real employee data is entered.
+- Re-reviewed the PowerShell backup/restore scripts at source level. No Windows PowerShell/PostgreSQL execution has been performed. Their restore procedure remains restricted to a matching, empty database and still requires a disposable-database acceptance run, including checksum failure and rollback tests.
