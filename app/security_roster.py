@@ -1,8 +1,9 @@
 """Build Security shift proposals from configured roster and shift-pattern rules.
 
-Exactly three Security employees are configured. Each day must have either
-three working guards (8-hour shifts) or two working guards (12-hour shifts).
-A one-guard day is invalid; OFF is not a shift.
+Security team size is flexible. At least two active employees must be configured,
+and at least two guards must work each day. Two working guards use 12-hour
+patterns; three use 8-hour patterns. Larger daily teams require configured patterns.
+OFF is not a shift.
 """
 from datetime import time
 
@@ -50,16 +51,16 @@ def _intervals_overlap(first, second):
 def build_security_day_proposal(roster, shift_patterns):
     """Return a reviewable proposal without inferring unconfigured durations.
 
-    Exactly three employees must be present in the roster. Two working guards
-    require 12-hour patterns; three working guards require 8-hour patterns.
-    A one-guard day is rejected. Ambiguity, missing patterns, duplicate starts,
-    and interval overlaps block approval.
+    At least two employees must be present in the roster and at least two guards
+    must work each day. Two working guards require 12-hour patterns; three
+    require 8-hour patterns. Larger daily teams must match configured patterns.
+    Ambiguity, missing patterns, duplicate starts, and overlaps block approval.
     """
-    if not isinstance(roster, dict) or len(roster) != 3:
+    if not isinstance(roster, dict) or len(roster) < 2:
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["security_roster_must_contain_exactly_three_employees"],
+            "issues": ["security_roster_must_contain_at_least_two_employees"],
         }
 
     working = []
@@ -80,7 +81,7 @@ def build_security_day_proposal(roster, shift_patterns):
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["daily_security_working_count_must_be_two_or_three"],
+            "issues": ["daily_security_working_count_must_be_at_least_two"],
         }
 
     starts = [start for _, start in working]
