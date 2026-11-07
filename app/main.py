@@ -1120,6 +1120,16 @@ def create_leave_record(
         leave_type = db.get(LeaveType, leave_type_id)
         if employee is None or employee.status != "active" or leave_type is None or not leave_type.active:
             return RedirectResponse("/leave?error=employee", status_code=303)
+        overlap = db.scalar(
+            select(LeaveRecord.id).where(
+                LeaveRecord.employee_id == employee_id,
+                LeaveRecord.status != "cancelled",
+                LeaveRecord.start_date <= end_date,
+                LeaveRecord.end_date >= start_date,
+            ).limit(1)
+        )
+        if overlap is not None:
+            return RedirectResponse("/leave?error=overlap", status_code=303)
         # Planned leave needs at least 72 hours' notice. Sick and emergency leave
         # are exceptions, but the administrator must still enter a reason.
         starts_at = datetime.combine(start_date, datetime.min.time())
@@ -1154,7 +1164,11 @@ def confirm_leave_record(
 ):
     try:
         with SessionLocal.begin() as db:
-            record = db.get(LeaveRecord, record_id)
+            record = db.scalar(
+                select(LeaveRecord)
+                .where(LeaveRecord.id == record_id)
+                .with_for_update()
+            )
             if record is None:
                 return RedirectResponse("/leave?error=record", status_code=303)
             confirm_leave(db, record, admin.username)
