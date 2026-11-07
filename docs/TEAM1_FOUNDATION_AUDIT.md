@@ -94,9 +94,10 @@ PR #1 targets `main`, while the attendance acceptance PR #2 targets `feature/pla
 
 ## 6. Additional business-rule and branch synchronization blockers
 
-- Payroll divisor remains unresolved in the coordinator register: the written specification uses 30 in the hourly-rate divisor, while a later instruction says the daily basis changed to 40. PR #14 now describes 30 days as confirmed, but this audit has not found a newer direct user decision that closes the recorded conflict. Do not finalize payroll calculations until the coordinator confirms the authoritative rule.
+- Payroll divisor remains disputed. The durable HR instruction available to the coordinator says the daily wage basis was changed to 40 days, while Team 4 PR #14 delivery notes assert a later 30-day confirmation. That later confirmation is recorded by the workstream but is not independently present in the current coordinator conversation. Do not finalize the formula on the basis of a workstream note alone; obtain/locate the actual HR approval and preserve the decision source in the specification.
 - The current baseline includes general shift-pattern and security-shift-assignment tables in migrations 0007–0008. Later user scope says no shift table in the current system, while the attendance work still needs overnight and Security roster behavior. Do not remove existing shift schema or invent a new schedule model during parallel work; the coordinator must reconcile the exact retained Security roster data needs against the latest user-approved scope.
-- PR #2 is currently three commits ahead and one commit behind the updated `feature/platform-hardening` base (compare status: diverged), and GitHub currently reports it as not mergeable. Team 2 should synchronize its branch with the latest base before the coordinator attempts integration; do not rewrite or push to Team 2's branch on its behalf.
+- PR #2 was previously found diverged and non-mergeable; recheck its current base/head before integration. A new PR #15 from Team 2 is narrowly scoped to corrupt Excel workbook handling and changes only `app/attendance_import.py` plus its focused test, but its base is PR #2's branch. Review and validate PR #15 together with its base lineage; do not merge it ahead of the required attendance base.
+- Team 3's new branch `team3/leave-advances-rewards-hardening` is 44 commits ahead and 1 behind `feature/platform-hardening`, and its diff changes shared files `app/main.py`, `app/models.py`, three Alembic migrations (0016–0018), and the global test workflow. This violates the agreed ownership boundary. The branch must be treated as an integration candidate only after Team 3 isolates domain-owned changes and submits migration proposals; Team 1 must own shared-file and migration integration. Do not merge this branch as-is.
 
 ## 7. Integration boundaries
 
@@ -118,3 +119,11 @@ PR #1 targets `main`, while the attendance acceptance PR #2 targets `feature/pla
 ## 9. Current status
 
 This commit records an evidence-based audit and integration blockers only. It does not claim that the full application is complete, that PR #1 is approved, or that the target Windows device has passed acceptance.
+
+
+## 10. Latest parallel-work review (2026-11-07)
+
+- Team 4 PR #14 adds a deterministic, offline, read-only payroll analysis helper and focused tests. The helper does not itself provide a generative chat interface or application route; Team 4 explicitly hands off router/navigation wiring to Team 1. The PR is based on `work/payroll-foundation`, not the shared integration baseline, and its reported pytest/Windows CI jobs have failed; treat as draft and unverified.
+- Team 2 PR #15 handles corrupt XLSX loading by converting workbook-load exceptions into a stable reviewable `ValueError`, with a focused test. It changes only the attendance import module and its test, but inherits the attendance branch's base dependency.
+- Team 3's `team3/leave-advances-rewards-hardening` branch currently edits protected shared paths and Alembic migrations directly; coordinator integration must not proceed until ownership is corrected.
+- The first CI run for Team 1 PR #16 failed in both Linux and Windows jobs. A retry of failed jobs was requested successfully; results must be checked before treating the documentation PR as validated.
