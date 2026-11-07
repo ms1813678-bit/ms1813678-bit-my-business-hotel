@@ -4,7 +4,7 @@ $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $VenvPython)) { throw "Run scripts\windows\setup.ps1 first." }
 
 $TaskName = "M.Y. Business Hotel HR - Monthly Report"
-$Action = New-ScheduledTaskAction -Execute $VenvPython -Argument "-m scripts.generate_monthly_report" -WorkingDirectory $ProjectRoot
+$Action = New-ScheduledTaskAction -Execute $VenvPython -Argument "-m scripts.generate_monthly_report --force" -WorkingDirectory $ProjectRoot
 $Trigger = New-ScheduledTaskTrigger -Monthly -DaysOfMonth 1 -At 9:00AM
 $Settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
