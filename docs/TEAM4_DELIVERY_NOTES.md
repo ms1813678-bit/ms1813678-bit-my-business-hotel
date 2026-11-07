@@ -36,23 +36,23 @@ they have not yet been confirmed passing by a successful CI run.
 
 ## Additional coverage and report enhancement
 
-The team 4 branch now adds a monthly **Payroll comparison** worksheet alongside
+The team 4 branch adds a monthly **Payroll comparison** worksheet alongside
 the employee-level Payroll sheet. It summarizes each payroll run by employee
 count, gross earnings, deductions, net payroll, paid/remaining amounts, and
-fully/partially/unpaid employee counts. The report page description was updated.
-A regression assertion checks the summary against a synthetic closed payroll.
+fully/partially/unpaid employee counts. Payment totals are linked to each payroll
+item, and the comparison is calculated from the same selected payroll runs.
+A synthetic regression case checks partial payment amounts and status counts.
 
-The payroll route acceptance test now also verifies that a second request for
-the same month is rejected and does not create a duplicate run. Additional
-boundary tests cover invalid months, negative minute/day inputs, and a hire on
-the final calendar day. These are authored tests; they are not yet confirmed
-passing because CI is still failing and local execution is unavailable here.
+The payroll route acceptance test also verifies that a second request for
+the same month is rejected and does not create a duplicate run. Boundary tests
+cover invalid months, negative minute/day inputs, and a hire on the final
+calendar day. These tests remain unverified until CI succeeds.
 
 ## Overtime approval safety finding — 2026-11-07
 
 The current payroll schema stores overtime hours and amount but has no persisted
 management approval state or approver identity. Until Team 1 adds and integrates
-that approval workflow in the shared model and route, Team 4 now blocks positive
+that approval workflow in the shared model and route, Team 4 blocks positive
 overtime-hour edits in the payroll workflow. The offline assistant also flags
 overtime unless approval is explicitly represented as `True`. This is a
 fail-closed interim safeguard, not a replacement for a real approval workflow.
@@ -73,20 +73,22 @@ employees, attendance review, leave drafts, pending advances, staff-action
 drafts, and open payroll runs) but does not yet expose payroll financial KPIs
 such as monthly net payroll, paid/unpaid totals, or pending advance alerts.
 Because the dashboard route and template are part of the shared application
-surface, team 1 must integrate these indicators after agreeing the required
-queries and permissions with team 4. The assistant also remains unintegrated:
+surface, Team 1 must integrate these indicators after agreeing the required
+queries and permissions with Team 4. The assistant also remains unintegrated:
 it needs a local-only HR screen/route and explicit confirmation controls before
 it can be considered a usable assistant feature.
 
-## Validation status
+## Validation status — updated 2026-11-07
 
-GitHub Actions runs for the assistant branch have failed in both the pytest and
-Windows compatibility jobs, including retries. The latest run after the report
-and duplicate-run test additions (run 42362355782) showed the Linux pytest job
-failed while the Windows compatibility job was still queued at the time of
-inspection. The connected GitHub interface
-returned no step details and its job-log download returned BlobNotFound, so the
-underlying failure is still undiagnosed. The new assistant and payroll-math tests
-have not been executed locally in this environment. Do not treat this branch as
-validated or ready to merge until the CI failure is diagnosed and all required
-checks pass.
+The latest observed Actions run for head commit
+`168437db73a989a7a5453c71eb6f007864b7cea1` is run `42362940529`.
+Both jobs completed with failure:
+- `Run pytest (Python 3.11)`
+- `Windows runner compatibility (Python 3.11)`
+
+The GitHub Actions job endpoint returned no step records for either job,
+and downloading either job log returned `BlobNotFound`. Therefore the
+underlying failure is still not diagnosable from the available run data.
+No successful test execution is claimed, and the newly added tests have not
+been run locally in this environment. Do not treat this branch as validated
+or ready to merge until the CI failure is diagnosed and all required checks pass.
