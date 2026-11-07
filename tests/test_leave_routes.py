@@ -271,3 +271,47 @@ def test_leave_page_and_mutations_require_the_single_admin_and_csrf(leave_client
     login(client)
     assert client.get("/leave").status_code == 200
     assert client.post("/leave/balances", data={}).status_code == 403
+
+
+def test_overlapping_leave_records_for_same_employee_are_rejected(leave_client):
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/leave"))
+    start = date.today() + timedelta(days=14)
+
+    first = client.post(
+        "/leave/records",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "leave_type_id": client.test_annual_id,
+            "start_date": start.isoformat(),
+            "end_date": (start + timedelta(days=2)).isoformat(),
+            "charged_days": "3",
+            "reason": "Synthetic first leave",
+        },
+        follow_redirects=False,
+    )
+    assert first.status_code == 303
+    assert first.headers["location"] == "/leave"
+
+    overlapping = client.post(
+        "/leave/records",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "leave_type_id": client.test_casual_id,
+            "start_date": (start + timedelta(days=1)).isoformat(),
+            "end_date": (start + timedelta(days=1)).isoformat(),
+            "charged_days": "1",
+            "reason": "Synthetic overlapping emergency leave",
+        },
+        follow_redirects=False,
+    )
+    assert overlapping.status_code == 303
+    assert "error=overlap" in overlapping.headers["location"]
+
+    with client.test_session_factory() as db:
+        records = db.scalars(select(LeaveRecord)).all()
+        assert len(records) == 1
+        assert records[0].start_date == start
