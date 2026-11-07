@@ -1,11 +1,11 @@
 """Local Excel reports for HR, attendance, leave, advances, staff actions and payroll."""
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -108,7 +108,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
         .order_by(LeaveRecord.start_date, LeaveRecord.employee_id)
     ).all()
     leave_types = {
-        item.id: item.name
+        item.id: item.name_ar
         for item in db.scalars(select(LeaveType)).all()
     }
     _write_sheet(
@@ -133,7 +133,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
 
     balance_transactions = db.scalars(
         select(LeaveBalanceTransaction)
-        .where(*_filtered_date(func.date(LeaveBalanceTransaction.created_at), start_date, end_date))
+        .where(LeaveBalanceTransaction.created_at >= datetime.combine(start_date, time.min), LeaveBalanceTransaction.created_at < datetime.combine(end_date + timedelta(days=1), time.min))
         .order_by(LeaveBalanceTransaction.created_at, LeaveBalanceTransaction.id)
     ).all()
     _write_sheet(
@@ -157,7 +157,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
 
     actions = db.scalars(
         select(StaffAction)
-        .where(*_filtered_date(func.date(StaffAction.created_at), start_date, end_date))
+        .where(StaffAction.created_at >= datetime.combine(start_date, time.min), StaffAction.created_at < datetime.combine(end_date + timedelta(days=1), time.min))
         .order_by(StaffAction.created_at, StaffAction.id)
     ).all()
     _write_sheet(
@@ -261,7 +261,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
             func.count(Employee.id),
             func.coalesce(func.sum(Employee.basic_salary), 0),
         )
-        .outerjoin(Employee, Employee.department_id == Department.id)
+        .outerjoin(Employee, and_(Employee.department_id == Department.id, Employee.status == "active"))
         .group_by(Department.id, Department.name)
         .order_by(Department.name)
     ).all()
