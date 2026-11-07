@@ -21,8 +21,8 @@ def resolve_security_employees(db):
             Employee.status == "active",
         ).order_by(Employee.id)
     ).all()
-    if len(employees) != 3:
-        raise ValueError("security_department_must_have_exactly_three_active_employees")
+    if len(employees) < 2:
+        raise ValueError("security_department_must_have_at_least_two_active_employees")
     return department, employees
 
 
@@ -50,7 +50,7 @@ def prepare_security_roster(db, parsed_workbook):
             raise ValueError("duplicate_security_employee_columns")
         resolved[employee_id] = employee_id
     if set(resolved) != {employee.id for employee in employees}:
-        raise ValueError("excel_columns_must_match_all_three_active_security_employees")
+        raise ValueError("excel_columns_must_match_all_active_security_employees")
 
     patterns = db.scalars(
         select(ShiftPattern).where(
