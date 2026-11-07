@@ -1216,12 +1216,38 @@ def advances_page(request: Request, admin: AdminAccount = Depends(get_current_ad
                 AdvanceRequest.request_date.desc(), AdvanceRequest.id.desc()
             )
         ).all()
+        advance_summary = {}
+        for employee in employees:
+            employee_requests = [item for item in requests if item.employee_id == employee.id]
+            outstanding = sum(
+                (Decimal(item.amount) for item in employee_requests
+                 if item.status in {"pending", "approved", "paid"}),
+                Decimal("0.00"),
+            )
+            deducted = sum(
+                (Decimal(item.amount) for item in employee_requests if item.status == "deducted"),
+                Decimal("0.00"),
+            )
+            total = sum(
+                (Decimal(item.amount) for item in employee_requests),
+                Decimal("0.00"),
+            )
+            cap = Decimal(employee.basic_salary) * Decimal("0.25")
+            advance_summary[employee.id] = {
+                "latest": employee_requests[0] if employee_requests else None,
+                "total": total,
+                "deducted": deducted,
+                "outstanding": outstanding,
+                "limit": cap,
+                "available": max(Decimal("0.00"), cap - outstanding),
+            }
         return templates.TemplateResponse(
             request=request,
             name="advances.html",
             context={
                 "employees": employees,
                 "requests": requests,
+                "advance_summary": advance_summary,
                 "employee_names": {e.id: e.full_name for e in all_employees},
                 "employee_codes": {e.id: e.code for e in all_employees},
                 "today": date.today().isoformat(),
