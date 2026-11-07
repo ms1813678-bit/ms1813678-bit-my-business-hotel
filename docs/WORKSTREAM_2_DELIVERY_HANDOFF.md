@@ -61,7 +61,7 @@ The attendance import route itself still creates a persisted batch during upload
 - It parses the immutable daily audit evidence, rejects duplicate employee IDs (including OFF entries), and checks that the non-OFF start times still match persisted Security assignments.
 - It rejects unexpected extra assignments and assignments whose shift pattern belongs to another department.
 - It writes an immutable `security_roster_month_approved` audit event after successful validation.
-- It deliberately does not invent a minimum guard count or a continuous-coverage rule for 4+ person teams.
+- It applies the confirmed fixed-team rule: two working guards use 12-hour shifts; three use 8-hour shifts; one working guard is rejected.
 
 The monthly approval service is **not yet wired to an HTTP route or screen**. This requires the shared application route/template entry point, which is outside the approved Workstream 2 write boundary.
 
@@ -97,7 +97,7 @@ The following narrow changes are required before claiming end-to-end completion.
 
 ### Business rule requiring hotel/HR confirmation
 
-The HR owner confirmed the Security team is exactly three employees. Each day has either two working guards on 12-hour shifts or three working guards on 8-hour shifts. A one-guard day is prohibited. The parser and workflow now enforce the fixed team size; no 4+ team behavior is supported.
+The HR owner confirmed the Security team is exactly three employees. Each day has either two working guards on 12-hour shifts or three working guards on 8-hour shifts. A one-guard day is prohibited. The parser and workflow now enforce the fixed team size; teams of any other size are rejected.
 
 Still to confirm: whether a day with all three guards marked OFF is permitted, and whether shift overlaps for handover are allowed. The current implementation continues to block overlapping intervals.
 
