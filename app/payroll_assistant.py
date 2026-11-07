@@ -113,6 +113,13 @@ def analyze_payroll_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, st
                     })
             overtime_hours = _amount(row, "overtime_hours")
             overtime_amount = _amount(row, "overtime_amount")
+            if overtime_hours < 0:
+                findings.append({
+                    "severity": "critical",
+                    "code": "negative_overtime_hours",
+                    "employee": label,
+                    "message": "Overtime hours cannot be negative.",
+                })
             if (overtime_hours > 0) != (overtime_amount > 0):
                 findings.append({
                     "severity": "critical",
