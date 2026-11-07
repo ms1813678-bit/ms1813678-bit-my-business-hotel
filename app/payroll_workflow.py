@@ -264,6 +264,13 @@ def update_payroll_item(
     run = db.get(PayrollRun, item.payroll_run_id)
     if run is None or run.status not in {"draft", "reopened"}:
         raise ValueError("Payroll items can be edited only while the run is draft or reopened.")
+    paid_total = db.scalar(
+        select(func.coalesce(func.sum(PayrollPayment.amount), 0)).where(
+            PayrollPayment.payroll_item_id == item.id
+        )
+    )
+    if Decimal(str(paid_total or 0)) > 0:
+        raise ValueError("A payroll item with recorded payments cannot be edited; record an adjustment separately.")
     old = {}
     new = {}
     for key, value in values.items():
