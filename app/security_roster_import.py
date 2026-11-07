@@ -1,4 +1,4 @@
-"""Parse the monthly three-person Security roster from an Excel workbook."""
+"""Parse a monthly Security roster with two or more configured employees."""
 from datetime import date, datetime, time
 from io import BytesIO
 import re
@@ -53,16 +53,17 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
     """Return normalized daily roster rows; never writes or approves assignments.
 
     employee_aliases maps known spreadsheet employee names to stable employee IDs.
-    The sheet must contain a header row with one date/day column and exactly the
-    three configured employee names. Dates without a year are rejected.
+    The sheet must contain one date/day column and one exact header for every
+    configured employee (two or more). Dates without a year are rejected.
     """
     if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
         raise ValueError("empty_excel_file")
     aliases = {_norm(name): employee_id for name, employee_id in employee_aliases.items()}
     if len(aliases) != len(employee_aliases):
         raise ValueError("employee_aliases_contain_normalization_collisions")
-    if len(set(aliases.values())) != 3:
-        raise ValueError("aliases_must_resolve_to_exactly_three_unique_security_employees")
+    expected_employee_ids = set(aliases.values())
+    if len(expected_employee_ids) < 2:
+        raise ValueError("aliases_must_resolve_to_at_least_two_unique_security_employees")
 
     try:
         workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
@@ -113,7 +114,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                     }
 
                 found = {employee_id: indexes[0] for employee_id, indexes in positions_by_employee.items()}
-                if len(found) == 3:
+                if set(found) == expected_employee_ids:
                     header = row
                     employee_cols = {
                         employee_id: idx for employee_id, idx in found.items()
@@ -157,7 +158,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                                        "reason": "missing_or_invalid_shift_value"})
                     else:
                         roster[employee_id] = shift
-                if len(roster) == 3:
+                if len(roster) == len(employee_cols):
                     records.append({"work_date": work_date, "roster": roster})
             if not records and not issues:
                 empty_header_result = {
