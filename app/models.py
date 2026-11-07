@@ -348,3 +348,82 @@ class AttendanceImportIssue(Base):
     resolved_by: Mapped[str | None] = mapped_column(String(80))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+
+class LeaveType(Base):
+    __tablename__ = "leave_types"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_leave_types_code"),
+        CheckConstraint("length(trim(code)) > 0", name="ck_leave_types_code_nonempty"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), nullable=False)
+    name_ar: Mapped[str] = mapped_column(String(100), nullable=False)
+    name_en: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_paid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    tracks_balance: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class LeaveRecord(Base):
+    __tablename__ = "leave_records"
+    __table_args__ = (
+        CheckConstraint("end_date >= start_date", name="ck_leave_records_date_range"),
+        CheckConstraint("calendar_days >= 1", name="ck_leave_records_calendar_days"),
+        CheckConstraint("charged_days >= 0", name="ck_leave_records_charged_days"),
+        CheckConstraint(
+            "status IN ('draft', 'confirmed', 'cancelled')",
+            name="ck_leave_records_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    leave_type_id: Mapped[int] = mapped_column(
+        ForeignKey("leave_types.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    start_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    calendar_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    charged_days: Mapped[Decimal] = mapped_column(Numeric(7, 2), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    confirmed_by: Mapped[str | None] = mapped_column(String(80))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[str | None] = mapped_column(String(80))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class LeaveBalanceTransaction(Base):
+    __tablename__ = "leave_balance_transactions"
+    __table_args__ = (
+        CheckConstraint(
+            "transaction_type IN ('opening', 'adjustment', 'leave_use', 'leave_reversal')",
+            name="ck_leave_balance_transaction_type",
+        ),
+        CheckConstraint("days_delta <> 0", name="ck_leave_balance_transaction_nonzero"),
+        UniqueConstraint(
+            "leave_record_id", "transaction_type",
+            name="uq_leave_balance_transaction_record_type",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    leave_type_id: Mapped[int] = mapped_column(
+        ForeignKey("leave_types.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    leave_record_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leave_records.id", ondelete="RESTRICT"), index=True
+    )
+    transaction_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    days_delta: Mapped[Decimal] = mapped_column(Numeric(7, 2), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
