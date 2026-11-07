@@ -132,6 +132,7 @@ def test_change_explanation_lists_only_changed_components():
         ("قارن راتب الشهر الحالي بالسابق", "compare_payroll"),
         ("راجع الخصومات المكررة", "review_deductions"),
         ("حلل القيم غير الطبيعية", "analyze_payroll"),
+        ("حلل القيم غير الطبيعية", "analyze_payroll"),
         ("اعرض ملخص الرواتب", "payroll_summary"),
         ("", "help"),
     ],
