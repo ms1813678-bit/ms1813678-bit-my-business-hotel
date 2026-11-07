@@ -175,6 +175,22 @@ def test_inactive_or_deleted_admin_invalidates_existing_session(client, change):
     assert client.get("/", headers={"accept": "text/html"}, follow_redirects=False).status_code == 303
 
 
+
+def test_admin_session_version_bump_invalidates_existing_session(client):
+    assert login(client).status_code == 303
+    from app.main import SessionLocal
+
+    with SessionLocal() as db:
+        admin = db.get(AdminAccount, client.test_admin_id)
+        original_version = admin.session_version
+        admin.session_version = original_version + 1
+        db.commit()
+
+    response = client.get("/", headers={"accept": "text/html"}, follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
 def test_employee_creation_requires_auth_and_valid_csrf(client):
     assert login(client).status_code == 303
     page = client.get("/employees")
