@@ -24,7 +24,15 @@ scheduler. No existing payroll implementation was replaced.
 duplicate source-ID detection, snapshot comparison, and Arabic/English command
 classification. It has no network client and cannot change or approve payroll data.
 This is a deterministic offline assistant foundation, not a connected generative
-language model or a complete chat UI.
+language model or a complete chat UI. Currency rounding uses the same ROUND_HALF_UP
+policy as the payroll math module.
+
+## Additional regression coverage
+
+`tests/test_payroll_math_policy.py` adds regression cases for the confirmed 30-day
+hourly-rate basis, per-day lateness/early-departure grace, calendar-day absence
+deduction, new-hire proration, and invalid inputs. These are test additions only;
+they have not yet been confirmed passing by a successful CI run.
 
 ## Integration boundary / team 1 handoff
 
@@ -36,7 +44,10 @@ No models, migrations, global settings, or shared dependencies were changed here
 
 ## Validation status
 
-The prior PR #12 checks were observed failing on both the pytest and Windows
-compatibility jobs. The workflow logs were not retrievable through the connected
-GitHub interface during this handoff. New assistant tests are included in
-`tests/test_payroll_assistant.py`; they have not been executed in this environment.
+GitHub Actions runs for the assistant branch have failed in both the pytest and
+Windows compatibility jobs, including a retry. The connected GitHub interface
+returned no step details and its job-log download returned BlobNotFound, so the
+underlying failure is still undiagnosed. The new assistant and payroll-math tests
+have not been executed locally in this environment. Do not treat this branch as
+validated or ready to merge until the CI failure is diagnosed and all required
+checks pass.
