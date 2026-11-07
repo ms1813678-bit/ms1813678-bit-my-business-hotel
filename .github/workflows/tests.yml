@@ -5,6 +5,7 @@ on:
     branches:
       - feature/auth-security
       - feature/platform-hardening
+      - work/leave-management-foundation
   pull_request:
     branches:
       - main
