@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>النسخ الاحتياطي والاستعادة | M.Y. Business Hotel</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>النسخ الاحتياطي والاستعادة</h1>
+      <p class="muted">Backup & recovery · HR administrator only</p></div>
+    <nav><a href="/">الرئيسية</a> · <a href="/reports">التقارير</a></nav>
+  </header>
+
+  {% if error %}
+  <section class="notice error">
+    {% if error == "path" %}تعذر حفظ المسار. اختر مجلدًا موجودًا أو قابلًا للإنشاء على قرص خارجي مختلف عن قرص تشغيل النظام.
+    {% elif error == "type" %}نوع النسخة الاحتياطية غير صالح.
+    {% elif error == "backup" %}فشل إنشاء النسخة الاحتياطية. راجع سجل المحاولات وتأكد من توصيل القرص الخارجي وتوفر أدوات PostgreSQL.
+    {% elif error == "confirm" %}للاستعادة أدخل كلمة RESTORE وسبب الاستعادة.
+    {% elif error == "archive" %}النسخة المحددة غير موجودة أو لم يتم التحقق من سلامتها.
+    {% elif error == "restore" %}تعذرت الاستعادة. حاول النظام الرجوع إلى نسخة ما قبل الاستعادة؛ راجع السجل قبل أي محاولة جديدة.
+    {% else %}تعذر تنفيذ العملية.{% endif %}
+  </section>
+  {% endif %}
+  {% if success == "path" %}<section class="notice">تم حفظ مسار النسخ الاحتياطي.</section>{% endif %}
+  {% if success == "backup" %}<section class="notice">اكتمل إنشاء النسخة الاحتياطية والتحقق منها. رقم العملية: {{ request.query_params.get("run") }}</section>{% endif %}
+
+  <section class="notice">
+    <h2>مكان حفظ النسخ / External backup location</h2>
+    <p class="muted">يجب اختيار مجلد على قرص خارجي منفصل عن قرص تشغيل النظام. لا تحفظ النسخ على قرص C: إذا كان النظام مثبتًا عليه.</p>
+    <form method="post" action="/settings/backup/root">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>مسار القرص الخارجي / External drive folder
+        <input name="backup_root" value="{{ backup_root }}" placeholder="مثال: E:\M.Y. Business Hotel Backups" required>
+      </label>
+      <button type="submit">حفظ المسار / Save location</button>
+    </form>
+    {% if backup_root %}<p><strong>المسار الحالي:</strong> <code>{{ backup_root }}</code></p>{% else %}<p class="error">لم يتم تحديد قرص النسخ الاحتياطي بعد.</p>{% endif %}
+  </section>
+
+  <section class="notice">
+    <h2>إنشاء نسخة الآن / Create backup now</h2>
+    <p>تحتوي النسخة على قاعدة بيانات PostgreSQL وصور الموظفين وملف تحقق ببصمات SHA-256. يتحقق النظام من سلامة ملف قاعدة البيانات قبل اعتبار النسخة ناجحة.</p>
+    <form method="post" action="/settings/backup/create">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>نوع النسخة<select name="backup_type">
+        <option value="manual">يدوية / Manual</option>
+        <option value="daily">يومية / Daily</option>
+        <option value="weekly">أسبوعية / Weekly</option>
+        <option value="quarterly">ربع سنوية / Quarterly</option>
+      </select></label>
+      <button type="submit" {% if not backup_root %}disabled{% endif %}>إنشاء والتحقق / Create and verify</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>جدول النسخ والاحتفاظ / Schedule and retention</h2>
+    <ul>
+      <li>نسخة يومية: الاحتفاظ بها 40 يومًا.</li>
+      <li>نسخة أسبوعية: الاحتفاظ بها 365 يومًا.</li>
+      <li>نسخة كاملة كل 3 أشهر: لا تُحذف تلقائيًا.</li>
+      <li>النسخ اليدوية ونسخ ما قبل الاستعادة لا تُحذف تلقائيًا.</li>
+    </ul>
+    <p>المواعيد الافتراضية: يوميًا 02:00، الأحد 02:30، وأول يوم من كل ربع سنة 03:00. يمكن تعديلها من برنامج جدولة مهام Windows.</p>
+    <p class="muted">بعد تحديد مسار القرص الخارجي، يثبت مسؤول النظام مهام Windows مرة واحدة باستخدام ملف <code>scripts/windows/install_backup_tasks.ps1</code>.</p>
+  </section>
+
+  <section class="notice">
+    <h2>سجل النسخ / Backup history</h2>
+    <div class="table-wrap"><table><thead><tr>
+      <th>التاريخ</th><th>النوع</th><th>الحالة</th><th>الحجم</th><th>المسار</th><th>التحقق</th>
+    </tr></thead><tbody>
+    {% for run in runs %}
+    <tr>
+      <td>{{ run.created_at.strftime("%d/%m/%Y %H:%M") }}</td>
+      <td>{{ run.backup_type }}</td>
+      <td>{{ run.status }}</td>
+      <td>{{ "%.2f"|format(run.size_bytes / 1048576) }} MB</td>
+      <td><code>{{ run.archive_path or "—" }}</code></td>
+      <td>{% if run.verified_at %}{{ run.verified_at.strftime("%d/%m/%Y %H:%M") }}{% else %}—{% endif %}</td>
+    </tr>
+    {% if run.error_message %}<tr><td colspan="6"><span class="error">{{ run.error_message }}</span></td></tr>{% endif %}
+    {% if run.status == "success" and run.archive_path and run.sha256 %}
+    <tr><td colspan="6">
+      <form method="post" action="/settings/backup/restore">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="backup_id" value="{{ run.id }}">
+        <div class="form-grid">
+          <label>سبب الاستعادة / Restore reason<input name="reason" required maxlength="1000" placeholder="مثال: استعادة بعد تلف قاعدة البيانات"></label>
+          <label>اكتب RESTORE للتأكيد<input name="confirm_text" required autocomplete="off" placeholder="RESTORE"></label>
+        </div>
+        <button type="submit">استعادة هذه النسخة / Restore this backup</button>
+      </form>
+    </td></tr>
+    {% endif %}
+    {% else %}<tr><td colspan="6">لا توجد نسخ احتياطية مسجلة.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="notice error">
+    <h2>تنبيه قبل الاستعادة</h2>
+    <p>الاستعادة تستبدل بيانات النظام الحالية ببيانات تاريخ النسخة المختارة. ينشئ النظام نسخة كاملة من الحالة الحالية أولًا، ويتحقق منها، ثم ينفذ الاستعادة. بعد نجاحها ستحتاج إلى تسجيل الدخول مرة أخرى باستخدام بيانات المسؤول الموجودة في النسخة المستعادة.</p>
+  </section>
+</main>
+</body>
+</html>

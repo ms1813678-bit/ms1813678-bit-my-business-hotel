@@ -8,6 +8,7 @@ on:
       - work/leave-management-foundation
       - work/rewards-sanctions-v2
       - work/payroll-foundation
+      - work/backup-recovery-v2
   pull_request:
     branches:
       - main

@@ -612,3 +612,37 @@ class PayrollPayment(Base):
     reference: Mapped[str | None] = mapped_column(String(200))
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class BackupRun(Base):
+    __tablename__ = "backup_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "backup_type IN ('daily', 'weekly', 'quarterly', 'manual', 'pre_restore')",
+            name="ck_backup_runs_type",
+        ),
+        CheckConstraint(
+            "status IN ('success', 'failed')",
+            name="ck_backup_runs_status",
+        ),
+        CheckConstraint("size_bytes >= 0", name="ck_backup_runs_size"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    backup_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    archive_path: Mapped[str | None] = mapped_column(Text)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    initiated_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text)
