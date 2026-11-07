@@ -277,8 +277,11 @@ def test_one_active_security_employee_is_rejected_but_four_are_supported(roster_
     )
     db.add(fourth)
     db.flush()
-    prepared = prepare_security_roster(db, _parsed(employees))
-    assert len(prepared["employee_headers"]) == 3
+    four_employee_roster = _parsed(employees + [fourth])
+    four_employee_roster["records"][0]["roster"][fourth.id] = "OFF"
+    prepared = prepare_security_roster(db, four_employee_roster)
+    assert len(prepared["employee_headers"]) == 4
+    assert prepared["days"][0]["can_confirm"] is True
 
 
 def test_unmapped_roster_employee_header_blocks_day_confirmation(roster_db):
