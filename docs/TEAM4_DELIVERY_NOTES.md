@@ -2,8 +2,7 @@
 
 ## Confirmed payroll policy — 2026-11-07
 
-The HR administrator confirmed a 30-day basis for the hourly-rate calculation.
-The existing formula is:
+The HR administrator explicitly reconfirmed on 2026-11-07 at 10:48 UTC that the hourly-rate divisor is 30 days. This directly resolves the conflicting integration comment raised earlier that day. The confirmed formula is:
 
 `hourly rate = basic salary / (daily working hours × 30)`
 
