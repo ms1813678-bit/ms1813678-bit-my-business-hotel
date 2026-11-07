@@ -1,5 +1,5 @@
 """Tests for the multi-sheet Excel reporting export."""
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
 
 import pytest
@@ -22,9 +22,26 @@ from app.models import (
     LeaveRecord,
     LeaveType,
     PayrollItem,
+    PayrollPayment,
     PayrollRun,
 )
-from app.reports import build_hr_pdf, build_hr_workbook, validate_workbook
+from app.reports import _excel_safe_value, build_hr_pdf, build_hr_workbook, validate_workbook
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("=HYPERLINK(\"https://example.invalid\",\"click\")", "'=HYPERLINK(\"https://example.invalid\",\"click\")"),
+        ("  +SUM(1,2)", "'  +SUM(1,2)"),
+        ("-cmd|/C calc", "'-cmd|/C calc"),
+        ("@SUM(A1:A2)", "'@SUM(A1:A2)"),
+        ("Ordinary employee name", "Ordinary employee name"),
+        (8000.0, 8000.0),
+        (-12.5, -12.5),
+    ],
+)
+def test_excel_export_treats_formula_like_text_as_literal(value, expected):
+    assert _excel_safe_value(value) == expected
 
 
 def test_hr_report_contains_all_expected_sheets():
@@ -42,6 +59,7 @@ def test_hr_report_contains_all_expected_sheets():
             "Sanctions rewards",
             "Advances",
             "Payroll",
+            "Payroll comparison",
             "Departments",
         ]
         workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
@@ -79,7 +97,7 @@ def test_hr_report_preserves_employee_and_payroll_history():
             db.flush()
             employee = Employee(
                 code="MY-REPORT-0001",
-                full_name="Synthetic Report Employee",
+                full_name='=HYPERLINK("https://example.invalid","Synthetic")',
                 department_id=department.id,
                 position="Receptionist",
                 hire_date=date(2026, 1, 1),
@@ -123,7 +141,7 @@ def test_hr_report_preserves_employee_and_payroll_history():
             )
             db.add(run)
             db.flush()
-            db.add(PayrollItem(
+            payroll_item = PayrollItem(
                 payroll_run_id=run.id,
                 employee_id=employee.id,
                 employee_code_snapshot="MY-REPORT-0001",
@@ -134,6 +152,16 @@ def test_hr_report_preserves_employee_and_payroll_history():
                 base_salary=Decimal("8000.00"),
                 daily_hours=Decimal("8"),
                 net_pay=Decimal("8000.00"),
+            )
+            db.add(payroll_item)
+            db.flush()
+            db.add(PayrollPayment(
+                payroll_item_id=payroll_item.id,
+                amount=Decimal("3000.00"),
+                paid_at=datetime(2026, 11, 5, 12, 0),
+                method="cash",
+                reference="Synthetic partial payment",
+                created_by="test-admin",
             ))
             db.commit()
 
@@ -141,10 +169,25 @@ def test_hr_report_preserves_employee_and_payroll_history():
             workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
             try:
                 assert workbook["Employees"].cell(2, 1).value == "MY-REPORT-0001"
+                assert workbook["Employees"].cell(2, 2).value == '\'=HYPERLINK("https://example.invalid","Synthetic")'
                 assert workbook["Attendance"].cell(2, 2).value == "MY-REPORT-0001"
                 assert workbook["Leave"].cell(2, 3).value == "سنوية"
                 assert workbook["Payroll"].cell(2, 4).value == "MY-REPORT-0001"
                 assert workbook["Payroll"].cell(2, 5).value == "Name at payroll time"
+                assert workbook["Payroll"].cell(2, 22).value == 3000
+                assert workbook["Payroll"].cell(2, 23).value == 5000
+                comparison = workbook["Payroll comparison"]
+                assert comparison.max_row == 2
+                assert comparison.cell(2, 1).value == date(2026, 10, 1)
+                assert comparison.cell(2, 3).value == "closed"
+                assert comparison.cell(2, 4).value == 1
+                assert comparison.cell(2, 5).value == 8000
+                assert comparison.cell(2, 7).value == 8000
+                assert comparison.cell(2, 8).value == 3000
+                assert comparison.cell(2, 9).value == 5000
+                assert comparison.cell(2, 10).value == 0
+                assert comparison.cell(2, 11).value == 1
+                assert comparison.cell(2, 12).value == 0
             finally:
                 workbook.close()
     finally:
