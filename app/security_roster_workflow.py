@@ -1,5 +1,5 @@
 """Database-backed security roster proposal and explicit confirmation workflow."""
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -9,6 +9,43 @@ from app.security_roster import build_security_day_proposal
 
 def _key(value):
     return " ".join(str(value or "").casefold().split())
+
+
+def _shift_interval(work_date: date, start: time, end: time):
+    start_at = datetime.combine(work_date, start)
+    end_at = datetime.combine(work_date, end)
+    if end_at <= start_at:
+        end_at += timedelta(days=1)
+    return start_at, end_at
+
+
+def _intervals_overlap(first, second):
+    return max(first[0], second[0]) < min(first[1], second[1])
+
+
+def _cross_day_overlaps(left_date, left_assignments, right_date, right_assignments):
+    overlaps = []
+    for left in left_assignments:
+        left_interval = _shift_interval(left_date, left["start_time"], left["end_time"])
+        for right in right_assignments:
+            right_interval = _shift_interval(right_date, right["start_time"], right["end_time"])
+            if _intervals_overlap(left_interval, right_interval):
+                overlaps.append((left, right))
+    return overlaps
+
+
+def _existing_adjacent_assignments(db, employee_ids, work_date):
+    adjacent_dates = (work_date - timedelta(days=1), work_date + timedelta(days=1))
+    if not employee_ids:
+        return []
+    return db.execute(
+        select(SecurityShiftAssignment, ShiftPattern)
+        .join(ShiftPattern, ShiftPattern.id == SecurityShiftAssignment.shift_pattern_id)
+        .where(
+            SecurityShiftAssignment.employee_id.in_(employee_ids),
+            SecurityShiftAssignment.work_date.in_(adjacent_dates),
+        )
+    ).all()
 
 
 def resolve_security_employees(db):
@@ -88,6 +125,56 @@ def prepare_security_roster(db, parsed_workbook):
         for assignment in proposal["assignments"]:
             assignment["employee_name"] = employee_names[assignment["employee_id"]]
         daily.append({"work_date": record["work_date"], "roster": roster, "proposal": proposal, "import_issues": blocking_issues, "can_confirm": proposal["status"] == "ready_for_admin_review"})
+
+    # A shift may end after midnight, so reviewing each date in isolation can
+    # miss an overlap with the following roster date. Compare adjacent proposals
+    # as well as assignments already approved on an adjacent date.
+    ordered_days = sorted(daily, key=lambda item: item["work_date"])
+    for index, day in enumerate(ordered_days):
+        day_assignments = day["proposal"]["assignments"]
+        if not day_assignments:
+            continue
+
+        for next_day in ordered_days[index + 1:]:
+            if (next_day["work_date"] - day["work_date"]).days != 1:
+                break
+            overlaps = _cross_day_overlaps(
+                day["work_date"], day_assignments,
+                next_day["work_date"], next_day["proposal"]["assignments"],
+            )
+            for left, right in overlaps:
+                issue = (
+                    "overlapping_security_shifts_across_work_dates:"
+                    f"{day['work_date'].isoformat()}:{left['employee_id']}:"
+                    f"{next_day['work_date'].isoformat()}:{right['employee_id']}"
+                )
+                for item in (day, next_day):
+                    item["proposal"]["status"] = "needs_review"
+                    item["proposal"]["issues"].append(issue)
+                    item["can_confirm"] = False
+
+        existing = _existing_adjacent_assignments(
+            db, {item["employee_id"] for item in day_assignments}, day["work_date"]
+        )
+        for existing_assignment, existing_pattern in existing:
+            existing_date = existing_assignment.work_date
+            existing_interval = _shift_interval(
+                existing_date, existing_pattern.start_time, existing_pattern.end_time
+            )
+            for candidate in day_assignments:
+                candidate_interval = _shift_interval(
+                    day["work_date"], candidate["start_time"], candidate["end_time"]
+                )
+                if _intervals_overlap(candidate_interval, existing_interval):
+                    issue = (
+                        "overlapping_security_shift_with_approved_adjacent_day:"
+                        f"{candidate['employee_id']}:{day['work_date'].isoformat()}:"
+                        f"{existing_assignment.employee_id}:{existing_date.isoformat()}"
+                    )
+                    day["proposal"]["status"] = "needs_review"
+                    day["proposal"]["issues"].append(issue)
+                    day["can_confirm"] = False
+
     return {"department_id": department.id, "days": daily, "import_issues": import_issues}
 
 
@@ -128,6 +215,24 @@ def confirm_security_roster_day(db, work_date: date, roster: dict, admin: AdminA
     proposal = build_security_day_proposal(roster, pattern_data)
     if proposal["status"] != "ready_for_admin_review":
         raise ValueError("security_roster_day_requires_manual_correction")
+
+    # Re-check adjacent already-approved dates at the persistence boundary so a
+    # stale preview or out-of-order approval cannot create an overnight overlap.
+    existing_adjacent = _existing_adjacent_assignments(db, employee_ids, work_date)
+    for existing_assignment, existing_pattern in existing_adjacent:
+        existing_interval = _shift_interval(
+            existing_assignment.work_date,
+            existing_pattern.start_time,
+            existing_pattern.end_time,
+        )
+        for candidate in proposal["assignments"]:
+            candidate_interval = _shift_interval(
+                work_date, candidate["start_time"], candidate["end_time"]
+            )
+            if _intervals_overlap(candidate_interval, existing_interval):
+                raise ValueError(
+                    "security_roster_shift_overlaps_adjacent_approved_day"
+                )
 
     existing = db.scalars(
         select(SecurityShiftAssignment).where(
