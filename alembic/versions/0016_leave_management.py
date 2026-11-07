@@ -47,7 +47,7 @@ def upgrade():
             sa.Column("cancellation_reason", sa.Text(), nullable=True),
             sa.CheckConstraint("end_date >= start_date", name="ck_leave_records_date_range"),
             sa.CheckConstraint("calendar_days >= 1", name="ck_leave_records_calendar_days"),
-            sa.CheckConstraint("charged_days >= 0", name="ck_leave_records_charged_days"),
+            sa.CheckConstraint("charged_days > 0", name="ck_leave_records_charged_days"),
             sa.CheckConstraint(
                 "status IN ('draft', 'confirmed', 'cancelled')",
                 name="ck_leave_records_status",
