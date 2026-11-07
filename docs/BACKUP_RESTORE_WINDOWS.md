@@ -59,3 +59,8 @@ The restore script preserves the previous employee-photo folder as var\employee_
 - Verify the scripts under the actual Windows PowerShell version and PostgreSQL version installed on the target PC.
 
 Do not use real employee/payroll data until these tests pass and the backup destination is protected.
+
+
+### Local database safety restriction
+
+The backup and restore scripts intentionally accept only a PostgreSQL host of `127.0.0.1`, `localhost`, or `::1`. They reject remote database hosts so a local recovery operation cannot accidentally export or overwrite a remote database. The scripts also require a non-empty password and pass `--no-password` to PostgreSQL client tools so an unexpected interactive password prompt cannot stall the operation.
