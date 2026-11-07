@@ -35,11 +35,11 @@ The attendance import route itself still creates a persisted batch during upload
 ### Security roster parser and proposal engine
 
 - Header aliases map exactly to employee IDs; duplicate or ambiguous identities are not silently collapsed.
-- Supports two or more configured employees in the parser and backend workflow.
+- Requires exactly three configured active Security employees in the parser and backend workflow.
 - Distinguishes `OFF` from `00:00`.
 - Recognizes `Date` / `Work Date` and known metadata headers such as `Notes` and `Total Hours`.
 - Unknown, unmapped employee columns become explicit issues and block day confirmation.
-- Keeps the existing 2/3-person legacy duration rules. For 4+ employees, each start must resolve to exactly one active Security shift pattern; no duration is guessed.
+- Applies the confirmed hotel rule: exactly three Security employees; each day must have two working guards on 12-hour shifts or three working guards on 8-hour shifts. One working guard is rejected; OFF is distinct from 00:00.
 - Missing/ambiguous patterns, zero-length intervals, duplicate starts, and overlaps remain review blockers.
 
 ### Cross-date overnight collision guard
@@ -88,7 +88,7 @@ The monthly approval service is **not yet wired to an HTTP route or screen**. Th
 
 The following narrow changes are required before claiming end-to-end completion. Workstream 2 has not made these shared edits.
 
-1. **`app/main.py::_security_roster_aliases`** — currently requires exactly three active Security employees and checks exactly three distinct employee IDs. The new parser/backend accepts two or more. Suggested narrow change: require at least two active employees and validate that every alias resolves to one distinct employee; do not touch unrelated routes.
+1. **`app/main.py::_security_roster_aliases`** — must continue to require exactly three active Security employees and exact employee mapping. The parser/backend now enforce the same fixed team rule; route remains a shared-file integration item.
 2. **Security confirmation route + `app/templates/security_roster.html`** — collect a required HR reason and pass it into `confirm_security_roster_day` / the daily audit entry. The current route accepts a review checkbox only and the service currently writes a fixed daily reason.
 3. **Security month approval route/template** — expose `approve_security_roster_month(db, month_start, admin, reason)` with CSRF protection, authenticated HR admin, and a required free-text reason; display month status and missing dates before allowing submission.
 4. **`app/main.py::attendance_review_page` and `attendance_review.html`** — join the employee's effective department for the work date and display it. Current review query returns the attendance record and Employee, not the department.
@@ -97,14 +97,9 @@ The following narrow changes are required before claiming end-to-end completion.
 
 ### Business rule requiring hotel/HR confirmation
 
-The existing approved design documents exactly three active Security employees with 12-hour shifts when two work and 8-hour shifts when all three work. The new Workstream 2 brief asks for two, three, or more employees and prohibits inventing team size or shift timing. For 4+ teams, the implementation uses only uniquely configured shift patterns and blocks ambiguity.
+The HR owner confirmed the Security team is exactly three employees. Each day has either two working guards on 12-hour shifts or three working guards on 8-hour shifts. A one-guard day is prohibited. The parser and workflow now enforce the fixed team size; no 4+ team behavior is supported.
 
-The hotel still needs to define:
-- minimum concurrent officers required for each shift, if any;
-- whether uninterrupted 24-hour coverage is mandatory;
-- whether overlapping guard shifts are acceptable for handover/coverage or are always an error.
-
-Until HR confirms these, no 4+ person minimum-coverage claim is made.
+Still to confirm: whether a day with all three guards marked OFF is permitted, and whether shift overlaps for handover are allowed. The current implementation continues to block overlapping intervals.
 
 ## Integration status
 
