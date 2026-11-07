@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إدارة الإجازات | M.Y. Business Hotel</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة الإجازات والأرصدة</h1>
+      <p class="muted">Leave management · HR administrator only</p></div>
+    <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a></nav>
+  </header>
+
+  {% if error %}
+  <section class="notice error">
+    {% if error == "notice" %}الإجازة المخططة تحتاج إلى تسجيل قبل موعد بدايتها بـ72 ساعة على الأقل.
+    {% elif error == "balance" %}تعذر تسجيل حركة الرصيد. راجع الموظف ونوع الإجازة والقيمة والسبب، وتأكد من عدم تكرار الرصيد الافتتاحي.
+    {% elif error == "confirm" %}تعذر اعتماد الإجازة. قد يكون الرصيد غير كافٍ أو أن السجل لم يعد مسودة.
+    {% elif error == "cancel" %}تعذر إلغاء الإجازة. أدخل سببًا واضحًا وتأكد أن السجل غير ملغى بالفعل.
+    {% elif error == "dates" %}راجع تاريخ البداية والنهاية والسبب.
+    {% elif error == "days" %}عدد الأيام المحتسبة لا يمكن أن يزيد على عدد الأيام التقويمية في الفترة.
+    {% elif error == "employee" %}اختر موظفًا حاليًا ونوع إجازة نشطًا.
+    {% elif error == "overlap" %}هناك إجازة أخرى لهذا الموظف تتداخل مع هذه الفترة، ولا يمكن تسجيل فترتين متعارضتين.
+    {% elif error == "type" %}تعذر إضافة النوع. تأكد من عدم تكرار الكود وإدخال الأسماء.
+    {% else %}تعذر تنفيذ العملية. راجع البيانات وحاول مرة أخرى.{% endif %}
+  </section>
+  {% endif %}
+
+  <section class="notice">
+    <h2>تسجيل إجازة جديدة / New leave record</h2>
+    <p class="muted">يحسب النظام أيام الفترة التقويمية شاملًا يوم البداية والنهاية. أدخل أيام الخصم الفعلية يدويًا؛ لا يتم افتراض أيام الراحة الأسبوعية أو العطلات.</p>
+    <form method="post" action="/leave/records">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>الموظف / Employee
+          <select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }}</option>{% endfor %}</select>
+        </label>
+        <label>نوع الإجازة / Leave type
+          <select name="leave_type_id" required>{% for t in leave_types %}<option value="{{ t.id }}">{{ t.name_ar }} / {{ t.name_en }}</option>{% endfor %}</select>
+        </label>
+        <label>من تاريخ / Start date<input type="date" name="start_date" required></label>
+        <label>إلى تاريخ / End date<input type="date" name="end_date" required></label>
+        <label>أيام الخصم من الرصيد / Charged days<input type="number" name="charged_days" min="0" step="0.25" required></label>
+        <label>السبب / Reason<input name="reason" maxlength="2000" required></label>
+      </div>
+      <button type="submit">حفظ كمسودة / Save draft</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>تسجيل رصيد افتتاحي أو تسوية / Balance entry</h2>
+    <p class="muted">الأرصدة الافتتاحية تدخل يدويًا حسب رصيد كل موظف. لا ينشئ النظام أي استحقاق تلقائي. التسوية الموجبة تزيد الرصيد والسالبة تخصمه.</p>
+    <form method="post" action="/leave/balances">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>الموظف<select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }}</option>{% endfor %}</select></label>
+        <label>نوع الرصيد<select name="leave_type_id" required>{% for t in leave_types if t.tracks_balance %}<option value="{{ t.id }}">{{ t.name_ar }} / {{ t.name_en }}</option>{% endfor %}</select></label>
+        <label>نوع الحركة<select name="transaction_type"><option value="opening">رصيد افتتاحي / Opening</option><option value="adjustment">تسوية / Adjustment</option></select></label>
+        <label>عدد الأيام<input type="number" name="days_delta" step="0.25" required></label>
+        <label>السبب<input name="reason" maxlength="2000" required></label>
+      </div>
+      <button type="submit">تسجيل الحركة / Record balance</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>أرصدة الموظفين الحالية / Current balances</h2>
+    <div class="table-wrap"><table><thead><tr><th>الموظف</th>{% for t in leave_types if t.tracks_balance %}<th>{{ t.name_ar }}</th>{% endfor %}</tr></thead><tbody>
+    {% for e in employees %}<tr><td>{{ e.code }} — {{ e.full_name }}</td>
+      {% for t in leave_types if t.tracks_balance %}<td>{{ balances.get(e.id|string ~ ':' ~ t.id|string, 0) }}</td>{% endfor %}
+    </tr>{% else %}<tr><td colspan="8">لا يوجد موظفون حاليون.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="notice">
+    <h2>سجل الإجازات / Leave history</h2>
+    <div class="table-wrap"><table><thead><tr><th>الموظف</th><th>النوع</th><th>الفترة</th><th>أيام تقويمية</th><th>أيام خصم</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody>
+    {% for r in records %}
+    <tr><td>{{ employee_codes.get(r.employee_id, "—") }} — {{ employee_names.get(r.employee_id, "—") }}</td>
+      <td>{{ type_names.get(r.leave_type_id, "—") }}</td>
+      <td>{{ r.start_date.strftime("%d/%m/%Y") }} – {{ r.end_date.strftime("%d/%m/%Y") }}</td>
+      <td>{{ r.calendar_days }}</td><td>{{ r.charged_days }}</td><td>{{ r.status }}</td>
+      <td>
+        {% if r.status == "draft" %}
+        <form method="post" action="/leave/records/{{ r.id }}/confirm" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">اعتماد وخصم الرصيد</button></form>
+        {% endif %}
+        {% if r.status != "cancelled" %}
+        <form method="post" action="/leave/records/{{ r.id }}/cancel" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" placeholder="سبب الإلغاء" required><button type="submit">إلغاء</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    <tr><td colspan="7"><span class="muted">السبب: {{ r.reason }}{% if r.cancellation_reason %} · سبب الإلغاء: {{ r.cancellation_reason }}{% endif %}</span></td></tr>
+    {% else %}<tr><td colspan="7">لا توجد إجازات مسجلة بعد.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="notice">
+    <h2>أنواع الإجازات / Leave types</h2>
+    <p class="muted">يمكن إضافة نوع مخصص. تفعيل تتبع الرصيد يعني أن اعتماد الإجازة يخصم الأيام من رصيد الموظف.</p>
+    <form method="post" action="/leave/types">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>الكود / Code<input name="code" required maxlength="40" placeholder="مثال: study"></label>
+        <label>الاسم بالعربية<input name="name_ar" required maxlength="100"></label>
+        <label>الاسم بالإنجليزية<input name="name_en" required maxlength="100"></label>
+        <label><input type="checkbox" name="is_paid" value="yes"> مدفوعة / Paid</label>
+        <label><input type="checkbox" name="tracks_balance" value="yes"> تخصم من رصيد / Tracks balance</label>
+      </div>
+      <button type="submit">إضافة نوع / Add type</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>آخر حركات الأرصدة / Recent balance transactions</h2>
+    <div class="table-wrap"><table><thead><tr><th>التاريخ</th><th>الموظف</th><th>النوع</th><th>الحركة</th><th>الأيام</th><th>السبب</th></tr></thead><tbody>
+    {% for tx in transactions %}<tr><td>{{ tx.created_at.strftime("%d/%m/%Y %H:%M") }}</td><td>{{ employee_codes.get(tx.employee_id, "—") }}</td><td>{{ type_names.get(tx.leave_type_id, "—") }}</td><td>{{ tx.transaction_type }}</td><td>{{ tx.days_delta }}</td><td>{{ tx.reason }}</td></tr>
+    {% else %}<tr><td colspan="6">لا توجد حركات أرصدة بعد.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</main>
+</body>
+</html>
