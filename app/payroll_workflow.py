@@ -188,7 +188,7 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
         select(AdvanceRequest).where(
             AdvanceRequest.payroll_month == start,
             AdvanceRequest.status == "paid",
-            AdvanceRequest.deducted_payroll_run_id.is_(None),
+            AdvanceRequest.payroll_run_id.is_(None),
         )
     ).all()
     advances_by_employee: dict[int, Decimal] = {}
@@ -202,7 +202,7 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
             StaffAction.payroll_month == start,
             StaffAction.status == "approved",
             StaffAction.is_financial.is_(True),
-            StaffAction.payroll_run_id.is_(None),
+            StaffAction.payroll_run_id == run.id,
             StaffAction.payroll_applied_at.is_(None),
         )
     ).all()
@@ -213,6 +213,7 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
         target[action.employee_id] = target.get(action.employee_id, Decimal("0.00")) + Decimal(action.amount)
 
     days_in_month = monthrange(year, month)[1]
+    included_employee_ids = set()
     for employee_id, periods in periods_by_employee.items():
         employee = db.get(Employee, employee_id)
         if employee is None:
@@ -248,7 +249,18 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
         )
         db.add(payroll_item)
         db.flush()
+        included_employee_ids.add(employee_id)
         recompute_payroll_item(payroll_item, run)
+
+    # Reserve only the source records actually included in this run snapshot.
+    # A later-paid advance or later-approved staff action must not be consumed
+    # when this payroll is closed if it was absent from the payroll item.
+    for advance in advances:
+        if advance.employee_id in included_employee_ids:
+            advance.payroll_run_id = run.id
+    for action in staff_actions:
+        if action.employee_id in included_employee_ids:
+            action.payroll_run_id = run.id
 
     _audit(
         db, actor=actor, action="payroll_run_created", entity_type="payroll_run",
@@ -335,12 +347,11 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
             AdvanceRequest.employee_id.in_(employee_ids or {-1}),
             AdvanceRequest.payroll_month == run.period_start,
             AdvanceRequest.status == "paid",
-            AdvanceRequest.deducted_payroll_run_id.is_(None),
+            AdvanceRequest.payroll_run_id == run.id,
         )
     ).all():
         advance.status = "deducted"
         advance.deducted_at = now
-        advance.deducted_payroll_run_id = run.id
     for action in db.scalars(
         select(StaffAction).where(
             StaffAction.employee_id.in_(employee_ids or {-1}),
