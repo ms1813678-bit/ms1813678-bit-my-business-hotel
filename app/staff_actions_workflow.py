@@ -52,6 +52,27 @@ def create_staff_action(
             raise ValueError("Financial actions need a positive amount and payroll month.")
         if payroll_month.day != 1:
             raise ValueError("Payroll month must be entered as the first day of the month.")
+
+        # The employee row is locked above, serializing duplicate checks for this
+        # employee on PostgreSQL. Cancelled records are excluded so HR can
+        # legitimately re-enter a previously cancelled financial action.
+        duplicate = db.scalar(
+            select(StaffAction.id).where(
+                StaffAction.employee_id == employee_id,
+                StaffAction.kind == kind,
+                StaffAction.category == category,
+                StaffAction.title == title.strip(),
+                StaffAction.is_financial.is_(True),
+                StaffAction.amount == amount,
+                StaffAction.payroll_month == payroll_month,
+                StaffAction.reason == reason.strip(),
+                StaffAction.status.in_(("draft", "approved")),
+            ).limit(1)
+        )
+        if duplicate is not None:
+            raise ValueError(
+                "An identical active financial action already exists for this employee and payroll month."
+            )
     elif amount is not None or payroll_month is not None:
         raise ValueError("Non-financial actions must not include an amount or payroll month.")
 
