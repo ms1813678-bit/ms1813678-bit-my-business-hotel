@@ -202,7 +202,7 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
             StaffAction.payroll_month == start,
             StaffAction.status == "approved",
             StaffAction.is_financial.is_(True),
-            StaffAction.payroll_run_id == run.id,
+            StaffAction.payroll_run_id.is_(None),
             StaffAction.payroll_applied_at.is_(None),
         )
     ).all()
@@ -358,12 +358,11 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
             StaffAction.payroll_month == run.period_start,
             StaffAction.status == "approved",
             StaffAction.is_financial.is_(True),
-            StaffAction.payroll_run_id.is_(None),
+            StaffAction.payroll_run_id == run.id,
             StaffAction.payroll_applied_at.is_(None),
         )
     ).all():
         action.payroll_applied_at = now
-        action.payroll_run_id = run.id
     run.status = "closed"
     run.closed_by = actor
     run.closed_at = now
