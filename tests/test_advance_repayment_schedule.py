@@ -70,3 +70,26 @@ def test_invalid_amount_or_installment_count_is_rejected(amount, count):
 )
 def test_advance_is_assigned_to_its_request_month(request_date, expected_payroll_month):
     assert payroll_month_for_advance(request_date) == expected_payroll_month
+
+
+def test_october_nineteenth_six_month_example_matches_hr_policy():
+    schedule = build_repayment_schedule(
+        Decimal("6000.00"), date(2026, 10, 19), installment_count=6
+    )
+    assert [row["payroll_month"] for row in schedule] == [
+        date(2026, 10, 1),
+        date(2026, 11, 1),
+        date(2026, 12, 1),
+        date(2027, 1, 1),
+        date(2027, 2, 1),
+        date(2027, 3, 1),
+    ]
+    assert [row["pay_date"] for row in schedule] == [
+        date(2026, 11, 5),
+        date(2026, 12, 5),
+        date(2027, 1, 5),
+        date(2027, 2, 5),
+        date(2027, 3, 5),
+        date(2027, 4, 5),
+    ]
+    assert [row["amount"] for row in schedule] == [Decimal("1000.00")] * 6
