@@ -188,15 +188,22 @@ def test_explicit_header_only_sheet_is_not_silently_replaced():
     assert parsed["issues"][0]["reason"] == "no_valid_roster_rows"
 
 
-def test_parser_rejects_any_team_size_other_than_three():
-    for names, aliases in (
-        (["Fayez", "Yasser"], {"Fayez": 21, "Yasser": 22}),
-        (["Fayez", "Yasser", "Walid", "Hany"], {"Fayez": 31, "Yasser": 32, "Walid": 33, "Hany": 34}),
-    ):
-        headers = ["Date", *names]
-        values = [date(2026, 11, 1), *([time(0, 0)] * len(names))]
-        with pytest.raises(ValueError, match="aliases_must_resolve_to_exactly_three_unique_security_employees"):
-            parse_security_roster_xlsx(_workbook_bytes([headers, values]), aliases)
+def test_parser_accepts_two_or_more_employee_columns_and_rejects_one():
+    names = ["Fayez", "Yasser", "Walid", "Hany"]
+    aliases = {name: index for index, name in enumerate(names, start=21)}
+    headers = ["Date", *names]
+    values = [date(2026, 11, 1), time(0, 0), time(8, 0), "OFF", "OFF"]
+    parsed = parse_security_roster_xlsx(
+        _workbook_bytes([headers, values]), aliases
+    )
+    assert len(parsed["employee_headers"]) == 4
+    assert len(parsed["records"][0]["roster"]) == 4
+
+    with pytest.raises(ValueError, match="aliases_must_resolve_to_at_least_two_unique_security_employees"):
+        parse_security_roster_xlsx(
+            _workbook_bytes([["Date", "Fayez"], [date(2026, 11, 1), time(0, 0)]]),
+            {"Fayez": 21},
+        )
 
 
 def test_unmapped_employee_header_is_reported_instead_of_ignored():
