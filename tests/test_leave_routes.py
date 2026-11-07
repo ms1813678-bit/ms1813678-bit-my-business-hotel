@@ -76,8 +76,15 @@ def leave_client(monkeypatch):
         with factory() as db:
             yield db
 
+    class FixedAdvanceDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 17)
+
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr("app.main.SessionLocal", factory)
+    monkeypatch.setattr("app.main.date", FixedAdvanceDate)
+    monkeypatch.setattr("app.advance_workflow.date", FixedAdvanceDate)
     try:
         with TestClient(app) as client:
             client.test_employee_id = employee_id
@@ -319,12 +326,8 @@ def test_overlapping_leave_records_for_same_employee_are_rejected(leave_client):
 
 
 def valid_advance_date():
-    today = date.today()
-    if today.day >= 16:
-        return date(today.year, today.month, 16)
-    if today.month == 1:
-        return date(today.year - 1, 12, 16)
-    return date(today.year, today.month - 1, 16)
+    # Synthetic date window is fixed to 17 November 2026 by leave_client.
+    return date(2026, 11, 16)
 
 
 def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client):
