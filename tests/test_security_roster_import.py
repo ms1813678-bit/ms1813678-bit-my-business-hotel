@@ -1,5 +1,6 @@
 from datetime import date, time
 from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
 import pytest
@@ -238,3 +239,29 @@ def test_roster_accepts_work_date_label_and_ignores_known_metadata_columns():
     assert len(result["records"]) == 1
     assert result["records"][0]["work_date"] == date(2026, 11, 1)
     assert result["issues"] == []
+
+
+def test_corrupt_security_workbook_is_reported_as_a_controlled_import_error():
+    with pytest.raises(ValueError, match="invalid_or_unsupported_excel_workbook"):
+        parse_security_roster_xlsx(b"not an Excel workbook", ALIASES)
+
+
+def test_security_workbook_with_lazy_corrupt_sheet_xml_is_reported_cleanly():
+    valid = _workbook_bytes([
+        ["Date", "Fayez", "Yasser", "Walid"],
+        [date(2026, 11, 1), time(0, 0), time(8, 0), time(16, 0)],
+    ])
+    corrupted = BytesIO()
+    with ZipFile(BytesIO(valid), "r") as source, ZipFile(
+        corrupted, "w", ZIP_DEFLATED
+    ) as target:
+        for item in source.infolist():
+            payload = (
+                b"<worksheet><sheetData><row>"
+                if item.filename == "xl/worksheets/sheet1.xml"
+                else source.read(item.filename)
+            )
+            target.writestr(item, payload)
+
+    with pytest.raises(ValueError, match="invalid_or_unsupported_excel_workbook"):
+        parse_security_roster_xlsx(corrupted.getvalue(), ALIASES)
