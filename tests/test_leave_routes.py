@@ -392,6 +392,26 @@ def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client
     assert repeated_paid.status_code == 303
     assert "error=paid" in repeated_paid.headers["location"]
 
+    # A paid advance remains outstanding until payroll actually deducts it,
+    # even when a later request belongs to a different request/payroll month.
+    if requested_on.month == 1:
+        other_month = date(requested_on.year - 1, 12, 16)
+    else:
+        other_month = date(requested_on.year, requested_on.month - 1, 16)
+    second_month_request = client.post(
+        "/advances",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "request_date": other_month.isoformat(),
+            "amount": "100.00",
+            "reason": "Synthetic cross-month outstanding cap test",
+        },
+        follow_redirects=False,
+    )
+    assert second_month_request.status_code == 303
+    assert "error=request" in second_month_request.headers["location"]
+
     with client.test_session_factory() as db:
         request = db.get(AdvanceRequest, request_id)
         assert request.status == "paid"
