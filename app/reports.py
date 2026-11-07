@@ -283,3 +283,120 @@ def validate_workbook(data: bytes) -> list[str]:
         return workbook.sheetnames
     finally:
         workbook.close()
+
+
+
+def _pdf_font_name() -> str:
+    from pathlib import Path
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    candidates = [
+        Path("C:/Windows/Fonts/arial.ttf"),
+        Path("C:/Windows/Fonts/tahoma.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
+    ]
+    for font_path in candidates:
+        if font_path.is_file():
+            font_name = "MYHotelArabic"
+            if font_name not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont(font_name, str(font_path)))
+            return font_name
+    raise RuntimeError("An Arabic-capable system font is required to create the PDF report.")
+
+
+def _pdf_cell(value, *, reshape_arabic: bool = True) -> str:
+    from xml.sax.saxutils import escape
+    text = "" if value is None else str(value)
+    if reshape_arabic and any("\u0600" <= char <= "\u06ff" for char in text):
+        import arabic_reshaper
+        from bidi.algorithm import get_display
+        text = get_display(arabic_reshaper.reshape(text))
+    return escape(text).replace("\n", "<br/>")
+
+
+def build_hr_pdf(db: Session, start_date: date, end_date: date) -> bytes:
+    """Build a printable, Arabic-capable PDF companion to the complete Excel workbook."""
+    if end_date < start_date:
+        raise ValueError("End date must not precede start date.")
+
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+    from reportlab.lib.pagesizes import A3, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import LongTable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, TableStyle
+
+    font_name = _pdf_font_name()
+    workbook = load_workbook(BytesIO(build_hr_workbook(db, start_date, end_date)), read_only=True, data_only=True)
+    output = BytesIO()
+    page_size = landscape(A3)
+    document = SimpleDocTemplate(
+        output,
+        pagesize=page_size,
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=12 * mm,
+        bottomMargin=12 * mm,
+        title=f"M.Y. Business Hotel HR Report {start_date} - {end_date}",
+        author="M.Y. Business Hotel HR System",
+    )
+    base_styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "MYReportTitle", parent=base_styles["Title"], fontName=font_name,
+        fontSize=16, leading=20, alignment=TA_RIGHT, spaceAfter=5 * mm,
+    )
+    section_style = ParagraphStyle(
+        "MYReportSection", parent=base_styles["Heading2"], fontName=font_name,
+        fontSize=11, leading=14, alignment=TA_RIGHT, spaceBefore=3 * mm, spaceAfter=2 * mm,
+    )
+    cell_style = ParagraphStyle(
+        "MYReportCell", parent=base_styles["BodyText"], fontName=font_name,
+        fontSize=6, leading=7.2, alignment=TA_RIGHT, wordWrap="CJK",
+    )
+    header_style = ParagraphStyle(
+        "MYReportHeader", parent=cell_style, fontSize=6.5, leading=8,
+        alignment=TA_CENTER, textColor=colors.white,
+    )
+
+    story = [
+        Paragraph(_pdf_cell("M.Y. Business Hotel — تقرير الموارد البشرية"), title_style),
+        Paragraph(_pdf_cell(f"الفترة من {start_date.strftime('%d/%m/%Y')} إلى {end_date.strftime('%d/%m/%Y')}"), section_style),
+        Paragraph(_pdf_cell("هذا التقرير للعرض والطباعة فقط، ولا يغيّر أي بيانات داخل النظام."), cell_style),
+        Spacer(1, 4 * mm),
+    ]
+    for sheet_index, sheet in enumerate(workbook.worksheets):
+        rows = list(sheet.iter_rows(values_only=True))
+        if not rows:
+            continue
+        story.append(Paragraph(_pdf_cell(sheet.title), section_style))
+        formatted = []
+        for row_index, row in enumerate(rows):
+            style = header_style if row_index == 0 else cell_style
+            formatted.append([Paragraph(_pdf_cell(value), style) for value in row])
+        col_count = max(1, len(rows[0]))
+        available_width = page_size[0] - document.leftMargin - document.rightMargin
+        widths = [available_width / col_count] * col_count
+        table = LongTable(
+            formatted,
+            colWidths=widths,
+            repeatRows=1,
+            hAlign="RIGHT",
+            splitByRow=1,
+        )
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#24415E")),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#AAB4BE")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        story.append(table)
+        if sheet_index < len(workbook.worksheets) - 1:
+            story.append(PageBreak())
+    workbook.close()
+    document.build(story)
+    return output.getvalue()
