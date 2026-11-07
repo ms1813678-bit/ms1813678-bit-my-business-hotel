@@ -39,9 +39,8 @@ def _existing_adjacent_assignments(db, department_id, work_date):
     return db.execute(
         select(SecurityShiftAssignment, ShiftPattern)
         .join(ShiftPattern, ShiftPattern.id == SecurityShiftAssignment.shift_pattern_id)
-        .join(Employee, Employee.id == SecurityShiftAssignment.employee_id)
         .where(
-            Employee.department_id == department_id,
+            ShiftPattern.department_id == department_id,
             SecurityShiftAssignment.work_date.in_(adjacent_dates),
         )
     ).all()
