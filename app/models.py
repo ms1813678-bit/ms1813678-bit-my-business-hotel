@@ -459,6 +459,7 @@ class AdvanceRequest(Base):
     paid_by: Mapped[str | None] = mapped_column(String(80))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deducted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deducted_payroll_run_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_runs.id", ondelete="RESTRICT"))
 
 class StaffAction(Base):
     __tablename__ = "staff_actions"
@@ -505,6 +506,7 @@ class StaffAction(Base):
     acknowledgement_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     acknowledgement_note: Mapped[str | None] = mapped_column(Text)
     payroll_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payroll_run_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_runs.id", ondelete="RESTRICT"))
 
 
 class PayrollRun(Base):
