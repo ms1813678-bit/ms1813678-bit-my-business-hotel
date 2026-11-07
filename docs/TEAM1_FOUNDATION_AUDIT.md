@@ -162,3 +162,31 @@ This is a targeted guardrail; CI, Windows 11 execution, and full upload lifecycl
 Employee photo files are stored on the local filesystem while employee records are committed in the database. The employee-creation route now wraps the full database transaction, including commit, in cleanup handling. If validation after the photo write, a flush, or the transaction commit fails, the newly written photo is removed so the filesystem does not retain an unreferenced employee image. A regression test injects a database before_commit failure and verifies that the image directory is empty afterward.
 
 This is a focused safeguard; it does not replace a full backup/restore test or a periodic orphan-file reconciliation tool.
+
+
+## 13. Follow-up route and migration source review (2026-11-07)
+
+A fresh source-level pass was completed against the current Team 1 branch after the employee-photo rollback test correction.
+
+### Route protection
+
+- Reviewed all state-changing routes declared in `app/main.py`: login/logout, attendance import and issue resolution, attendance reconciliation and approval, Security roster preview/confirmation, department/branch changes, employee creation/edit/change requests/transfer/archive/rehire.
+- All state-changing routes declare the session-bound CSRF dependency. All protected business routes resolve the sole administrator through `get_current_admin`; login and logout are the intentional exceptions because login establishes the session and logout destroys it.
+- `get_current_admin` fails closed when the account is absent/inactive or the stored session version is missing, malformed, or stale, and clears the invalid session.
+- This was a source review only; it does not replace the route-security test suite or an independent penetration test.
+
+### Employee-code sequence and service-period migration
+
+- Revision `0002_platform_state` backfills the legacy employee-code counter from the highest existing `MY-<number>` code and retains the counter on downgrade.
+- Revision `0004_employee_code_sequence` locks the counter table, computes the high-water mark from both employee rows and the counter, and advances the PostgreSQL sequence only forward. It intentionally retains the sequence on downgrade.
+- Revision `0003_employee_service_periods` refuses conflicting open periods and refuses to invent a start date for an active employee with only closed service history. Its downgrade intentionally retains the history and uniqueness guard.
+- These migration implementations look directionally safe on source inspection, but no live PostgreSQL migration run has been executed in this review. Required: clean-database upgrade, populated-database upgrade, downgrade/re-upgrade, concurrent code reservation, and rollback/non-reuse tests against PostgreSQL.
+
+### Remaining gaps
+
+- The README explicitly marks the application as not production-ready and instructs against entering real employee data until backup/restore and Windows installation are complete.
+- The reviewed README does not yet provide an operational, tested backup-and-restore procedure. Employee photo files live outside PostgreSQL, so a database-only dump would not be a complete recovery point.
+- The new employee-photo rollback regression test has been corrected to use local `BytesIO` and PIL imports. GitHub returned no PR-triggered workflow run for the latest Team 1 test commit; therefore the test has not been proven to execute successfully.
+- No Windows 11 installation, PostgreSQL migration execution, or backup restoration has been performed by this source review.
+
+**Decision:** retain PR #16 as Draft. Do not claim test, migration, backup, Windows, or production acceptance until those executions are recorded.
