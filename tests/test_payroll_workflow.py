@@ -83,6 +83,8 @@ def test_period_snapshots_employee_and_due_date(payroll_db):
     assert period.status == "draft"
     assert line.employee_code_snapshot == "MY-PAY-TEST-0001"
     assert line.basic_salary_snapshot == Decimal("6000.00")
+    assert line.monthly_basic_salary_snapshot == Decimal("6000.00")
+    assert line.payable_service_days == 30
     assert line.net_pay == Decimal("6000.00")
     with pytest.raises(ValueError):
         create_payroll_period(payroll_db, date(2026, 11, 1), "payroll-admin")
@@ -172,3 +174,39 @@ def test_partial_and_full_payments_cannot_exceed_net(payroll_db):
             payment_date=date(2026, 12, 7), payment_method="cash",
             actor="payroll-admin",
         )
+
+
+
+def test_midmonth_hire_is_prorated_by_actual_calendar_days(payroll_db):
+    department = payroll_db.scalar(select(Department))
+    employee = Employee(
+        code="MY-PAY-TEST-0002",
+        full_name="Synthetic Midmonth Hire",
+        department_id=department.id,
+        position="Test Position",
+        hire_date=date(2026, 11, 16),
+        status="active",
+        basic_salary=Decimal("6000.00"),
+        daily_hours=Decimal("8"),
+    )
+    payroll_db.add(employee)
+    payroll_db.flush()
+    payroll_db.add(EmployeeServicePeriod(
+        employee_id=employee.id,
+        start_date=date(2026, 11, 16),
+        end_date=None,
+        start_reason="Synthetic midmonth hire",
+    ))
+    payroll_db.flush()
+
+    period = create_payroll_period(
+        payroll_db, date(2026, 11, 1), "payroll-admin"
+    )
+    payroll_db.flush()
+    line = payroll_db.scalar(
+        select(PayrollLine).where(PayrollLine.employee_id == employee.id)
+    )
+    assert line is not None
+    assert line.monthly_basic_salary_snapshot == Decimal("6000.00")
+    assert line.payable_service_days == 15
+    assert line.basic_salary_snapshot == Decimal("3000.00")
