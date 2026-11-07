@@ -1,5 +1,6 @@
 from datetime import date, datetime, time
 from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
 import pytest
@@ -110,6 +111,29 @@ def test_corrupt_xlsx_is_reported_as_a_reviewable_import_error():
             "corrupt.xlsx",
             "fingerprint",
             ALIASES,
+        )
+
+
+def test_xlsx_with_lazy_corrupt_worksheet_xml_is_reported_as_reviewable_error():
+    valid = workbook_bytes([("Sheet1", [
+        ["AC-No.", "Name", "Date", "Clock In", "Clock Out"],
+        ["SEC-01", "Fayez", date(2026, 11, 1), time(8, 0), time(16, 0)],
+    ])])
+    corrupted = BytesIO()
+    with ZipFile(BytesIO(valid), "r") as source, ZipFile(
+        corrupted, "w", ZIP_DEFLATED
+    ) as target:
+        for item in source.infolist():
+            payload = (
+                b"<worksheet><sheetData><row>"
+                if item.filename == "xl/worksheets/sheet1.xml"
+                else source.read(item.filename)
+            )
+            target.writestr(item, payload)
+
+    with pytest.raises(ValueError, match="invalid_or_unsupported_excel_workbook"):
+        parse_attendance_workbook(
+            corrupted.getvalue(), "lazy-corrupt.xlsx", "program_report", ALIASES
         )
 
 
