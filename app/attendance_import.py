@@ -76,7 +76,10 @@ def _load_rows(file_bytes: bytes, filename: str):
     suffix = Path(filename or "").suffix.casefold()
     if suffix == ".xlsx":
         from openpyxl import load_workbook
-        workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+        try:
+            workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+        except Exception as exc:
+            raise ValueError("invalid_or_unsupported_excel_workbook") from exc
         try:
             return [
                 (sheet.title, list(sheet.iter_rows(values_only=True)), 0)
