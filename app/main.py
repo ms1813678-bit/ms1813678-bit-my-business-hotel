@@ -1382,6 +1382,8 @@ def rehire_employee(
         )
         if previous_period is None or previous_period.end_date is None:
             raise HTTPException(status_code=409, detail="سجل فترة الخدمة السابقة غير مكتمل؛ راجع بيانات الأرشفة أولاً.")
+        if new_hire_date > date.today():
+            raise HTTPException(status_code=400, detail="لا يمكن أن يكون تاريخ إعادة التعيين في المستقبل.")
         if new_hire_date <= previous_period.end_date:
             raise HTTPException(status_code=400, detail="تاريخ إعادة التعيين يجب أن يكون بعد انتهاء فترة الخدمة السابقة.")
         employee.status = "active"
