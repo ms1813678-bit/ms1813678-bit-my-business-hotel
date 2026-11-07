@@ -215,6 +215,16 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
     assert created.headers["location"].startswith("/payroll/runs/")
     run_id = int(created.headers["location"].rsplit("/", 1)[1])
 
+    duplicate = client.post(
+        "/payroll",
+        data={"csrf_token": token, "year": "2026", "month": "10"},
+        follow_redirects=False,
+    )
+    assert duplicate.status_code == 303
+    assert "error=create" in duplicate.headers["location"]
+    with client.test_session_factory() as db:
+        assert len(db.scalars(select(PayrollRun)).all()) == 1
+
     with client.test_session_factory() as db:
         run = db.get(PayrollRun, run_id)
         item = db.scalar(select(PayrollItem).where(PayrollItem.payroll_run_id == run_id))
