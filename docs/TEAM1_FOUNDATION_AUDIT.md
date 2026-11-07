@@ -127,3 +127,19 @@ This commit records an evidence-based audit and integration blockers only. It do
 - Team 2 PR #15 handles corrupt XLSX loading by converting workbook-load exceptions into a stable reviewable `ValueError`, with a focused test. It changes only the attendance import module and its test, but inherits the attendance branch's base dependency.
 - Team 3's `team3/leave-advances-rewards-hardening` branch currently edits protected shared paths and Alembic migrations directly; coordinator integration must not proceed until ownership is corrected.
 - The first CI run for Team 1 PR #16 failed in both Linux and Windows jobs. A retry of failed jobs was requested successfully; results must be checked before treating the documentation PR as validated.
+
+## 11. Employee effective-date integrity fix (2026-11-07)
+
+A focused route review found that the employee profile-edit route and the approval route for employee data-change requests accepted an effective date earlier than the employee's current hire date. This could create impossible employment history, even though the transfer route already rejects dates before hire.
+
+Team 1 applied a narrow fix on the Team 1 branch:
+- Profile edits now reject an effective date earlier than Employee.hire_date.
+- Applying a pending employee data-change request now enforces the same boundary.
+- Added route regression tests for both rejection paths and verified in test assertions that the employee record/history remains unchanged or the request remains pending after rejection.
+
+Commits:
+- Application validation: b6e0fc18cbb088d43e5898c46e89c82d561c93f1
+- Regression tests: d78b750ed5ece723f96dedd76f5be96c8a6e8286
+
+This is a code change, not a claim of passing tests. CI for the latest branch head must complete successfully, and PostgreSQL/Windows acceptance remains outstanding.
+
