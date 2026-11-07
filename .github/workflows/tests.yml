@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - feature/auth-security
+      - work/leave-management-foundation
   workflow_dispatch:
 
 permissions:
