@@ -513,3 +513,19 @@ def test_adjacent_approved_shift_from_now_inactive_security_employee_still_block
         )
     db.rollback()
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 2
+
+
+def test_roster_preview_marks_already_approved_date_and_disables_confirmation(roster_db):
+    db, employees, admin = roster_db
+    parsed = _parsed(employees, date(2026, 11, 7))
+    day = prepare_security_roster(db, parsed)["days"][0]
+    confirm_security_roster_day(
+        db, day["work_date"], day["roster"], admin, parsed["issues"]
+    )
+    db.commit()
+
+    refreshed = prepare_security_roster(db, parsed)
+    approved_day = refreshed["days"][0]
+
+    assert approved_day["already_approved"] is True
+    assert approved_day["can_confirm"] is False
