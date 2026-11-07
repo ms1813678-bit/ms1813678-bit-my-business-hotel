@@ -248,6 +248,25 @@ def test_two_person_day_uses_twelve_hour_patterns_and_third_is_off(roster_db):
     assert {item["duration_hours"] for item in result["assignments"]} == {12}
 
 
+def test_four_working_guards_use_eight_hour_patterns_but_overlap_still_blocks_approval():
+    from app.security_roster import build_security_day_proposal
+
+    starts = [time(0, 0), time(4, 0), time(8, 0), time(12, 0)]
+    patterns = [
+        {"id": index, "start_time": start, "end_time": time((start.hour + 8) % 24, 0)}
+        for index, start in enumerate(starts, start=1)
+    ]
+    proposal = build_security_day_proposal(
+        {index: start for index, start in enumerate(starts, start=1)},
+        patterns,
+    )
+    assert len(proposal["assignments"]) == 4
+    assert {item["duration_hours"] for item in proposal["assignments"]} == {8}
+    # Current no-overlap guard remains fail-closed pending HR handover policy.
+    assert proposal["status"] == "needs_review"
+    assert any(issue.startswith("overlapping_security_shifts:") for issue in proposal["issues"])
+
+
 def test_one_working_guard_is_rejected_even_with_three_employee_roster():
     from app.security_roster import build_security_day_proposal
     proposal = build_security_day_proposal(
