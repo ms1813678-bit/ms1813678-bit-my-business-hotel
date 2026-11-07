@@ -55,7 +55,7 @@
     {% set p = summaries.get(item.id) %}
     {% set f = financials.get(item.id) %}
     <tr>
-      <td>{{ employee_codes.get(item.employee_id, "—") }} — {{ employee_names.get(item.employee_id, "—") }}</td>
+      <td>{{ item.employee_code_snapshot }} — {{ item.employee_name_snapshot }}</td>
       <td>{{ "%.2f"|format(item.salary_basis) }}</td>
       <td>{{ "%.2f"|format(item.base_salary) }}</td>
       <td>{{ "%.2f"|format(f.gross) }}</td>
