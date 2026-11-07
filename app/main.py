@@ -994,9 +994,30 @@ def employees_page(request: Request, admin: AdminAccount = Depends(get_current_a
         employee_changes = db.scalars(select(EmployeeChange).order_by(EmployeeChange.effective_date.desc(), EmployeeChange.id.desc())).all()
         data_change_requests = db.scalars(select(EmployeeDataChangeRequest).order_by(EmployeeDataChangeRequest.recorded_at.desc())).all()
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
+        active_employees = [employee for employee in employees if employee.status == "active"]
+        former_employees = [employee for employee in employees if employee.status != "active"]
+        service_periods = db.scalars(
+            select(EmployeeServicePeriod).order_by(
+                EmployeeServicePeriod.employee_id,
+                EmployeeServicePeriod.start_date,
+                EmployeeServicePeriod.id,
+            )
+        ).all()
         return templates.TemplateResponse(
             request=request, name="employees.html",
-            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employee_changes": employee_changes, "data_change_requests": data_change_requests, "employees": employees, "csrf_token": get_csrf_token(request)},
+            context={
+                "departments": departments,
+                "branches": branches,
+                "all_departments": all_departments,
+                "all_branches": all_branches,
+                "employee_changes": employee_changes,
+                "data_change_requests": data_change_requests,
+                "employees": employees,
+                "active_employees": active_employees,
+                "former_employees": former_employees,
+                "service_periods": service_periods,
+                "csrf_token": get_csrf_token(request),
+            },
         )
 
 
