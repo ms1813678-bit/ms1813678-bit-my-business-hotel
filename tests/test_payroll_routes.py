@@ -276,7 +276,9 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         ))
         db.commit()
 
-    updated = client.post(
+    # Positive overtime must be blocked until management approval is
+    # represented by a persisted approval workflow.
+    unapproved_overtime = client.post(
         f"/payroll/items/{item_id}/update",
         data={
             "csrf_token": token,
@@ -294,13 +296,38 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         },
         follow_redirects=False,
     )
+    assert unapproved_overtime.status_code == 303
+    assert "error=item" in unapproved_overtime.headers["location"]
+    with client.test_session_factory() as db:
+        item = db.get(PayrollItem, item_id)
+        assert item.overtime_hours == Decimal("0")
+        assert item.overtime_amount == Decimal("0.00")
+
+    updated = client.post(
+        f"/payroll/items/{item_id}/update",
+        data={
+            "csrf_token": token,
+            "attendance_bonus": "100",
+            "performance_bonus": "200",
+            "occupancy_bonus": "50",
+            "overtime_hours": "0",
+            "other_bonus": "25",
+            "absence_days": "1",
+            "lateness_deduction": "9.38",
+            "insurance_share": "200",
+            "taxes": "50",
+            "other_deductions": "10",
+            "note": "Synthetic payroll review",
+        },
+        follow_redirects=False,
+    )
     assert updated.status_code == 303
 
     with client.test_session_factory() as db:
         item = db.get(PayrollItem, item_id)
-        assert item.overtime_amount == Decimal("75.00")
+        assert item.overtime_amount == Decimal("0.00")
         assert item.absence_deduction == Decimal("290.32")
-        assert item.net_pay == Decimal("8440.30")
+        assert item.net_pay == Decimal("8365.30")
 
     approved = client.post(
         f"/payroll/runs/{run_id}/approve",
@@ -360,7 +387,7 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         f"/payroll/items/{item_id}/payments",
         data={
             "csrf_token": token,
-            "amount": "4440.30",
+            "amount": "4365.30",
             "paid_date": "2026-11-06",
             "method": "bank_transfer",
             "reference": "Synthetic final transfer",
@@ -373,7 +400,7 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         item = db.get(PayrollItem, item_id)
         payments = db.scalars(select(PayrollPayment)).all()
         assert len(payments) == 2
-        assert sum((p.amount for p in payments), Decimal("0.00")) == Decimal("8440.30")
+        assert sum((p.amount for p in payments), Decimal("0.00")) == Decimal("8365.30")
 
     reopened = client.post(
         f"/payroll/runs/{run_id}/reopen",
