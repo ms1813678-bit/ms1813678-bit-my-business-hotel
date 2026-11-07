@@ -1,4 +1,5 @@
 """Database-backed security roster proposal and explicit confirmation workflow."""
+from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -287,3 +288,83 @@ def confirm_security_roster_day(db, work_date: date, roster: dict, admin: AdminA
             "security_roster_approval_conflict_or_persistence_failure"
         ) from exc
     return proposal
+
+
+def approve_security_roster_month(
+    db,
+    month_start: date,
+    admin: AdminAccount,
+    reason: str,
+):
+    """Approve a Security roster month only after every calendar day is approved.
+
+    Daily approval audit entries are the evidence of reviewed working/OFF
+    assignments. This month-level gate deliberately does not infer a staffing
+    minimum or continuous-coverage policy that the hotel has not specified.
+    """
+    if not isinstance(month_start, date) or month_start.day != 1:
+        raise ValueError("security_roster_month_start_must_be_first_day")
+    if not isinstance(admin, AdminAccount) or admin.id is None:
+        raise ValueError("authenticated_active_admin_required")
+
+    persisted_admin = db.get(AdminAccount, admin.id)
+    if (
+        persisted_admin is None
+        or not persisted_admin.active
+        or persisted_admin.username != admin.username
+    ):
+        raise ValueError("authenticated_active_admin_required")
+
+    clean_reason = str(reason or "").strip()
+    if not clean_reason:
+        raise ValueError("security_roster_month_approval_reason_required")
+
+    period_end = date(
+        month_start.year,
+        month_start.month,
+        monthrange(month_start.year, month_start.month)[1],
+    )
+    date_ids = [
+        (month_start + timedelta(days=offset)).isoformat()
+        for offset in range((period_end - month_start).days + 1)
+    ]
+    approved_days = set(db.scalars(
+        select(AuditLog.entity_id).where(
+            AuditLog.action == "security_roster_day_approved",
+            AuditLog.entity_type == "security_roster",
+            AuditLog.entity_id.in_(date_ids),
+        )
+    ).all())
+    missing_days = [day for day in date_ids if day not in approved_days]
+    if missing_days:
+        preview = ", ".join(missing_days[:5])
+        suffix = ", ..." if len(missing_days) > 5 else ""
+        raise ValueError(
+            "security_roster_month_has_unreviewed_days:"
+            f"{len(missing_days)}:{preview}{suffix}"
+        )
+
+    month_key = month_start.strftime("%Y-%m")
+    existing = db.scalar(select(AuditLog.id).where(
+        AuditLog.action == "security_roster_month_approved",
+        AuditLog.entity_type == "security_roster_month",
+        AuditLog.entity_id == month_key,
+    ))
+    if existing is not None:
+        raise ValueError("security_roster_month_already_approved")
+
+    approval = AuditLog(
+        actor=admin.username,
+        action="security_roster_month_approved",
+        entity_type="security_roster_month",
+        entity_id=month_key,
+        new_value=(
+            f"period_start={month_start.isoformat()}; "
+            f"period_end={period_end.isoformat()}; "
+            f"reviewed_days={len(approved_days)}"
+        ),
+        reason=clean_reason,
+    )
+    db.add(approval)
+    db.flush()
+    return approval
