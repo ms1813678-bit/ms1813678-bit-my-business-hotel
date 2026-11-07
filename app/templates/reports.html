@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>التقارير | M.Y. Business Hotel</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>التقارير</h1>
+      <p class="muted">تقارير الموارد البشرية · HR reports</p></div>
+    <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a> · <a href="/payroll">الرواتب</a></nav>
+  </header>
+  <section class="notice">
+    <h2>تصدير تقرير Excel شامل / Export workbook</h2>
+    <p>اختر الفترة المطلوبة. سيحتوي الملف على أوراق منفصلة للموظفين، والحضور، والإجازات، وحركات الأرصدة، والجزاءات والمكافآت، والسلف، والرواتب، ومقارنة الأقسام.</p>
+    {% if error %}<p class="error">تعذر إنشاء التقرير. راجع التاريخين وحاول مرة أخرى.</p>{% endif %}
+    <form method="get" action="/reports/export.xlsx">
+      <div class="form-grid">
+        <label>من تاريخ / Start date<input type="date" name="start_date" value="{{ start_date }}" required></label>
+        <label>إلى تاريخ / End date<input type="date" name="end_date" value="{{ end_date }}" required></label>
+      </div>
+      <button type="submit">تنزيل ملف Excel / Download Excel</button>
+    </form>
+  </section>
+  <section class="notice">
+    <h2>محتويات التقرير</h2>
+    <ul>
+      <li>بيانات الموظفين الحالية والمؤرشفة.</li>
+      <li>الحضور وحالات المراجعة كما هي مسجلة؛ لا يتم تحويل السجلات غير المحسومة إلى غياب.</li>
+      <li>الإجازات وحركات أرصدتها.</li>
+      <li>الجزاءات والمكافآت والسلف وحالاتها.</li>
+      <li>مسيرات الرواتب وحالة الصرف والمبالغ المدفوعة والمتبقية.</li>
+      <li>عدد الموظفين النشطين وإجمالي رواتبهم الأساسية حسب القسم.</li>
+    </ul>
+    <p class="muted">التقرير قراءة فقط ولا يغيّر أي بيانات داخل النظام. نسخة PDF والتقارير الدورية التلقائية ما زالت ضمن الأعمال المتبقية.</p>
+  </section>
+</main>
+</body>
+</html>
