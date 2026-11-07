@@ -5,7 +5,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AdvanceRequest, AuditLog, Employee
+from app.models import AdvanceInstallment, AdvanceRequest, AuditLog, Employee
 
 
 RESERVING_STATUSES = ("pending", "approved", "paid")
@@ -57,6 +57,7 @@ def create_advance(
     request_date: date,
     amount: Decimal,
     reason: str,
+    advance_type: str,
     actor: str,
 ) -> AdvanceRequest:
     if request_date.day < 15 or request_date.day > 22:
@@ -66,6 +67,8 @@ def create_advance(
         raise ValueError("An advance request date cannot be in the future.")
     if (request_date.year, request_date.month) != (today.year, today.month):
         raise ValueError("Advance requests must be recorded in the current month.")
+    if advance_type not in {"regular", "installment"}:
+        raise ValueError("Invalid advance type.")
     if amount <= 0 or not reason.strip():
         raise ValueError("Enter a positive amount and a reason.")
 
@@ -79,12 +82,13 @@ def create_advance(
         raise ValueError("The employee must have a positive basic salary.")
 
     payroll_month = payroll_month_for_advance(request_date)
-    cap = (salary * Decimal("0.25")).quantize(Decimal("0.01"))
-    already_reserved = reserved_amount(db, employee_id, payroll_month)
-    if already_reserved + amount > cap:
-        raise ValueError(
-            f"Monthly advance limit is {cap}; already reserved: {already_reserved}."
-        )
+    if advance_type == "regular":
+        cap = (salary * Decimal("0.25")).quantize(Decimal("0.01"))
+        already_reserved = reserved_amount(db, employee_id, payroll_month)
+        if already_reserved + amount > cap:
+            raise ValueError(
+                f"Monthly advance limit is {cap}; already reserved: {already_reserved}."
+            )
 
     request = AdvanceRequest(
         employee_id=employee_id,
@@ -92,6 +96,7 @@ def create_advance(
         payroll_month=payroll_month,
         amount=amount,
         salary_basis=salary,
+        advance_type=advance_type,
         reason=reason.strip(),
         status="pending",
         created_by=actor,
@@ -148,12 +153,13 @@ def approve_advance(db: Session, request: AdvanceRequest, actor: str, installmen
     )
     if employee is None or employee.status != "active":
         raise ValueError("The employee is not active.")
-    cap = (Decimal(request.salary_basis) * Decimal("0.25")).quantize(Decimal("0.01"))
-    already_reserved = reserved_amount(
-        db, request.employee_id, request.payroll_month, exclude_id=request.id
-    )
-    if already_reserved + Decimal(request.amount) > cap:
-        raise ValueError("The monthly advance limit would be exceeded.")
+    if request.advance_type == "regular":
+        cap = (Decimal(request.salary_basis) * Decimal("0.25")).quantize(Decimal("0.01"))
+        already_reserved = reserved_amount(
+            db, request.employee_id, request.payroll_month, exclude_id=request.id
+        )
+        if already_reserved + Decimal(request.amount) > cap:
+            raise ValueError("The monthly advance limit would be exceeded.")
     if installment_count < 1 or installment_count > 36:
         raise ValueError("Installment count must be between 1 and 36.")
     create_installments(db, request, installment_count, actor)
