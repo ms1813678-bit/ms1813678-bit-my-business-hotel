@@ -185,7 +185,7 @@ def interpret_local_command(message: str) -> str:
         return "compare_payroll"
     if any(word in text for word in ("خصم", "خصومات", "deduction", "deductions")):
         return "review_deductions"
-    if any(word in text for word in ("شذوذ", "غير طبيعي", "مشكلة", "anomaly", "anomalies", "check")):
+    if any(word in text for word in ("شذوذ", "غير طبيعي", "غير الطبيعية", "غير الطبيعي", "مشكلة", "خلل", "anomaly", "anomalies", "check")):
         return "analyze_payroll"
     if any(word in text for word in ("ملخص", "إجمالي", "اجمالي", "summary", "total", "report")):
         return "payroll_summary"
