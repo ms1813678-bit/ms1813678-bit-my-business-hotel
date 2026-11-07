@@ -104,6 +104,9 @@ def create_payroll_period(db: Session, period_start: date, actor: str) -> Payrol
         employee = db.get(Employee, employee_id)
         if employee is None:
             continue
+        payable_days = min(
+            service_days_by_employee[employee.id], (end - start).days + 1
+        )
         line = PayrollLine(
             payroll_period_id=period.id,
             employee_id=employee.id,
@@ -112,11 +115,11 @@ def create_payroll_period(db: Session, period_start: date, actor: str) -> Payrol
             department_name_snapshot=employee.department.name if employee.department else "",
             position_snapshot=employee.position,
             basic_salary_snapshot=(
-                Decimal(employee.basic_salary) * Decimal(service_days_by_employee[employee.id])
+                Decimal(employee.basic_salary) * Decimal(payable_days)
                 / Decimal((end - start).days + 1)
             ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             monthly_basic_salary_snapshot=Decimal(employee.basic_salary),
-            payable_service_days=min(service_days_by_employee[employee.id], (end - start).days + 1),
+            payable_service_days=payable_days,
             daily_hours_snapshot=Decimal(employee.daily_hours),
         )
         db.add(line)
