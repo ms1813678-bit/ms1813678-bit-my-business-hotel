@@ -214,3 +214,11 @@ Security/operational decisions:
 - Existing `backups/` and `.env` ignore rules remain in place.
 - The change is committed on the Team 1 integration branch. It protects future untracked files; it does not automatically remove any sensitive files that may already be tracked in Git history. A repository-wide tracked-file/history check remains required before real employee data is entered.
 - Re-reviewed the PowerShell backup/restore scripts at source level. No Windows PowerShell/PostgreSQL execution has been performed. Their restore procedure remains restricted to a matching, empty database and still requires a disposable-database acceptance run, including checksum failure and rollback tests.
+
+
+## 16. Local-only backup/restore guard (2026-11-07)
+
+- Hardened both PowerShell scripts to accept only `127.0.0.1`, `localhost`, or `::1` as the PostgreSQL host, matching the local-desktop deployment requirement and preventing accidental backup/restore against a remote server.
+- Both scripts now reject an empty database password and pass `--no-password` to PostgreSQL client tools so an unexpected interactive prompt fails instead of hanging.
+- Updated the Windows recovery guide with these restrictions.
+- These are source-level safeguards only. They still require execution under the target Windows PowerShell/PostgreSQL versions, including a disposable local database and a deliberately remote-host rejection test.
