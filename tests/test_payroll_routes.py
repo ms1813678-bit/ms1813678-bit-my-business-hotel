@@ -230,6 +230,38 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         assert item.staff_reward_amount == Decimal("100.00")
         assert item.staff_sanction_amount == Decimal("50.00")
 
+    # A financial source created after the payroll snapshot must not be
+    # silently marked as consumed when this run closes.
+    with client.test_session_factory() as db:
+        db.add(AdvanceRequest(
+            employee_id=client.test_employee_id,
+            request_date=date(2026, 9, 17),
+            payroll_month=date(2026, 10, 1),
+            amount=Decimal("200.00"),
+            salary_basis=Decimal("9000.00"),
+            reason="Synthetic late-paid advance",
+            status="paid",
+            created_by="payroll-admin",
+            paid_by="payroll-admin",
+            paid_at=datetime.utcnow(),
+        ))
+        db.add(StaffAction(
+            employee_id=client.test_employee_id,
+            kind="reward",
+            category="financial_reward",
+            title="Late-added reward",
+            is_financial=True,
+            amount=Decimal("20.00"),
+            payroll_month=date(2026, 10, 1),
+            reason="Created after payroll snapshot",
+            status="approved",
+            created_by="payroll-admin",
+            approved_by="payroll-admin",
+            approved_at=datetime.utcnow(),
+            acknowledgement_status="pending",
+        ))
+        db.commit()
+
     updated = client.post(
         f"/payroll/items/{item_id}/update",
         data={
@@ -271,13 +303,17 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
 
     with client.test_session_factory() as db:
         run = db.get(PayrollRun, run_id)
-        advance = db.scalar(select(AdvanceRequest))
-        actions = db.scalars(select(StaffAction)).all()
+        advances = db.scalars(select(AdvanceRequest).order_by(AdvanceRequest.id)).all()
+        actions = db.scalars(select(StaffAction).order_by(StaffAction.id)).all()
         assert run.status == "closed"
-        assert advance.status == "deducted"
-        assert advance.payroll_run_id == run_id
-        assert all(action.payroll_run_id == run_id for action in actions)
-        assert all(action.payroll_applied_at is not None for action in actions)
+        assert advances[0].status == "deducted"
+        assert advances[0].payroll_run_id == run_id
+        assert advances[1].status == "paid"
+        assert advances[1].payroll_run_id is None
+        assert all(action.payroll_run_id == run_id for action in actions[:2])
+        assert all(action.payroll_applied_at is not None for action in actions[:2])
+        assert actions[2].payroll_run_id is None
+        assert actions[2].payroll_applied_at is None
 
     partial = client.post(
         f"/payroll/items/{item_id}/payments",
