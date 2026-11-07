@@ -315,3 +315,160 @@ def create_backup(db: Session, backup_type: str, actor: str) -> BackupRun:
         db.add(run)
         db.flush()
         return run
+
+
+def _extract_verified_archive(archive_path: Path, destination: Path) -> tuple[Path, Path]:
+    verify_backup_archive(archive_path)
+    destination_resolved = destination.resolve()
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        for member in archive.infolist():
+            target = (destination / member.filename).resolve()
+            if not target.is_relative_to(destination_resolved):
+                raise ValueError("Backup archive contains an unsafe file path.")
+        archive.extractall(destination)
+    dump_path = destination / "database.dump"
+    photos_path = destination / "employee_photos"
+    if not dump_path.is_file():
+        raise ValueError("The backup does not contain a database dump.")
+    return dump_path, photos_path
+
+
+def _restore_archive_contents(archive_path: Path, backup_root: Path) -> None:
+    import psycopg
+    import sys
+
+    from app.db import engine
+
+    pg_restore = _find_pg_tool("pg_restore")
+    connection_args, env = _database_args()
+    with tempfile.TemporaryDirectory(prefix="myhotel_restore_", dir=backup_root) as work_dir:
+        work = Path(work_dir)
+        dump_path, photos_path = _extract_verified_archive(archive_path, work)
+        _run([pg_restore, "--list", str(dump_path)], env)
+
+        # Close pooled application connections before replacing the public schema.
+        engine.dispose()
+        url = make_url(settings.database_url)
+        connection_string = url.render_as_string(hide_password=False)
+        connection_string = connection_string.replace("postgresql+psycopg://", "postgresql://", 1)
+        with psycopg.connect(connection_string, autocommit=True) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+                )
+                cursor.execute("DROP SCHEMA IF EXISTS public CASCADE")
+
+        restore_command = [
+            pg_restore,
+            "--no-owner",
+            "--no-acl",
+            "--exit-on-error",
+            *connection_args,
+            str(dump_path),
+        ]
+        _run(restore_command, env)
+
+        if PHOTO_DIRECTORY.exists():
+            shutil.rmtree(PHOTO_DIRECTORY)
+        PHOTO_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        if photos_path.exists():
+            for source in photos_path.rglob("*"):
+                if source.is_file():
+                    relative = source.relative_to(photos_path)
+                    target = PHOTO_DIRECTORY / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, target)
+
+        _run([sys.executable, "-m", "alembic", "upgrade", "head"], env)
+        engine.dispose()
+
+
+def restore_backup(
+    archive_path: str | Path,
+    expected_sha256: str,
+    *,
+    actor: str,
+    reason: str,
+) -> dict:
+    """Restore a verified archive after first creating a separate pre-restore backup."""
+    from app.db import SessionLocal
+    from app.models import AuditLog
+
+    if not reason.strip():
+        raise ValueError("A restore reason is required.")
+    selected = Path(archive_path).resolve()
+    manifest = verify_backup_archive(selected, expected_sha256)
+    with SessionLocal() as db:
+        backup_root = get_backup_root(db)
+    if backup_root is None:
+        raise ValueError("External backup location is not configured.")
+    backup_root = backup_root.resolve()
+    if not selected.is_relative_to(backup_root):
+        raise ValueError("The selected archive is outside the configured backup drive.")
+
+    with SessionLocal.begin() as db:
+        pre_restore = create_backup(db, "pre_restore", actor)
+        if pre_restore.status != "success" or not pre_restore.archive_path:
+            raise RuntimeError("A verified pre-restore backup could not be created; restore was cancelled.")
+        pre_restore_path = Path(pre_restore.archive_path)
+        pre_restore_hash = pre_restore.sha256
+
+    try:
+        _restore_archive_contents(selected, backup_root)
+    except Exception as restore_error:
+        try:
+            _restore_archive_contents(pre_restore_path, backup_root)
+            with SessionLocal.begin() as db:
+                db.add(AuditLog(
+                    actor=actor,
+                    action="backup_restore_rolled_back",
+                    entity_type="backup_run",
+                    entity_id=str(pre_restore.id),
+                    old_value=str(selected),
+                    new_value=str(pre_restore_path),
+                    reason=f"Restore failed and previous database was restored: {restore_error}"[:4000],
+                ))
+        except Exception as rollback_error:
+            raise RuntimeError(
+                f"Restore failed: {restore_error}. Automatic rollback also failed: "
+                f"{rollback_error}. Preserve pre-restore archive: {pre_restore_path}"
+            ) from rollback_error
+        raise RuntimeError(
+            f"Restore failed; the previous database was restored from {pre_restore_path}: {restore_error}"
+        ) from restore_error
+
+    completed_at = datetime.now(timezone.utc)
+    with SessionLocal.begin() as db:
+        db.add(BackupRun(
+            backup_type="pre_restore",
+            status="success",
+            archive_path=str(pre_restore_path),
+            sha256=pre_restore_hash,
+            size_bytes=pre_restore_path.stat().st_size,
+            created_at=completed_at,
+            verified_at=completed_at,
+            initiated_by=actor,
+        ))
+        db.add(AuditLog(
+            actor=actor,
+            action="backup_restored",
+            entity_type="backup_archive",
+            entity_id=str(selected),
+            old_value=None,
+            new_value=str(manifest.get("created_at")),
+            reason=reason.strip(),
+        ))
+
+    restore_log = {
+        "restored_at": completed_at.isoformat(),
+        "actor": actor,
+        "reason": reason.strip(),
+        "archive_path": str(selected),
+        "archive_sha256": expected_sha256,
+        "backup_created_at": manifest.get("created_at"),
+        "pre_restore_archive": str(pre_restore_path),
+    }
+    with (backup_root / "restore_history.jsonl").open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(restore_log, ensure_ascii=False) + "\n")
+    return restore_log
