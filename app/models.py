@@ -459,3 +459,49 @@ class AdvanceRequest(Base):
     paid_by: Mapped[str | None] = mapped_column(String(80))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deducted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+class StaffAction(Base):
+    __tablename__ = "staff_actions"
+    __table_args__ = (
+        CheckConstraint("kind IN ('sanction', 'reward')", name="ck_staff_actions_kind"),
+        CheckConstraint("amount IS NULL OR amount > 0", name="ck_staff_actions_amount_positive"),
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'cancelled')",
+            name="ck_staff_actions_status",
+        ),
+        CheckConstraint(
+            "acknowledgement_status IN ('pending', 'viewed', 'declined')",
+            name="ck_staff_actions_ack_status",
+        ),
+        CheckConstraint(
+            "(is_financial = TRUE AND amount IS NOT NULL AND payroll_month IS NOT NULL) "
+            "OR (is_financial = FALSE AND amount IS NULL AND payroll_month IS NULL)",
+            name="ck_staff_actions_financial_fields",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    is_financial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    payroll_month: Mapped[date | None] = mapped_column(Date, index=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[str | None] = mapped_column(String(80))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_reason: Mapped[str | None] = mapped_column(Text)
+    acknowledgement_status: Mapped[str] = mapped_column(
+        String(20), default="pending", nullable=False
+    )
+    acknowledgement_recorded_by: Mapped[str | None] = mapped_column(String(80))
+    acknowledgement_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledgement_note: Mapped[str | None] = mapped_column(Text)
+    payroll_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
