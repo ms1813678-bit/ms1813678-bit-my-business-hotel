@@ -124,6 +124,24 @@ def prepare_security_roster(db, parsed_workbook):
             assignment["employee_name"] = employee_names[assignment["employee_id"]]
         daily.append({"work_date": record["work_date"], "roster": roster, "proposal": proposal, "import_issues": blocking_issues, "can_confirm": proposal["status"] == "ready_for_admin_review"})
 
+    # Surface same-date approvals during the initial preview as well as after
+    # the confirm route refreshes it. The backend remains the final guard.
+    if daily:
+        approved_dates = set(db.scalars(
+            select(SecurityShiftAssignment.work_date)
+            .join(ShiftPattern, ShiftPattern.id == SecurityShiftAssignment.shift_pattern_id)
+            .where(
+                ShiftPattern.department_id == department.id,
+                SecurityShiftAssignment.work_date.in_(
+                    [day["work_date"] for day in daily]
+                ),
+            )
+        ).all())
+        for day in daily:
+            if day["work_date"] in approved_dates:
+                day["already_approved"] = True
+                day["can_confirm"] = False
+
     # A shift may end after midnight, so reviewing each date in isolation can
     # miss an overlap with the following roster date. Compare adjacent proposals
     # as well as assignments already approved on an adjacent date.
