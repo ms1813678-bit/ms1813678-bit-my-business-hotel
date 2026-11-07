@@ -34,15 +34,14 @@ def _cross_day_overlaps(left_date, left_assignments, right_date, right_assignmen
     return overlaps
 
 
-def _existing_adjacent_assignments(db, employee_ids, work_date):
+def _existing_adjacent_assignments(db, department_id, work_date):
     adjacent_dates = (work_date - timedelta(days=1), work_date + timedelta(days=1))
-    if not employee_ids:
-        return []
     return db.execute(
         select(SecurityShiftAssignment, ShiftPattern)
         .join(ShiftPattern, ShiftPattern.id == SecurityShiftAssignment.shift_pattern_id)
+        .join(Employee, Employee.id == SecurityShiftAssignment.employee_id)
         .where(
-            SecurityShiftAssignment.employee_id.in_(employee_ids),
+            Employee.department_id == department_id,
             SecurityShiftAssignment.work_date.in_(adjacent_dates),
         )
     ).all()
@@ -154,7 +153,7 @@ def prepare_security_roster(db, parsed_workbook):
                     item["can_confirm"] = False
 
         existing = _existing_adjacent_assignments(
-            db, {item["employee_id"] for item in day_assignments}, day["work_date"]
+            db, department.id, day["work_date"]
         )
         for existing_assignment, existing_pattern in existing:
             existing_date = existing_assignment.work_date
@@ -218,7 +217,7 @@ def confirm_security_roster_day(db, work_date: date, roster: dict, admin: AdminA
 
     # Re-check adjacent already-approved dates at the persistence boundary so a
     # stale preview or out-of-order approval cannot create an overnight overlap.
-    existing_adjacent = _existing_adjacent_assignments(db, employee_ids, work_date)
+    existing_adjacent = _existing_adjacent_assignments(db, department.id, work_date)
     for existing_assignment, existing_pattern in existing_adjacent:
         existing_interval = _shift_interval(
             existing_assignment.work_date,
