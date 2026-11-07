@@ -44,6 +44,12 @@ def test_payroll_totals_are_read_only_and_reconcile():
     assert row["net_pay"] == "8500.00"
 
 
+def test_totals_use_same_half_up_currency_rounding_as_payroll_math():
+    row = sample_row(base_salary="0.005", advance_deduction="0", net_pay="0.01")
+    assert payroll_totals(row)["gross"] == Decimal("0.01")
+    assert payroll_totals(row)["net"] == Decimal("0.01")
+
+
 def test_analyzer_detects_duplicate_employee_and_deduction_source():
     row = sample_row(deduction_source_ids=["advance-1", "advance-1"])
     findings = analyze_payroll_rows([row, sample_row()])
@@ -64,6 +70,19 @@ def test_analyzer_flags_missing_identity_and_negative_amount():
     codes = {finding["code"] for finding in analyze_payroll_rows([row])}
     assert "missing_employee_identity" in codes
     assert "negative_line_item" in codes
+
+
+@pytest.mark.parametrize("invalid", ["not-a-number", "NaN", "Infinity"])
+def test_analyzer_reports_invalid_or_non_finite_amounts(invalid):
+    codes = {finding["code"] for finding in analyze_payroll_rows([sample_row(taxes=invalid)])}
+    assert "invalid_amount" in codes
+
+
+def test_analyzer_detects_deductions_exceeding_earnings():
+    row = sample_row(advance_deduction="9500", net_pay="-500")
+    codes = {finding["code"] for finding in analyze_payroll_rows([row])}
+    assert "deductions_exceed_earnings" in codes
+    assert "net_total_mismatch" not in codes
 
 
 def test_change_explanation_lists_only_changed_components():
