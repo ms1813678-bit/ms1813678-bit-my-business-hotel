@@ -39,7 +39,7 @@ The attendance import route itself still creates a persisted batch during upload
 - Distinguishes `OFF` from `00:00`.
 - Recognizes `Date` / `Work Date` and known metadata headers such as `Notes` and `Total Hours`.
 - Unknown, unmapped employee columns become explicit issues and block day confirmation.
-- Applies the confirmed hotel rule: flexible Security team size with at least two active employees; every day must have at least two working guards. Two working guards use 12-hour shifts, three use 8-hour shifts, and larger daily teams require an explicitly configured shift pattern. OFF is distinct from 00:00.
+- Applies the confirmed hotel rule: flexible Security team size with at least two active employees; every day must have at least two working guards. Two working guards use 12-hour shifts, three or more use 8-hour shifts. OFF is distinct from 00:00.
 - Missing/ambiguous patterns, zero-length intervals, duplicate starts, and overlaps remain review blockers.
 
 ### Cross-date overnight collision guard
@@ -61,7 +61,7 @@ The attendance import route itself still creates a persisted batch during upload
 - It parses the immutable daily audit evidence, rejects duplicate employee IDs (including OFF entries), and checks that the non-OFF start times still match persisted Security assignments.
 - It rejects unexpected extra assignments and assignments whose shift pattern belongs to another department.
 - It writes an immutable `security_roster_month_approved` audit event after successful validation.
-- It applies the confirmed fixed-team rule: two working guards use 12-hour shifts; three use 8-hour shifts; four or more working guards use explicit configured patterns; fewer than two working guards are rejected.
+- It applies the confirmed fixed-team rule: two working guards use 12-hour shifts; three or more working guards use 8-hour shifts; fewer than two working guards are rejected.
 
 The monthly approval service is **not yet wired to an HTTP route or screen**. This requires the shared application route/template entry point, which is outside the approved Workstream 2 write boundary.
 
@@ -97,7 +97,7 @@ The following narrow changes are required before claiming end-to-end completion.
 
 ### Business rule requiring hotel/HR confirmation
 
-HR confirmed the core daily staffing rule: no day may have fewer than two working guards. Team membership is flexible; active employees may be added or removed as long as at least two remain. Two working guards use 12-hour shifts; three use 8-hour shifts. Four or more working guards require explicitly configured patterns; durations are never guessed.
+HR confirmed the core daily staffing rule: no day may have fewer than two working guards. Team membership is flexible; active employees may be added or removed as long as at least two remain. Two working guards use 12-hour shifts; three or more working guards use 8-hour shifts. Each start time must still resolve to exactly one active configured pattern.
 
 Still to confirm: whether a day with all three guards marked OFF is permitted, and whether shift overlaps for handover are allowed. The current implementation continues to block overlapping intervals.
 
