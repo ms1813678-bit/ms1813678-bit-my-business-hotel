@@ -11,7 +11,7 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -289,7 +289,9 @@ def create_backup(db: Session, backup_type: str, actor: str) -> BackupRun:
             archive_hash = sha256_file(temporary_archive)
             archive_size = temporary_archive.stat().st_size
             os.replace(temporary_archive, archive_path)
-        cleanup_retention(backup_root)
+        expired_paths = cleanup_retention(backup_root)
+        if expired_paths:
+            db.execute(delete(BackupRun).where(BackupRun.archive_path.in_(expired_paths)))
         run = BackupRun(
             backup_type=backup_type,
             status="success",
