@@ -189,10 +189,45 @@ def logout(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, admin: AdminAccount = Depends(get_current_admin)):
-    return templates.TemplateResponse(
-        request=request, name="dashboard.html",
-        context={"app_name": settings.app_name, "admin": admin.username, "csrf_token": get_csrf_token(request)},
-    )
+    with SessionLocal() as db:
+        metrics = {
+            "active_employees": db.scalar(
+                select(func.count(Employee.id)).where(Employee.status == "active")
+            ) or 0,
+            "former_employees": db.scalar(
+                select(func.count(Employee.id)).where(Employee.status != "active")
+            ) or 0,
+            "attendance_review": db.scalar(
+                select(func.count(AttendanceDailyRecord.id)).where(
+                    AttendanceDailyRecord.status.in_(["needs_review", "ready_for_review"])
+                )
+            ) or 0,
+            "leave_drafts": db.scalar(
+                select(func.count(LeaveRecord.id)).where(LeaveRecord.status == "draft")
+            ) or 0,
+            "advance_pending": db.scalar(
+                select(func.count(AdvanceRequest.id)).where(
+                    AdvanceRequest.status.in_(["pending", "approved"])
+                )
+            ) or 0,
+            "staff_action_drafts": db.scalar(
+                select(func.count(StaffAction.id)).where(StaffAction.status == "draft")
+            ) or 0,
+            "payroll_drafts": db.scalar(
+                select(func.count(PayrollRun.id)).where(
+                    PayrollRun.status.in_(["draft", "reopened"])
+                )
+            ) or 0,
+        }
+        return templates.TemplateResponse(
+            request=request, name="dashboard.html",
+            context={
+                "app_name": settings.app_name,
+                "admin": admin.username,
+                "csrf_token": get_csrf_token(request),
+                "metrics": metrics,
+            },
+        )
 
 
 @app.get("/security-roster", response_class=HTMLResponse)
