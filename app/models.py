@@ -432,6 +432,7 @@ class LeaveBalanceTransaction(Base):
 class AdvanceRequest(Base):
     __tablename__ = "advance_requests"
     __table_args__ = (
+        CheckConstraint("advance_type IN ('regular', 'installment')", name="ck_advance_requests_type"),
         CheckConstraint("amount > 0", name="ck_advance_requests_amount_positive"),
         CheckConstraint("salary_basis > 0", name="ck_advance_requests_salary_positive"),
         CheckConstraint(
@@ -446,6 +447,7 @@ class AdvanceRequest(Base):
     request_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     payroll_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    advance_type: Mapped[str] = mapped_column(String(20), default="regular", nullable=False)
     salary_basis: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
