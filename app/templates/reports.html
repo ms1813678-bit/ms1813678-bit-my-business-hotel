@@ -27,6 +27,17 @@
     </form>
   </section>
   <section class="notice">
+    <h2>تصدير تقرير PDF / Export PDF</h2>
+    <p>نسخة للطباعة بنفس الفترة وبنفس بيانات تقرير Excel، مع دعم الخط العربي.</p>
+    <form method="get" action="/reports/export.pdf">
+      <div class="form-grid">
+        <label>من تاريخ / Start date<input type="date" name="start_date" value="{{ start_date }}" required></label>
+        <label>إلى تاريخ / End date<input type="date" name="end_date" value="{{ end_date }}" required></label>
+      </div>
+      <button type="submit">تنزيل ملف PDF / Download PDF</button>
+    </form>
+  </section>
+  <section class="notice">
     <h2>محتويات التقرير</h2>
     <ul>
       <li>بيانات الموظفين الحالية والمؤرشفة.</li>
