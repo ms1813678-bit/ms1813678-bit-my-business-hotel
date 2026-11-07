@@ -321,7 +321,6 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
 
     with client.test_session_factory() as db:
         item = db.get(PayrollItem, item_id)
-        assert db.scalars(select(PayrollPayment)).count() if False else True
         payments = db.scalars(select(PayrollPayment)).all()
         assert len(payments) == 2
         assert sum((p.amount for p in payments), Decimal("0.00")) == Decimal("8440.30")
