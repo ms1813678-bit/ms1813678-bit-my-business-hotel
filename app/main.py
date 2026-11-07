@@ -24,7 +24,8 @@ from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
 from app.advance_workflow import approve_advance, create_advance, mark_advance_paid, reject_advance
-from app.models import AdvanceRequest, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
+from app.staff_actions_workflow import approve_staff_action, cancel_staff_action, create_staff_action, record_employee_acknowledgement
+from app.models import AdvanceRequest, StaffAction, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
@@ -1338,6 +1339,126 @@ def mark_advance_request_paid(
     except (ValueError, SQLAlchemyError):
         return RedirectResponse("/advances?error=paid", status_code=303)
     return RedirectResponse("/advances", status_code=303)
+
+
+@app.get("/staff-actions", response_class=HTMLResponse)
+def staff_actions_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
+    with SessionLocal() as db:
+        employees = db.scalars(
+            select(Employee).where(Employee.status == "active").order_by(Employee.code)
+        ).all()
+        all_employees = db.scalars(select(Employee).order_by(Employee.code)).all()
+        actions = db.scalars(
+            select(StaffAction).order_by(StaffAction.created_at.desc(), StaffAction.id.desc())
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="staff_actions.html",
+            context={
+                "employees": employees,
+                "actions": actions,
+                "employee_names": {e.id: e.full_name for e in all_employees},
+                "employee_codes": {e.id: e.code for e in all_employees},
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+            },
+        )
+
+
+@app.post("/staff-actions", dependencies=[Depends(csrf_protect)])
+def create_staff_action_route(
+    employee_id: int = Form(...),
+    kind: str = Form(...),
+    category: str = Form(...),
+    title: str = Form(...),
+    is_financial: str | None = Form(None),
+    amount: Decimal | None = Form(None),
+    payroll_month: date | None = Form(None),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            create_staff_action(
+                db,
+                employee_id=employee_id,
+                kind=kind,
+                category=category,
+                title=title,
+                is_financial=is_financial == "yes",
+                amount=amount,
+                payroll_month=payroll_month,
+                reason=reason,
+                actor=admin.username,
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/staff-actions?error=create", status_code=303)
+    return RedirectResponse("/staff-actions", status_code=303)
+
+
+@app.post("/staff-actions/{action_id}/approve", dependencies=[Depends(csrf_protect)])
+def approve_staff_action_route(
+    action_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(StaffAction)
+                .where(StaffAction.id == action_id)
+                .with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/staff-actions?error=record", status_code=303)
+            approve_staff_action(db, item, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/staff-actions?error=approve", status_code=303)
+    return RedirectResponse("/staff-actions", status_code=303)
+
+
+@app.post("/staff-actions/{action_id}/cancel", dependencies=[Depends(csrf_protect)])
+def cancel_staff_action_route(
+    action_id: int,
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(StaffAction)
+                .where(StaffAction.id == action_id)
+                .with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/staff-actions?error=record", status_code=303)
+            cancel_staff_action(db, item, admin.username, reason)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/staff-actions?error=cancel", status_code=303)
+    return RedirectResponse("/staff-actions", status_code=303)
+
+
+@app.post("/staff-actions/{action_id}/acknowledgement", dependencies=[Depends(csrf_protect)])
+def staff_action_acknowledgement_route(
+    action_id: int,
+    status: str = Form(...),
+    note: str = Form(""),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(StaffAction)
+                .where(StaffAction.id == action_id)
+                .with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/staff-actions?error=record", status_code=303)
+            record_employee_acknowledgement(
+                db, item, admin.username, status, note
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/staff-actions?error=ack", status_code=303)
+    return RedirectResponse("/staff-actions", status_code=303)
 
 
 @app.get("/employees", response_class=HTMLResponse)
