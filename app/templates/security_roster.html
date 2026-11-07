@@ -5,7 +5,7 @@
 <header class="topbar"><div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>استيراد جدول الأمن</h1><p>المسؤول: {{ admin }}</p></div><a href="/">الرئيسية</a></header>
 {% if error %}<section class="notice"><strong>تعذر إكمال العملية:</strong> {{ error }}</section>{% endif %}
 {% if success %}<section class="notice"><strong>{{ success }}</strong></section>{% endif %}
-<section class="notice"><h2>رفع ملف Excel</h2><p>ارفع ملف .xlsx يحتوي على التاريخ وعمودًا مطابقًا لكل موظف أمن نشط مُعرّف في النظام (موظفان فأكثر). استخدم الاسم أو الكود الوظيفي أو رقم البصمة المسجل. اكتب وقت بداية الوردية أو OFF. يجب مراجعة جميع الملاحظات قبل اعتماد أي يوم.</p>
+<section class="notice"><h2>رفع ملف Excel</h2><p>ارفع ملف .xlsx يحتوي على التاريخ وأسماء موظفي الأمن الثلاثة النشطين المسجلين حاليًا. اكتب وقت بداية الوردية أو OFF. المعاينة لا تحفظ أي ورديات.</p>
 <form method="post" action="/security-roster/preview" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="file" name="file" accept=".xlsx" required><button type="submit">رفع ومعاينة</button></form>
 {% if filename %}<p>{{ filename }}</p>{% endif %}</section>
 {% if issues %}<section class="notice"><h2>ملاحظات الاستيراد</h2><ul>{% for issue in issues %}<li>صف {{ issue.row if issue.row is defined else "غير محدد" }} — {{ issue.reason }} {% if issue.date is defined %}({{ issue.date }}){% endif %}</li>{% endfor %}</ul></section>{% endif %}
