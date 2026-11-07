@@ -28,11 +28,18 @@ def _filtered_date(column, start_date: date, end_date: date):
     return (column >= start_date, column <= end_date)
 
 
+def _excel_safe_value(value):
+    """Keep user-controlled strings literal when opened in spreadsheet software."""
+    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
+
+
 def _write_sheet(workbook: Workbook, title: str, headers: list[str], rows: list[tuple]) -> None:
     sheet = workbook.create_sheet(title=title[:31])
     sheet.append(headers)
     for row in rows:
-        sheet.append(list(row))
+        sheet.append([_excel_safe_value(value) for value in row])
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
     sheet.row_dimensions[1].height = 28
