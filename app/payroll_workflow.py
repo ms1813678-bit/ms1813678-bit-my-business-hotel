@@ -236,6 +236,10 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
         payroll_item = PayrollItem(
             payroll_run_id=run.id,
             employee_id=employee_id,
+            employee_code_snapshot=employee.code,
+            employee_name_snapshot=employee.full_name,
+            department_name_snapshot=employee.department.name if employee.department else "",
+            position_snapshot=employee.position,
             salary_basis=salary_basis,
             base_salary=base_salary,
             daily_hours=daily_hours,
