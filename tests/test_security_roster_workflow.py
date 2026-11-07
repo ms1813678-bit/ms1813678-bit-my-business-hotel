@@ -366,3 +366,22 @@ def test_four_person_team_duplicate_start_times_are_blocked():
 
     assert proposal["status"] == "needs_review"
     assert "duplicate_security_shift_start_times" in proposal["issues"]
+
+
+def test_unmapped_roster_employee_header_blocks_day_confirmation(roster_db):
+    db, employees, _admin = roster_db
+    parsed = _parsed(employees)
+    parsed["issues"] = [{
+        "row": 1,
+        "column": 5,
+        "header": "Unknown Guard",
+        "reason": "unknown_or_unmapped_employee_header",
+    }]
+
+    prepared = prepare_security_roster(db, parsed)
+
+    assert prepared["days"][0]["can_confirm"] is False
+    assert prepared["days"][0]["proposal"]["status"] == "needs_review"
+    assert prepared["days"][0]["proposal"]["issues"] == [
+        "excel_import_issues_block_this_day"
+    ]
