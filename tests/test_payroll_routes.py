@@ -221,6 +221,10 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         item_id = item.id
         assert run.pay_date == date(2026, 11, 5)
         assert run.status == "draft"
+        assert item.employee_code_snapshot == "MY-TEST-PAY-0001"
+        assert item.employee_name_snapshot == "Synthetic Payroll Employee"
+        assert item.department_name_snapshot == "Payroll Test Department"
+        assert item.position_snapshot == "Test Position"
         assert item.salary_basis == Decimal("9000.00")
         assert item.base_salary == Decimal("9000.00")
         assert item.late_minutes == 20
