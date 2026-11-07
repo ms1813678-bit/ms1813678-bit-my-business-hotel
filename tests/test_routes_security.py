@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -429,12 +429,32 @@ def test_employee_archive_and_rehire_preserve_service_history(client):
     )
     assert archive.status_code == 303
 
-    rehire = client.post(
+    future_rehire = client.post(
         f"/employees/{employee_id}/rehire",
         data={
             "csrf_token": token,
             "new_hire_date": (date.today() + timedelta(days=1)).isoformat(),
-            "reason": "Rehired after separation",
+            "reason": "Future rehire must be rejected",
+        },
+        follow_redirects=False,
+    )
+    assert future_rehire.status_code == 400
+
+    # Model a separation completed yesterday so a rehire effective today is valid.
+    with SessionLocal.begin() as db:
+        previous_period = (
+            db.query(EmployeeServicePeriod)
+            .filter_by(employee_id=employee_id)
+            .one()
+        )
+        previous_period.end_date = date.today() - timedelta(days=1)
+
+    rehire = client.post(
+        f"/employees/{employee_id}/rehire",
+        data={
+            "csrf_token": token,
+            "new_hire_date": date.today().isoformat(),
+            "reason": "Rehired effective today",
         },
         follow_redirects=False,
     )
@@ -450,11 +470,11 @@ def test_employee_archive_and_rehire_preserve_service_history(client):
         )
         assert employee.code == employee_code
         assert employee.status == "active"
-        assert employee.hire_date == date.today() + timedelta(days=1)
+        assert employee.hire_date == date.today()
         assert len(periods) == 2
-        assert periods[0].end_date == date.today()
+        assert periods[0].end_date == date.today() - timedelta(days=1)
         assert periods[0].end_reason == "End of first service"
-        assert periods[1].start_date == date.today() + timedelta(days=1)
+        assert periods[1].start_date == date.today()
 
 
 def test_employee_profile_edit_records_effective_dated_history_and_audit(client):
@@ -1584,3 +1604,173 @@ def test_overnight_attendance_review_prefills_clock_out_on_next_date(client):
     page = client.get("/attendance/review")
     assert page.status_code == 200
     assert 'value="2026-11-02T07:03"' in page.text
+
+def test_employee_edit_rejects_effective_date_before_hire_date(client):
+    from app.main import SessionLocal
+    from app.models import EmployeeChange
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Pre-Hire Edit Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-10",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Pre-Hire Edit Test").one()
+        employee_id = employee.id
+
+    rejected = client.post(
+        f"/employees/{employee_id}/edit",
+        data={
+            "csrf_token": token,
+            "full_name": "Pre-Hire Edit Test Updated",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+            "effective_date": "2025-01-09",
+            "reason": "Must not predate employment",
+        },
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 400
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        assert employee.full_name == "Pre-Hire Edit Test"
+        assert db.query(EmployeeChange).filter_by(employee_id=employee_id).count() == 0
+
+
+def test_employee_data_change_review_rejects_effective_date_before_hire_date(client):
+    from app.main import SessionLocal
+    from app.models import EmployeeDataChangeRequest
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Pre-Hire Request Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-10",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Pre-Hire Request Test").one()
+        employee_id = employee.id
+
+    submitted = client.post(
+        f"/employees/{employee_id}/data-change-requests",
+        data={
+            "csrf_token": token,
+            "field_name": "phone",
+            "requested_value": "01012345678",
+            "request_reason": "Correct contact details",
+        },
+        follow_redirects=False,
+    )
+    assert submitted.status_code == 303
+    with SessionLocal() as db:
+        request_row = db.query(EmployeeDataChangeRequest).filter_by(employee_id=employee_id).one()
+        request_id = request_row.id
+
+    rejected = client.post(
+        f"/employee-data-change-requests/{request_id}/review",
+        data={
+            "csrf_token": token,
+            "decision": "apply",
+            "decision_reason": "Reviewed",
+            "effective_date": "2025-01-09",
+        },
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 400
+    with SessionLocal() as db:
+        request_row = db.get(EmployeeDataChangeRequest, request_id)
+        assert request_row.status == "pending"
+
+def test_employee_photo_rejects_excessive_pixel_dimensions(client, monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "EMPLOYEE_PHOTO_DIR", tmp_path)
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (4500, 4500), "white").save(image_bytes, format="PNG")
+    response = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Oversized Pixel Photo",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        files={"photo": ("large-dimensions.png", image_bytes.getvalue(), "image/png")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert list(tmp_path.iterdir()) == []
+
+
+
+def test_employee_photo_is_removed_when_creation_transaction_fails(client, monkeypatch, tmp_path):
+    from io import BytesIO
+    from PIL import Image
+
+    assert login(client).status_code == 303
+    from app import main as main_module
+
+    photo_dir = tmp_path / "employee_photos"
+    monkeypatch.setattr(main_module, "EMPLOYEE_PHOTO_DIR", photo_dir)
+
+    image_buffer = BytesIO()
+    Image.new("RGB", (2, 2), color="white").save(image_buffer, format="PNG")
+    image_bytes = image_buffer.getvalue()
+
+    def fail_commit(_session):
+        raise RuntimeError("simulated database commit failure")
+
+    session_class = main_module.SessionLocal.class_
+    event.listen(session_class, "before_commit", fail_commit)
+    token = csrf_from(client.get("/employees"))
+    try:
+        with pytest.raises(RuntimeError, match="simulated database commit failure"):
+            client.post(
+                "/employees",
+                data={
+                    "csrf_token": token,
+                    "full_name": "Photo Rollback Employee",
+                    "department_id": str(client.test_department_id),
+                    "position": "Test Position",
+                    "hire_date": date.today().isoformat(),
+                    "basic_salary": "1000.00",
+                    "daily_hours": "8",
+                },
+                files={"photo": ("employee.png", image_bytes, "image/png")},
+            )
+    finally:
+        event.remove(session_class, "before_commit", fail_commit)
+
+    assert photo_dir.exists()
+    assert list(photo_dir.iterdir()) == []

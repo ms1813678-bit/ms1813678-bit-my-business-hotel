@@ -1,0 +1,263 @@
+# Team 1 Foundation and Integration Audit
+
+Reviewed: 2026-11-07
+Working branch: `work/team1-foundation-integration`
+Audit base: `feature/platform-hardening`
+Scope: repository architecture, employee foundation, authentication/security, migration graph, and cross-workstream integration safety.
+
+## 1. Verified baseline
+
+The audit branch was created from `feature/platform-hardening`; no existing branch or commit was rewritten.
+
+The inspected baseline contains:
+- FastAPI application with local PostgreSQL configuration and a single administrator account.
+- Administrator authentication, password hashing, session-backed authentication, CSRF helpers, and session-version invalidation.
+- Employee, department, branch, employee-change, employee-data-change-request, employee-code-counter, and employee-service-period models.
+- Employee code allocation using a PostgreSQL non-transactional sequence; SQLite allocation is explicitly limited to isolated tests.
+- Employee routes and pages for core employee workflows, including archive/rehire and data-change handling.
+- Audit log immutability protections.
+- Attendance modules and migrations through revision `0015_attendance_issue_resolution`.
+
+Presence of code is not equivalent to full acceptance. The actual Windows 11 target-device installation and end-to-end database acceptance have not been performed in this audit.
+
+## 2. Migration graph inventory
+
+Inspected revision chain:
+
+```text
+0001_initial
+  -> 0002_platform_state
+  -> 0003_employee_service_periods
+       -> 0004_employee_code_sequence --------       -> 0004_non_reusable_employee_codes ---+-> 0005_merge_code_heads
+                                                -> 0006_employee_probation_dates
+                                                -> 0007_attendance_shift_foundation
+                                                -> 0008_shift_matching_margins
+                                                -> 0009_audit_log_immutability
+                                                -> 0010_attendance_records
+                                                -> 0011_attendance_import_issues
+                                                -> 0012_attendance_approval_values
+                                                -> 0013_attendance_months
+                                                -> 0014_attendance_source_files
+                                                -> 0015_attendance_issue_resolution
+```
+
+The two 0004 revisions are intentional parallel histories and are joined by 0005. Do not delete or rename either historical revision. The 0003 and later employee-history downgrade behavior intentionally retains service-period history. The 0004 code-sequence revisions also preserve the non-transactional sequence/high-water mark on downgrade.
+
+Acceptance still requires running the PostgreSQL migration suite against a clean database and a database with historical data, confirming one Alembic head, and testing upgrade/downgrade/re-upgrade without losing employee-code reservations or service-period history. The source files alone do not prove these runtime gates.
+
+## 3. Employee foundation and invariants observed
+
+- Employee codes use the `MY-0001` format and a database-backed sequence for PostgreSQL.
+- Employee code reservations are designed not to be reused after a transaction rollback.
+- Service-period history is separate from the employee's current status.
+- The service-period migration refuses to invent an unknown rehire/start date and refuses to proceed when conflicting open/closed history is detected.
+- A partial unique index is intended to allow only one open service period per employee.
+- Archive/rehire history and employee-code retention have dedicated acceptance tests/PRs.
+
+Remaining coordinator verification:
+1. Confirm employee creation, editing, archive, rehire, and former-employee listing as one complete route-to-database workflow.
+2. Confirm rehire retains the original employee code and creates exactly one new open service period.
+3. Confirm failed/rolled-back creation does not permit a PostgreSQL employee code to be reused.
+4. Confirm migration downgrade/re-upgrade retains service periods and sequence high-water marks.
+5. Confirm all employee mutations are authenticated, CSRF-protected, and auditable.
+6. Confirm photo uploads validate actual image content, size, and supported format, and that file cleanup/backup behavior is covered.
+
+## 4. Security review status
+
+The inspected platform-hardening baseline includes:
+- Argon2-capable password hashing through the configured password-hash library, with a minimum 12-character password.
+- A local terminal bootstrap script that creates one administrator and refuses a second administrator.
+- Session username resolution against an active administrator record.
+- Session-version checking; stale or malformed session versions fail closed and clear the session.
+- CSRF tokens bound to the session and checked with constant-time comparison.
+- Login rotates the session by clearing it before writing the authenticated identity and issuing a fresh CSRF token.
+- Database constraints/tests intended to prevent multiple administrator rows and prevent deletion/deactivation of the sole administrator.
+
+Open security acceptance:
+- Re-run the full authentication, route-security, CSRF, administrator-bootstrap, and audit immutability tests on the current integration head.
+- Verify cookie settings, local-only bind, secret configuration, session expiry, and production-mode HTTPS behavior against the actual Windows setup.
+- Verify every state-changing route has both administrator authentication and CSRF protection; review upload/download endpoints separately.
+- Verify audit-log immutability at both application and database levels.
+- Do not claim production security approval until these checks pass.
+
+## 5. Pull request collision finding — PR #1
+
+PR #1 (`feature/auth-security`) is not a narrow security-only change. Its current changed-file list includes:
+- Shared files: `app/main.py`, `app/models.py`, configuration and templates.
+- Attendance-owned implementation: `app/attendance_workflow.py` and attendance workflow tests.
+- Migration `0014_attendance_source_files.py`.
+- Authentication, CSRF, dependency, and security files.
+
+PR #1 targets `main`, while the attendance acceptance PR #2 targets `feature/platform-hardening` and already contains the attendance source-file migration/work. This creates overlapping ownership and potential duplicate migration/revision history. PR #1 is currently 42 commits ahead of main and not behind it, so the earlier review note about being behind is stale. The existing CHANGES_REQUESTED review was submitted before the latest PR update and must be re-evaluated against the current head. Its latest recorded workflow run (2026-11-07) failed; the job record contains no step summaries/logs, so the current code is not CI-verified.
+
+**Decision:** PR #1 must remain unmerged pending a controlled split/rebase/review. Its authentication-only changes should be isolated from attendance-owned files and reconciled against the current integration baseline. Do not merge PR #1 directly into `main`, and do not merge it before resolving the duplicate attendance/migration content.
+
+## 6. Additional business-rule and branch synchronization blockers
+
+- Payroll divisor remains disputed. The durable HR instruction available to the coordinator says the daily wage basis was changed to 40 days, while Team 4 PR #14 delivery notes assert a later 30-day confirmation. That later confirmation is recorded by the workstream but is not independently present in the current coordinator conversation. Do not finalize the formula on the basis of a workstream note alone; obtain/locate the actual HR approval and preserve the decision source in the specification.
+- The current baseline includes general shift-pattern and security-shift-assignment tables in migrations 0007–0008. Later user scope says no shift table in the current system, while the attendance work still needs overnight and Security roster behavior. Do not remove existing shift schema or invent a new schedule model during parallel work; the coordinator must reconcile the exact retained Security roster data needs against the latest user-approved scope.
+- PR #2 was previously found diverged and non-mergeable; recheck its current base/head before integration. A new PR #15 from Team 2 is narrowly scoped to corrupt Excel workbook handling and changes only `app/attendance_import.py` plus its focused test, but its base is PR #2's branch. Review and validate PR #15 together with its base lineage; do not merge it ahead of the required attendance base.
+- Team 3's new branch `team3/leave-advances-rewards-hardening` is 44 commits ahead and 1 behind `feature/platform-hardening`, and its diff changes shared files `app/main.py`, `app/models.py`, three Alembic migrations (0016–0018), and the global test workflow. This violates the agreed ownership boundary. The branch must be treated as an integration candidate only after Team 3 isolates domain-owned changes and submits migration proposals; Team 1 must own shared-file and migration integration. Do not merge this branch as-is.
+
+## 7. Integration boundaries
+
+- Team 1 is the only editor of shared models, application entrypoint, Alembic migrations, common settings, and shared navigation.
+- Teams 2–4 must submit schema changes as proposals; they must not independently edit shared migrations or models.
+- Attendance, leave/advances/rewards, and payroll/reporting remain owned by their respective workstreams.
+- No branch is accepted solely because its unit tests pass; review changed paths, migration compatibility, CI, and end-to-end workflows first.
+- No workstream may merge directly to `main`.
+
+## 8. Team 1 next actions
+
+1. Complete a full review of PR #1's authentication changes and isolate the valid security-only delta.
+2. Run and review employee lifecycle and admin-security test suites on a common integration head.
+3. Verify the full Alembic graph and PostgreSQL upgrade/downgrade/re-upgrade acceptance.
+4. Review all incoming PRs for shared-file/migration collisions before integration.
+5. Integrate only reviewed work in dependency order, then run full cross-module regression.
+6. Coordinate Windows 11 installation, backup/restore, and final user acceptance; these cannot be claimed complete from GitHub CI alone.
+
+## 9. Current status
+
+This commit records an evidence-based audit and integration blockers only. It does not claim that the full application is complete, that PR #1 is approved, or that the target Windows device has passed acceptance.
+
+
+## 10. Latest parallel-work review (2026-11-07)
+
+- Team 4 PR #14 adds a deterministic, offline, read-only payroll analysis helper and focused tests. The helper does not itself provide a generative chat interface or application route; Team 4 explicitly hands off router/navigation wiring to Team 1. The PR is based on `work/payroll-foundation`, not the shared integration baseline, and its reported pytest/Windows CI jobs have failed; treat as draft and unverified.
+- Team 2 PR #15 handles corrupt XLSX loading by converting workbook-load exceptions into a stable reviewable `ValueError`, with a focused test. It changes only the attendance import module and its test, but inherits the attendance branch's base dependency.
+- Team 3's `team3/leave-advances-rewards-hardening` branch currently edits protected shared paths and Alembic migrations directly; coordinator integration must not proceed until ownership is corrected.
+- The first CI run for Team 1 PR #16 failed in both Linux and Windows jobs. A retry of failed jobs was requested successfully; results must be checked before treating the documentation PR as validated.
+
+## 11. Employee effective-date integrity fix (2026-11-07)
+
+A focused route review found that the employee profile-edit route and the approval route for employee data-change requests accepted an effective date earlier than the employee's current hire date. This could create impossible employment history, even though the transfer route already rejects dates before hire.
+
+Team 1 applied a narrow fix on the Team 1 branch:
+- Profile edits now reject an effective date earlier than Employee.hire_date.
+- Applying a pending employee data-change request now enforces the same boundary.
+- Added route regression tests for both rejection paths and verified in test assertions that the employee record/history remains unchanged or the request remains pending after rejection.
+
+Commits:
+- Application validation: b6e0fc18cbb088d43e5898c46e89c82d561c93f1
+- Regression tests: d78b750ed5ece723f96dedd76f5be96c8a6e8286
+
+This is a code change, not a claim of passing tests. CI for the latest branch head must complete successfully, and PostgreSQL/Windows acceptance remains outstanding.
+
+## 12. Employee photo upload resource limit (2026-11-07)
+
+A second focused security review found that the photo upload handler limited compressed file size to 5 MiB and validated the image format, but did not set an explicit decoded-pixel ceiling. A small compressed image with very large dimensions could therefore impose disproportionate image-processing/memory cost.
+
+Team 1 added a 20,000,000-pixel maximum and a regression test using a 4,500 x 4,500 image. The request must be rejected before a file is written to the employee-photo directory.
+
+Commits:
+- Application limit: 47d45d2caa3433b875cb8147e9f8a91dba71cd4a
+- Regression test: e0f92af65389e11bb394e6f8afcbeebbbfa32651
+
+This is a targeted guardrail; CI, Windows 11 execution, and full upload lifecycle/backup acceptance remain outstanding.
+
+
+
+## Employee photo/database transaction consistency — 2026-11-07
+
+Employee photo files are stored on the local filesystem while employee records are committed in the database. The employee-creation route now wraps the full database transaction, including commit, in cleanup handling. If validation after the photo write, a flush, or the transaction commit fails, the newly written photo is removed so the filesystem does not retain an unreferenced employee image. A regression test injects a database before_commit failure and verifies that the image directory is empty afterward.
+
+This is a focused safeguard; it does not replace a full backup/restore test or a periodic orphan-file reconciliation tool.
+
+
+## 13. Follow-up route and migration source review (2026-11-07)
+
+A fresh source-level pass was completed against the current Team 1 branch after the employee-photo rollback test correction.
+
+### Route protection
+
+- Reviewed all state-changing routes declared in `app/main.py`: login/logout, attendance import and issue resolution, attendance reconciliation and approval, Security roster preview/confirmation, department/branch changes, employee creation/edit/change requests/transfer/archive/rehire.
+- All state-changing routes declare the session-bound CSRF dependency. All protected business routes resolve the sole administrator through `get_current_admin`; login and logout are the intentional exceptions because login establishes the session and logout destroys it.
+- `get_current_admin` fails closed when the account is absent/inactive or the stored session version is missing, malformed, or stale, and clears the invalid session.
+- This was a source review only; it does not replace the route-security test suite or an independent penetration test.
+
+### Employee-code sequence and service-period migration
+
+- Revision `0002_platform_state` backfills the legacy employee-code counter from the highest existing `MY-<number>` code and retains the counter on downgrade.
+- Revision `0004_employee_code_sequence` locks the counter table, computes the high-water mark from both employee rows and the counter, and advances the PostgreSQL sequence only forward. It intentionally retains the sequence on downgrade.
+- Revision `0003_employee_service_periods` refuses conflicting open periods and refuses to invent a start date for an active employee with only closed service history. Its downgrade intentionally retains the history and uniqueness guard.
+- These migration implementations look directionally safe on source inspection, but no live PostgreSQL migration run has been executed in this review. Required: clean-database upgrade, populated-database upgrade, downgrade/re-upgrade, concurrent code reservation, and rollback/non-reuse tests against PostgreSQL.
+
+### Remaining gaps
+
+- The README explicitly marks the application as not production-ready and instructs against entering real employee data until backup/restore and Windows installation are complete.
+- The reviewed README does not yet provide an operational, tested backup-and-restore procedure. Employee photo files live outside PostgreSQL, so a database-only dump would not be a complete recovery point.
+- The new employee-photo rollback regression test has been corrected to use local `BytesIO` and PIL imports. GitHub returned no PR-triggered workflow run for the latest Team 1 test commit; therefore the test has not been proven to execute successfully.
+- No Windows 11 installation, PostgreSQL migration execution, or backup restoration has been performed by this source review.
+
+**Decision:** retain PR #16 as Draft. Do not claim test, migration, backup, Windows, or production acceptance until those executions are recorded.
+
+
+## 14. Initial Windows backup/restore implementation (2026-11-07)
+
+Team 1 added a first local recovery implementation:
+- `scripts/backup_database.ps1` creates a PostgreSQL custom-format dump, copies the complete employee-photo directory, and writes a manifest containing the database name and SHA-256 dump checksum.
+- `scripts/restore_database.ps1` validates the manifest and checksum, requires an exact interactive confirmation, refuses a target database containing user relations, stages the employee-photo directory, and invokes `pg_restore` in a single transaction. It attempts to roll back the photo-folder swap if database restore fails.
+- `docs/BACKUP_RESTORE_WINDOWS.md` documents prerequisites, operation, secure off-device storage, and the remaining acceptance tests.
+
+Security/operational decisions:
+- The backup intentionally excludes `.env`, session secrets, and database passwords. Those must be protected separately; do not store them beside an unencrypted employee-data backup.
+- The scripts expect PostgreSQL client tools in PATH and a URL in the existing `.env` format.
+- Stop the application before backup/restore to avoid concurrent writes.
+- Restore is intentionally restricted to a fresh empty database with the same name recorded in the backup.
+
+**Important limitation:** these PowerShell scripts have only received source review. They have not been executed under Windows PowerShell, against PostgreSQL, or on the target Windows 11 PC. In particular, the end-to-end backup/restore and rollback scenarios remain unverified. Do not treat this as approved disaster recovery until the acceptance tests in `docs/BACKUP_RESTORE_WINDOWS.md` pass.
+
+
+## 15. Sensitive runtime-file ignore rules (2026-11-07)
+
+- Added explicit Git ignore rules for `var/employee_photos/`, `var/security_roster_staging/`, and `var/attendance_uploads/`. These paths may contain employee-identifying photos or uploaded attendance/security evidence and must not be committed as application source.
+- Existing `backups/` and `.env` ignore rules remain in place.
+- The change is committed on the Team 1 integration branch. It protects future untracked files; it does not automatically remove any sensitive files that may already be tracked in Git history. A repository-wide tracked-file/history check remains required before real employee data is entered.
+- Re-reviewed the PowerShell backup/restore scripts at source level. No Windows PowerShell/PostgreSQL execution has been performed. Their restore procedure remains restricted to a matching, empty database and still requires a disposable-database acceptance run, including checksum failure and rollback tests.
+
+
+## 16. Local-only backup/restore guard (2026-11-07)
+
+- Hardened both PowerShell scripts to accept only `127.0.0.1`, `localhost`, or `::1` as the PostgreSQL host, matching the local-desktop deployment requirement and preventing accidental backup/restore against a remote server.
+- Both scripts now reject an empty database password and pass `--no-password` to PostgreSQL client tools so an unexpected interactive prompt fails instead of hanging.
+- Updated the Windows recovery guide with these restrictions.
+- These are source-level safeguards only. They still require execution under the target Windows PowerShell/PostgreSQL versions, including a disposable local database and a deliberately remote-host rejection test.
+
+
+## 17. Coordinator re-review of PR #16 and recovery scripts (2026-11-07)
+
+A fresh GitHub review confirmed that PR #16 is no longer documentation-only, despite its current PR body still describing it that way. Its actual changed-file list is:
+- `.gitignore`
+- `app/main.py`
+- `docs/BACKUP_RESTORE_WINDOWS.md`
+- `docs/TEAM1_FOUNDATION_AUDIT.md`
+- `scripts/backup_database.ps1`
+- `scripts/restore_database.ps1`
+- `tests/test_routes_security.py`
+
+The PR description must be corrected to match these files and the actual code/security/recovery scope before review can be completed.
+
+### Latest CI evidence
+
+The latest PR-triggered workflow for head `aad6c20e6b122c41e6e6ec37bbbc195607c23b45` is run #711 (run ID `42391698392`). Both jobs completed with failure:
+- Linux: `Run pytest (Python 3.11)`
+- Windows: `Windows runner compatibility (Python 3.11)`
+
+GitHub returned no step summaries or logs for either job. The failure cause is therefore unknown; do not classify it as an application regression or an infrastructure-only failure without further evidence. The current PR head is not CI-verified.
+
+### Recovery-script review limits and additional acceptance
+
+The backup script creates a PostgreSQL custom-format dump, copies employee photos, and writes a SHA-256 checksum for the database dump. The restore script checks the dump checksum, restricts the database host to localhost, requires an exact confirmation, refuses a database containing user relations, stages the photo directory, and requests a single-transaction PostgreSQL restore.
+
+Source review is not sufficient to approve recovery. Additional disposable-database acceptance must prove:
+1. A successful backup can be listed with `pg_restore --list`.
+2. Restore into a newly created empty database preserves employee, service-period, attendance, and audit data.
+3. Employee photo files are verified by count and per-file checksum, not only by the database dump checksum.
+4. A corrupted dump is rejected before database or photo changes.
+5. A non-empty database and a non-local PostgreSQL host are rejected.
+6. A failed backup cannot be mistaken for a complete backup (incomplete output should be marked/removed safely).
+7. The scripts execute successfully under the actual Windows PowerShell and PostgreSQL versions on the target computer.
+
+### Coordinator decision
+
+PR #16 remains Draft and must not be merged until its description is corrected, the latest CI failure is diagnosed with usable logs, and the recovery acceptance tests are recorded. No real employee or payroll data may be used for these tests. No Windows 11 target-device execution or live PostgreSQL recovery has been performed by this review.

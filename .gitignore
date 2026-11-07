@@ -7,5 +7,9 @@ venv/
 .env
 data/
 backups/
+# Sensitive runtime files: employee photos and staged attendance/security uploads.
+var/employee_photos/
+var/security_roster_staging/
+var/attendance_uploads/
 *.log
 .DS_Store

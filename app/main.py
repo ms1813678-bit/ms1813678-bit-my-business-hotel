@@ -74,6 +74,7 @@ async def _app_lifespan(application):
 
 EMPLOYEE_PHOTO_DIR = Path("var") / "employee_photos"
 EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
+EMPLOYEE_PHOTO_MAX_PIXELS = 20_000_000
 EMPLOYEE_PHOTO_FIELDS = {"full_name", "phone", "address", "position", "national_id"}
 
 
@@ -88,6 +89,8 @@ def _store_employee_photo(upload: UploadFile | None) -> str | None:
     try:
         import io
         with Image.open(io.BytesIO(raw)) as image_file:
+            if image_file.width * image_file.height > EMPLOYEE_PHOTO_MAX_PIXELS:
+                raise HTTPException(status_code=400, detail="أبعاد الصورة أكبر من الحد المسموح.")
             image_file.verify()
             image_format = image_file.format
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
@@ -996,7 +999,7 @@ def employees_page(request: Request, admin: AdminAccount = Depends(get_current_a
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
         return templates.TemplateResponse(
             request=request, name="employees.html",
-            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employee_changes": employee_changes, "data_change_requests": data_change_requests, "employees": employees, "csrf_token": get_csrf_token(request)},
+            context={"departments": departments, "branches": branches, "all_departments": all_departments, "all_branches": all_branches, "employee_changes": employee_changes, "data_change_requests": data_change_requests, "employees": employees, "today": date.today().isoformat(), "csrf_token": get_csrf_token(request)},
         )
 
 
@@ -1029,39 +1032,50 @@ def create_employee(
     fingerprint_id = fingerprint_id.strip() or None
     if not full_name or not position:
         raise HTTPException(status_code=400, detail="اسم الموظف والمسمى الوظيفي مطلوبان.")
-    with SessionLocal.begin() as db:
-        department = db.get(Department, department_id)
-        if department is None or not department.active:
-            raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
-        branch = db.get(Branch, branch_id) if branch_id is not None else None
-        if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
-            raise HTTPException(status_code=400, detail="الفرع المحدد غير تابع للقسم المختار أو غير متاح.")
-        for field_name, value in (("national_id", national_id), ("fingerprint_id", fingerprint_id)):
-            if value is not None and db.scalar(
-                select(Employee.id).where(getattr(Employee, field_name) == value).limit(1)
-            ) is not None:
-                raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
-        photo_path = _store_employee_photo(photo)
-        employee = Employee(
-            code=allocate_employee_code(db), full_name=full_name,
-            national_id=national_id, phone=phone.strip() or None,
-            address=address.strip() or None, department_id=department_id,
-            branch_id=branch_id, position=position, hire_date=hire_date,
-            probation_start_date=probation_start_date, probation_end_date=probation_end_date,
-            basic_salary=basic_salary, daily_hours=daily_hours,
-            fingerprint_id=fingerprint_id, photo_path=photo_path, status="active",
-        )
-        db.add(employee)
-        db.flush()
-        db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason="Initial employment"))
-        db.add(AuditLog(
-            actor=admin.username, action="employee_created",
-            entity_type="employee", entity_id=str(employee.id),
-            new_value=f"code={employee.code}; full_name={employee.full_name}; department_id={department_id}; branch_id={branch_id}",
-            reason="Initial employee record created",
-        ))
-    return RedirectResponse("/employees", status_code=303)
 
+    photo_path = None
+    try:
+        with SessionLocal.begin() as db:
+            department = db.get(Department, department_id)
+            if department is None or not department.active:
+                raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
+            branch = db.get(Branch, branch_id) if branch_id is not None else None
+            if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
+                raise HTTPException(status_code=400, detail="الفرع المحدد غير تابع للقسم المختار أو غير متاح.")
+            for field_name, value in (("national_id", national_id), ("fingerprint_id", fingerprint_id)):
+                if value is not None and db.scalar(
+                    select(Employee.id).where(getattr(Employee, field_name) == value).limit(1)
+                ) is not None:
+                    raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
+            photo_path = _store_employee_photo(photo)
+            employee = Employee(
+                code=allocate_employee_code(db), full_name=full_name,
+                national_id=national_id, phone=phone.strip() or None,
+                address=address.strip() or None, department_id=department_id,
+                branch_id=branch_id, position=position, hire_date=hire_date,
+                probation_start_date=probation_start_date, probation_end_date=probation_end_date,
+                basic_salary=basic_salary, daily_hours=daily_hours,
+                fingerprint_id=fingerprint_id, photo_path=photo_path, status="active",
+            )
+            db.add(employee)
+            db.flush()
+            db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason="Initial employment"))
+            db.add(AuditLog(
+                actor=admin.username, action="employee_created",
+                entity_type="employee", entity_id=str(employee.id),
+                new_value=f"code={employee.code}; full_name={employee.full_name}; department_id={department_id}; branch_id={branch_id}",
+                reason="Initial employee record created",
+            ))
+    except Exception:
+        # Include transaction-commit failures: the image is stored outside the
+        # database, so remove it whenever employee creation does not commit.
+        if photo_path:
+            try:
+                (EMPLOYEE_PHOTO_DIR / photo_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    return RedirectResponse("/employees", status_code=303)
 
 @app.post("/employees/{employee_id}/edit", dependencies=[Depends(csrf_protect)])
 def edit_employee(
@@ -1096,6 +1110,8 @@ def edit_employee(
         employee = db.get(Employee, employee_id)
         if employee is None:
             raise HTTPException(status_code=404, detail="الموظف غير موجود.")
+        if effective_date < employee.hire_date:
+            raise HTTPException(status_code=400, detail="تاريخ سريان التعديل لا يمكن أن يسبق تاريخ تعيين الموظف.")
         department = db.get(Department, department_id)
         if department is None or not department.active:
             raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
@@ -1218,6 +1234,8 @@ def review_employee_data_change_request(
         if decision == "apply":
             if effective_date is None:
                 raise HTTPException(status_code=400, detail="تاريخ سريان التعديل مطلوب عند الموافقة.")
+            if effective_date < employee.hire_date:
+                raise HTTPException(status_code=400, detail="تاريخ سريان التعديل لا يمكن أن يسبق تاريخ تعيين الموظف.")
             if change_request.field_name not in EMPLOYEE_PHOTO_FIELDS:
                 raise HTTPException(status_code=400, detail="حقل التعديل غير مسموح.")
             old_value = getattr(employee, change_request.field_name)
@@ -1364,6 +1382,8 @@ def rehire_employee(
         )
         if previous_period is None or previous_period.end_date is None:
             raise HTTPException(status_code=409, detail="سجل فترة الخدمة السابقة غير مكتمل؛ راجع بيانات الأرشفة أولاً.")
+        if new_hire_date > date.today():
+            raise HTTPException(status_code=400, detail="لا يمكن أن يكون تاريخ إعادة التعيين في المستقبل.")
         if new_hire_date <= previous_period.end_date:
             raise HTTPException(status_code=400, detail="تاريخ إعادة التعيين يجب أن يكون بعد انتهاء فترة الخدمة السابقة.")
         employee.status = "active"
