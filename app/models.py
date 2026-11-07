@@ -505,3 +505,111 @@ class StaffAction(Base):
     acknowledgement_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     acknowledgement_note: Mapped[str | None] = mapped_column(Text)
     payroll_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PayrollPeriod(Base):
+    __tablename__ = "payroll_periods"
+    __table_args__ = (
+        UniqueConstraint("period_start", name="uq_payroll_period_start"),
+        CheckConstraint("period_end >= period_start", name="ck_payroll_period_dates"),
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'closed')",
+            name="ck_payroll_period_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    payment_due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[str | None] = mapped_column(String(80))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopened_by: Mapped[str | None] = mapped_column(String(80))
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopen_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class PayrollLine(Base):
+    __tablename__ = "payroll_lines"
+    __table_args__ = (
+        UniqueConstraint("payroll_period_id", "employee_id", name="uq_payroll_line_period_employee"),
+        CheckConstraint("base_salary >= 0", name="ck_payroll_line_base_salary_nonnegative"),
+        CheckConstraint(
+            "attendance_bonus >= 0 AND performance_bonus >= 0 AND occupancy_bonus >= 0 "
+            "AND overtime_amount >= 0 AND other_bonus >= 0 "
+            "AND absence_deduction >= 0 AND lateness_deduction >= 0 "
+            "AND insurance_share >= 0 AND taxes >= 0 AND other_deductions >= 0 "
+            "AND advance_deduction >= 0",
+            name="ck_payroll_line_amounts_nonnegative",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payroll_period_id: Mapped[int] = mapped_column(
+        ForeignKey("payroll_periods.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    employee_code_snapshot: Mapped[str] = mapped_column(String(20), nullable=False)
+    employee_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    department_name_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    position_snapshot: Mapped[str] = mapped_column(String(120), nullable=False)
+    basic_salary_snapshot: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    daily_hours_snapshot: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    attendance_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    performance_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    occupancy_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    overtime_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    other_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    absence_deduction: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    lateness_deduction: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    insurance_share: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    taxes: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    other_deductions: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    advance_deduction: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    @property
+    def net_pay(self) -> Decimal:
+        earnings = (
+            Decimal(self.basic_salary_snapshot)
+            + Decimal(self.attendance_bonus or 0)
+            + Decimal(self.performance_bonus or 0)
+            + Decimal(self.occupancy_bonus or 0)
+            + Decimal(self.overtime_amount or 0)
+            + Decimal(self.other_bonus or 0)
+        )
+        deductions = (
+            Decimal(self.absence_deduction or 0)
+            + Decimal(self.lateness_deduction or 0)
+            + Decimal(self.insurance_share or 0)
+            + Decimal(self.taxes or 0)
+            + Decimal(self.other_deductions or 0)
+            + Decimal(self.advance_deduction or 0)
+        )
+        return (earnings - deductions).quantize(Decimal("0.01"))
+
+
+class PayrollPayment(Base):
+    __tablename__ = "payroll_payments"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payroll_payment_amount_positive"),
+        CheckConstraint(
+            "payment_method IN ('cash', 'bank_transfer')",
+            name="ck_payroll_payment_method",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payroll_line_id: Mapped[int] = mapped_column(
+        ForeignKey("payroll_lines.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    payment_method: Mapped[str] = mapped_column(String(20), nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(120))
+    recorded_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
