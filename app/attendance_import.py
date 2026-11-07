@@ -76,27 +76,37 @@ def _load_rows(file_bytes: bytes, filename: str):
     suffix = Path(filename or "").suffix.casefold()
     if suffix == ".xlsx":
         from openpyxl import load_workbook
-        workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+        workbook = None
         try:
+            workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+            # Read the worksheets inside the guarded block: read_only mode parses
+            # worksheet XML lazily, so a corrupt sheet can fail after load_workbook.
             return [
                 (sheet.title, list(sheet.iter_rows(values_only=True)), 0)
                 for sheet in workbook.worksheets
             ]
+        except Exception as exc:
+            raise ValueError("invalid_or_unsupported_excel_workbook") from exc
         finally:
-            workbook.close()
+            if workbook is not None:
+                workbook.close()
     if suffix == ".xls":
         try:
             import xlrd
         except ImportError as exc:
             raise ValueError("legacy_xls_support_not_installed") from exc
-        workbook = xlrd.open_workbook(file_contents=file_bytes, on_demand=True)
+        workbook = None
         try:
+            workbook = xlrd.open_workbook(file_contents=file_bytes, on_demand=True)
             return [
                 (sheet.name, [sheet.row_values(i) for i in range(sheet.nrows)], workbook.datemode)
                 for sheet in workbook.sheets()
             ]
+        except Exception as exc:
+            raise ValueError("invalid_or_unsupported_legacy_excel_workbook") from exc
         finally:
-            workbook.release_resources()
+            if workbook is not None:
+                workbook.release_resources()
     raise ValueError("unsupported_attendance_file_extension")
 
 

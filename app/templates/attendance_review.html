@@ -39,6 +39,25 @@
       <p>تقرير البرنامج: دخول {{ record.program_clock_in or "غير موجود" }} — خروج {{ record.program_clock_out or "غير موجود" }}</p>
       <p>البصمة: أول حركة {{ record.fingerprint_in or "غير موجودة" }} — آخر حركة {{ record.fingerprint_out or "غير موجودة" }}</p>
       <p>الدقائق المقترحة: {{ record.worked_minutes if record.worked_minutes is not none else "غير محسوبة" }}</p>
+      {% if record.suggested_clock_in and record.scheduled_start_at %}
+        {% if record.suggested_clock_in > record.scheduled_start_at %}
+          <p>التأخير المقترح: {{ ((record.suggested_clock_in - record.scheduled_start_at).total_seconds() / 60)|int }} دقيقة</p>
+        {% else %}
+          <p>التأخير: لا يظهر تأخير مقارنة ببداية الوردية</p>
+        {% endif %}
+      {% else %}
+        <p>التأخير: لا يمكن حسابه قبل تحديد وقت الحضور والوردية</p>
+      {% endif %}
+      {% if record.suggested_clock_out and record.scheduled_end_at %}
+        {% if record.suggested_clock_out < record.scheduled_end_at %}
+          <p>الانصراف المبكر المقترح: {{ ((record.scheduled_end_at - record.suggested_clock_out).total_seconds() / 60)|int }} دقيقة</p>
+        {% else %}
+          <p>الانصراف المبكر: لا يظهر انصراف مبكر مقارنة بنهاية الوردية</p>
+        {% endif %}
+      {% else %}
+        <p>الانصراف المبكر: لا يمكن حسابه قبل تحديد وقت الانصراف والوردية</p>
+      {% endif %}
+      {% if record.status == "needs_review" %}<p>تعارض أو نقص بيانات: يتطلب مراجعة مسؤول الموارد البشرية</p>{% endif %}
       {% if record.review_notes %}<p>ملاحظات: {{ record.review_notes }}</p>{% endif %}
       <form method="post" action="/attendance/{{ record.id }}/approve">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

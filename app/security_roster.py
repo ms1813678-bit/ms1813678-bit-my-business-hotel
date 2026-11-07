@@ -1,9 +1,9 @@
-"""Build security shift proposals from the approved three-person daily roster rule.
+"""Build Security shift proposals from configured roster and shift-pattern rules.
 
-The Excel roster supplies each employee's shift START time or OFF. This module
-derives the duration from the number of employees working that date and resolves
-the result against configured Security ShiftPattern rows. It does not persist or
-approve assignments.
+Security team size is flexible. At least two active employees must be configured,
+and at least two guards must work each day. Two working guards use 12-hour
+patterns; three use 8-hour patterns. Larger daily teams require configured patterns.
+OFF is not a shift.
 """
 from datetime import time
 
@@ -25,19 +25,42 @@ def _pattern_time(value):
     return _as_time(value)
 
 
-def build_security_day_proposal(roster, shift_patterns):
-    """Return a reviewable proposal for one date.
+def _minutes(value):
+    parsed = _as_time(value)
+    return parsed.hour * 60 + parsed.minute
 
-    roster maps exactly three employee IDs to an HH:MM start time or "OFF".
-    Two working employees receive 12-hour shifts; three receive 8-hour shifts.
-    A proposal is ready only when every derived start/end resolves to exactly
-    one configured Security ShiftPattern and all starts are distinct.
+
+def _interval_segments(start, end):
+    start_minute = _minutes(start)
+    end_minute = _minutes(end)
+    if start_minute == end_minute:
+        return None
+    if end_minute > start_minute:
+        return [(start_minute, end_minute)]
+    return [(start_minute, 24 * 60), (0, end_minute)]
+
+
+def _intervals_overlap(first, second):
+    return any(
+        max(a, c) < min(b, d)
+        for a, b in first
+        for c, d in second
+    )
+
+
+def build_security_day_proposal(roster, shift_patterns):
+    """Return a reviewable proposal without inferring unconfigured durations.
+
+    At least two employees must be present in the roster and at least two guards
+    must work each day. Two working guards require 12-hour patterns; three or more
+    require 8-hour patterns. Each start must match one configured active pattern.
+    Ambiguity, missing patterns, duplicate starts, and overlaps block approval.
     """
-    if not isinstance(roster, dict) or len(roster) != 3:
+    if not isinstance(roster, dict) or len(roster) < 2:
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["security_roster_must_contain_exactly_three_employees"],
+            "issues": ["security_roster_must_contain_at_least_two_employees"],
         }
 
     working = []
@@ -54,12 +77,11 @@ def build_security_day_proposal(roster, shift_patterns):
 
     if issues:
         return {"status": "needs_review", "assignments": [], "issues": issues}
-
-    if len(working) not in (2, 3):
+    if len(working) < 2:
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["daily_security_working_count_must_be_two_or_three"],
+            "issues": ["daily_security_working_count_must_be_at_least_two"],
         }
 
     starts = [start for _, start in working]
@@ -70,8 +92,8 @@ def build_security_day_proposal(roster, shift_patterns):
             "issues": ["duplicate_security_shift_start_times"],
         }
 
-    duration = 12 if len(working) == 2 else 8
     assignments = []
+    duration = 12 if len(working) == 2 else 8
     for employee_id, start in working:
         end = _plus_hours(start, duration)
         matches = [
@@ -80,11 +102,12 @@ def build_security_day_proposal(roster, shift_patterns):
             and _pattern_time(pattern["end_time"]) == end
         ]
         if len(matches) != 1:
+            kind = "missing" if not matches else "ambiguous"
             issues.append(
-                f"shift_pattern_resolution_{'missing' if not matches else 'ambiguous'}:"
-                f"{employee_id}:{start.isoformat(timespec='minutes')}-"
+                f"shift_pattern_resolution_{kind}:{employee_id}:"
+                f"{start.isoformat(timespec='minutes')}-"
                 f"{end.isoformat(timespec='minutes')}"
-            )
+                )
             continue
         assignments.append({
             "employee_id": employee_id,
@@ -93,6 +116,20 @@ def build_security_day_proposal(roster, shift_patterns):
             "duration_hours": duration,
             "shift_pattern_id": matches[0]["id"],
         })
+
+    intervals = {}
+    for item in assignments:
+        segments = _interval_segments(item["start_time"], item["end_time"])
+        if segments is None:
+            issues.append(f"invalid_zero_length_shift_pattern:{item['employee_id']}")
+        else:
+            intervals[item["employee_id"]] = segments
+
+    employee_ids = list(intervals)
+    for index, employee_id in enumerate(employee_ids):
+        for other_id in employee_ids[index + 1:]:
+            if _intervals_overlap(intervals[employee_id], intervals[other_id]):
+                issues.append(f"overlapping_security_shifts:{employee_id}:{other_id}")
 
     return {
         "status": "ready_for_admin_review" if not issues else "needs_review",
