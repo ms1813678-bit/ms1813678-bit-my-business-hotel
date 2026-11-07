@@ -84,6 +84,12 @@ def test_analyzer_flags_overtime_hours_amount_mismatch(hours, amount):
     assert "overtime_hours_amount_mismatch" in codes
 
 
+def test_analyzer_flags_negative_overtime_hours():
+    row = sample_row(overtime_hours="-1", overtime_amount="0", overtime_approved=True)
+    codes = {finding["code"] for finding in analyze_payroll_rows([row])}
+    assert "negative_overtime_hours" in codes
+
+
 def test_analyzer_accepts_explicit_overtime_approval():
     row = sample_row(overtime_hours="2", overtime_approved=True)
     codes = {finding["code"] for finding in analyze_payroll_rows([row])}
