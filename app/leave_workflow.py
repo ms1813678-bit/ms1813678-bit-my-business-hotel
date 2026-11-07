@@ -32,6 +32,7 @@ def add_balance_entry(
     days_delta: Decimal,
     reason: str,
     actor: str,
+    leave_record_id: int | None = None,
 ) -> LeaveBalanceTransaction:
     if not leave_type.tracks_balance:
         raise ValueError("This leave type does not use a balance.")
@@ -56,6 +57,7 @@ def add_balance_entry(
     entry = LeaveBalanceTransaction(
         employee_id=employee_id,
         leave_type_id=leave_type.id,
+        leave_record_id=leave_record_id,
         transaction_type=transaction_type,
         days_delta=days_delta,
         reason=reason.strip(),
@@ -96,6 +98,7 @@ def confirm_leave(db: Session, record: LeaveRecord, actor: str) -> None:
             days_delta=-Decimal(record.charged_days),
             reason=f"Confirmed leave record #{record.id}",
             actor=actor,
+            leave_record_id=record.id,
         )
     record.status = "confirmed"
     record.confirmed_by = actor
@@ -125,6 +128,7 @@ def cancel_leave(db: Session, record: LeaveRecord, actor: str, reason: str) -> N
                 days_delta=Decimal(record.charged_days),
                 reason=f"Cancellation of leave record #{record.id}: {reason.strip()}",
                 actor=actor,
+                leave_record_id=record.id,
             )
     old_status = record.status
     record.status = "cancelled"
