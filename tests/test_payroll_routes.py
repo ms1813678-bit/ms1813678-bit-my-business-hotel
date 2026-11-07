@@ -419,3 +419,50 @@ def test_payroll_mutations_require_csrf(payroll_client):
     assert client.post("/payroll", data={}).status_code == 403
     login(client)
     assert client.get("/payroll").status_code == 200
+
+
+
+def test_payroll_prorates_new_hire_by_actual_calendar_days(payroll_client):
+    client = payroll_client
+    login(client)
+    with client.test_session_factory() as db:
+        department = db.scalar(select(Department))
+        employee = Employee(
+            code="MY-TEST-PAY-0002",
+            full_name="Synthetic Midmonth Employee",
+            department_id=department.id,
+            position="Test Position",
+            hire_date=date(2026, 10, 16),
+            status="active",
+            basic_salary=Decimal("9000.00"),
+            daily_hours=Decimal("8"),
+        )
+        db.add(employee)
+        db.flush()
+        db.add(EmployeeServicePeriod(
+            employee_id=employee.id,
+            start_date=date(2026, 10, 16),
+            end_date=None,
+            start_reason="Synthetic midmonth hire",
+        ))
+        db.commit()
+        employee_id = employee.id
+
+    token = csrf(client.get("/payroll"))
+    response = client.post(
+        "/payroll",
+        data={"csrf_token": token, "year": "2026", "month": "10"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    run_id = int(response.headers["location"].rsplit("/", 1)[1])
+    with client.test_session_factory() as db:
+        item = db.scalar(
+            select(PayrollItem).where(
+                PayrollItem.payroll_run_id == run_id,
+                PayrollItem.employee_id == employee_id,
+            )
+        )
+        assert item is not None
+        assert item.base_salary == Decimal("4645.16")
+        assert item.employee_name_snapshot == "Synthetic Midmonth Employee"
