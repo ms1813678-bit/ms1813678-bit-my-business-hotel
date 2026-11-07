@@ -1,4 +1,4 @@
-"""Parse a monthly Security roster with two or more configured employees."""
+"""Parse a monthly Security roster for the fixed three-person team."""
 from datetime import date, datetime, time
 from io import BytesIO
 import re
@@ -54,7 +54,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
 
     employee_aliases maps known spreadsheet employee names to stable employee IDs.
     The sheet must contain one date/day column and one exact header for every
-    configured employee (two or more). Dates without a year are rejected.
+    configured employee (exactly three). Dates without a year are rejected.
     """
     if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
         raise ValueError("empty_excel_file")
@@ -62,8 +62,8 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
     if len(aliases) != len(employee_aliases):
         raise ValueError("employee_aliases_contain_normalization_collisions")
     expected_employee_ids = set(aliases.values())
-    if len(expected_employee_ids) < 2:
-        raise ValueError("aliases_must_resolve_to_at_least_two_unique_security_employees")
+    if len(expected_employee_ids) != 3:
+        raise ValueError("aliases_must_resolve_to_exactly_three_unique_security_employees")
 
     workbook = None
     try:
