@@ -103,6 +103,6 @@ Still to confirm: whether a day with all three guards marked OFF is permitted, a
 
 ## Integration status
 
-PR #15 remains Draft and unmerged. It is mergeable according to GitHub's current metadata, but it is not approved for integration. Team 1 identified `feature/platform-hardening` as the integration baseline; the Workstream 2 branch is diverged from that baseline by one commit and has a workflow/acceptance-test delta. Team 1 must reconcile that branch baseline before retargeting or merging.
+PR #15 remains Draft and unmerged. It is mergeable according to GitHub's current metadata, but it is not approved for integration. Current GitHub comparison against Team 1's `feature/platform-hardening` baseline reports 55 commits ahead / 1 behind, with merge base `bf95f64a482a1b317ec262d44b9286c29d13b62c`. The cross-branch delta includes `.github/workflows/tests.yml` and `tests/test_attendance_acceptance.py` in addition to Workstream 2 files. Team 1 must reconcile this divergence and workflow/acceptance-test delta before retargeting or merging.
 
 No changes were made to `main`. No successful Windows or PostgreSQL CI result is claimed.
