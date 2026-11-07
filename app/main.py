@@ -1315,6 +1315,7 @@ def create_advance_request(
     employee_id: int = Form(...),
     request_date: date = Form(...),
     amount: Decimal = Form(...),
+    advance_type: str = Form("regular"),
     reason: str = Form(...),
     admin: AdminAccount = Depends(get_current_admin),
 ):
@@ -1326,6 +1327,7 @@ def create_advance_request(
                 request_date=request_date,
                 amount=amount,
                 reason=reason,
+                advance_type=advance_type,
                 actor=admin.username,
             )
     except (ValueError, SQLAlchemyError):
