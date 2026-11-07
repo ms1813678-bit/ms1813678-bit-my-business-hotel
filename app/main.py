@@ -1047,6 +1047,8 @@ def create_leave_type(
     admin: AdminAccount = Depends(get_current_admin),
 ):
     normalized_code = code.strip().lower()
+    if not name_ar.strip() or not name_en.strip():
+        return RedirectResponse("/leave?error=type", status_code=303)
     if not normalized_code or not normalized_code.replace("_", "").isalnum():
         return RedirectResponse("/leave?error=type", status_code=303)
     with SessionLocal.begin() as db:
@@ -1108,7 +1110,7 @@ def create_leave_record(
     reason: str = Form(...),
     admin: AdminAccount = Depends(get_current_admin),
 ):
-    if end_date < start_date or charged_days < 0 or not reason.strip():
+    if end_date < start_date or charged_days <= 0 or not reason.strip():
         return RedirectResponse("/leave?error=dates", status_code=303)
     calendar_days = (end_date - start_date).days + 1
     if charged_days > Decimal(calendar_days):
