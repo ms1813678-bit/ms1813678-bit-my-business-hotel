@@ -39,7 +39,7 @@ def test_hr_report_contains_all_expected_sheets():
             "Payroll",
             "Departments",
         ]
-        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+        workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
         try:
             assert workbook["Employees"].freeze_panes == "A2"
             assert workbook["Payroll"].max_row == 1
