@@ -1,7 +1,7 @@
 """Database-backed security roster proposal and explicit confirmation workflow."""
 from calendar import monthrange
 from datetime import date, datetime, time, timedelta
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.models import AdminAccount, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern
@@ -303,7 +303,11 @@ def approve_security_roster_month(
     SecurityShiftAssignment/ShiftPattern rows. This gate does not infer a
     staffing minimum or continuous-coverage policy the hotel has not specified.
     """
-    if not isinstance(month_start, date) or month_start.day != 1:
+    if (
+        not isinstance(month_start, date)
+        or isinstance(month_start, datetime)
+        or month_start.day != 1
+    ):
         raise ValueError("security_roster_month_start_must_be_first_day")
     if not isinstance(admin, AdminAccount) or admin.id is None:
         raise ValueError("authenticated_active_admin_required")
@@ -379,15 +383,35 @@ def approve_security_roster_month(
         expected_by_date[work_date] = expected
 
     actual_by_date = {work_date: {} for work_date in work_dates}
+    audited_employee_ids = {
+        employee_id
+        for assignments in expected_by_date.values()
+        for employee_id in assignments
+    }
+    # Include all IDs in daily evidence too, including employees marked OFF.
+    for audit in daily_logs:
+        for token in str(audit.new_value or "").split(";"):
+            employee_text, separator, _value = token.strip().partition(":")
+            if not separator or not employee_text.isdigit():
+                raise ValueError("security_roster_month_daily_audit_is_invalid")
+            audited_employee_ids.add(int(employee_text))
+
     actual_rows = db.execute(
         select(SecurityShiftAssignment, ShiftPattern)
         .join(ShiftPattern, ShiftPattern.id == SecurityShiftAssignment.shift_pattern_id)
         .where(
-            ShiftPattern.department_id == department.id,
             SecurityShiftAssignment.work_date.in_(work_dates),
+            or_(
+                ShiftPattern.department_id == department.id,
+                SecurityShiftAssignment.employee_id.in_(audited_employee_ids),
+            ),
         )
     ).all()
     for assignment, pattern in actual_rows:
+        if pattern.department_id != department.id:
+            raise ValueError(
+                "security_roster_month_contains_assignment_with_non_security_pattern"
+            )
         employee_assignments = actual_by_date[assignment.work_date]
         if assignment.employee_id in employee_assignments:
             raise ValueError("security_roster_month_has_duplicate_employee_assignments")
