@@ -1,12 +1,14 @@
 """Scheduled backup entry point. Run from Windows Task Scheduler."""
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+os.chdir(ROOT)
 
 from app.backup_workflow import create_backup
 from app.db import SessionLocal
