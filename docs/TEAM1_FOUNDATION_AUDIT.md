@@ -143,3 +143,15 @@ Commits:
 
 This is a code change, not a claim of passing tests. CI for the latest branch head must complete successfully, and PostgreSQL/Windows acceptance remains outstanding.
 
+## 12. Employee photo upload resource limit (2026-11-07)
+
+A second focused security review found that the photo upload handler limited compressed file size to 5 MiB and validated the image format, but did not set an explicit decoded-pixel ceiling. A small compressed image with very large dimensions could therefore impose disproportionate image-processing/memory cost.
+
+Team 1 added a 20,000,000-pixel maximum and a regression test using a 4,500 x 4,500 image. The request must be rejected before a file is written to the employee-photo directory.
+
+Commits:
+- Application limit: 47d45d2caa3433b875cb8147e9f8a91dba71cd4a
+- Regression test: e0f92af65389e11bb394e6f8afcbeebbbfa32651
+
+This is a targeted guardrail; CI, Windows 11 execution, and full upload lifecycle/backup acceptance remain outstanding.
+
