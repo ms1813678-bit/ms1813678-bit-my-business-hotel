@@ -42,6 +42,7 @@ def test_hr_report_contains_all_expected_sheets():
             "Sanctions rewards",
             "Advances",
             "Payroll",
+            "Payroll comparison",
             "Departments",
         ]
         workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
@@ -145,6 +146,10 @@ def test_hr_report_preserves_employee_and_payroll_history():
                 assert workbook["Leave"].cell(2, 3).value == "سنوية"
                 assert workbook["Payroll"].cell(2, 4).value == "MY-REPORT-0001"
                 assert workbook["Payroll"].cell(2, 5).value == "Name at payroll time"
+                assert workbook["Payroll comparison"].cell(2, 4).value == 1
+                assert workbook["Payroll comparison"].cell(2, 7).value == 8000
+                assert workbook["Payroll comparison"].cell(2, 8).value == 0
+                assert workbook["Payroll comparison"].cell(2, 12).value == 1
             finally:
                 workbook.close()
     finally:
