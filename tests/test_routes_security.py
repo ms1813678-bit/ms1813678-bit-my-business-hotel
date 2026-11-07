@@ -1584,3 +1584,103 @@ def test_overnight_attendance_review_prefills_clock_out_on_next_date(client):
     page = client.get("/attendance/review")
     assert page.status_code == 200
     assert 'value="2026-11-02T07:03"' in page.text
+
+def test_employee_edit_rejects_effective_date_before_hire_date(client):
+    from app.main import SessionLocal
+    from app.models import EmployeeChange
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Pre-Hire Edit Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-10",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Pre-Hire Edit Test").one()
+        employee_id = employee.id
+
+    rejected = client.post(
+        f"/employees/{employee_id}/edit",
+        data={
+            "csrf_token": token,
+            "full_name": "Pre-Hire Edit Test Updated",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+            "effective_date": "2025-01-09",
+            "reason": "Must not predate employment",
+        },
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 400
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        assert employee.full_name == "Pre-Hire Edit Test"
+        assert db.query(EmployeeChange).filter_by(employee_id=employee_id).count() == 0
+
+
+def test_employee_data_change_review_rejects_effective_date_before_hire_date(client):
+    from app.main import SessionLocal
+    from app.models import EmployeeDataChangeRequest
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Pre-Hire Request Test",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-10",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(full_name="Pre-Hire Request Test").one()
+        employee_id = employee.id
+
+    submitted = client.post(
+        f"/employees/{employee_id}/data-change-requests",
+        data={
+            "csrf_token": token,
+            "field_name": "phone",
+            "requested_value": "01012345678",
+            "request_reason": "Correct contact details",
+        },
+        follow_redirects=False,
+    )
+    assert submitted.status_code == 303
+    with SessionLocal() as db:
+        request_row = db.query(EmployeeDataChangeRequest).filter_by(employee_id=employee_id).one()
+        request_id = request_row.id
+
+    rejected = client.post(
+        f"/employee-data-change-requests/{request_id}/review",
+        data={
+            "csrf_token": token,
+            "decision": "apply",
+            "decision_reason": "Reviewed",
+            "effective_date": "2025-01-09",
+        },
+        follow_redirects=False,
+    )
+    assert rejected.status_code == 400
+    with SessionLocal() as db:
+        request_row = db.get(EmployeeDataChangeRequest, request_id)
+        assert request_row.status == "pending"
+
