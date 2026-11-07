@@ -1,0 +1,113 @@
+# Workstream 2 delivery handoff — Attendance & Security roster
+
+Date: 2026-11-07
+
+## Scope and branch
+
+- Repository: `ms1813678-bit/ms1813678-bit-my-business-hotel`
+- Working branch: `work/attendance-review`
+- Pull request: [#15 — Attendance: support variable-size Security rosters and harden Excel import](https://github.com/ms1813678-bit/ms1813678-bit-my-business-hotel/pull/15)
+- No changes have been made to `main`.
+- No employee, payroll, leave, advances, authentication, model, migration, or navigation files were changed by Workstream 2.
+
+## Existing foundation retained
+
+The branch already contained the attendance evidence and approval foundation. Workstream 2 retained it rather than replacing it:
+
+- `AttendanceImportBatch` preserves the source type, file hash, original filename, uploader, timestamp, status, and original file bytes.
+- `AttendancePunch` stores parsed raw events with source sheet/row/event position and the raw timestamp text.
+- Import batches reject duplicate source-file hashes and preserve unknown-employee / malformed-row issues.
+- Program-report and fingerprint evidence remain separate. Reconciliation preserves disagreements instead of silently choosing one source.
+- Daily attendance proposals are not payroll approvals. HR approval stores final clock values separately and requires a reason.
+- Month attendance approval is gated by daily approval and explicit month coverage attestation.
+- Security roster upload already uses a temporary staged workbook and a non-persistent preview before per-day confirmation.
+
+The attendance import route itself still creates a persisted batch during upload; it does not yet have a non-persistent raw-file preview before batch creation.
+
+## Workstream 2 changes
+
+### Attendance workbook readers
+
+- Malformed `.xlsx` containers and worksheet XML errors that happen during lazy worksheet iteration are normalized to a controlled import error.
+- Malformed legacy `.xls` parsing errors are normalized after the declared `xlrd` dependency opens the workbook.
+- Added regression cases for malformed containers, lazy-corrupt sheets, and invalid legacy `.xls` data.
+
+### Security roster parser and proposal engine
+
+- Header aliases map exactly to employee IDs; duplicate or ambiguous identities are not silently collapsed.
+- Supports two or more configured employees in the parser and backend workflow.
+- Distinguishes `OFF` from `00:00`.
+- Recognizes `Date` / `Work Date` and known metadata headers such as `Notes` and `Total Hours`.
+- Unknown, unmapped employee columns become explicit issues and block day confirmation.
+- Keeps the existing 2/3-person legacy duration rules. For 4+ employees, each start must resolve to exactly one active Security shift pattern; no duration is guessed.
+- Missing/ambiguous patterns, zero-length intervals, duplicate starts, and overlaps remain review blockers.
+
+### Cross-date overnight collision guard
+
+- Preview compares consecutive roster dates so an overnight shift ending after midnight cannot silently overlap a next-day assignment.
+- Day confirmation repeats the adjacent-approved-date check at the persistence boundary, protecting against stale previews and out-of-order approval.
+- The adjacent-day lookup uses Security shift-pattern ownership, so a former Security employee's previously approved shift remains evidence even after their active employee status changes.
+
+### Attendance review hints
+
+- The daily review page displays suggested lateness and early-departure minutes against the scheduled shift.
+- Imported source evidence is not overwritten by these suggestions.
+
+### Security monthly approval service
+
+- Added `approve_security_roster_month` to the Security workflow module.
+- It requires the first calendar day of the month and a nonblank approval reason.
+- It refuses a month if any calendar date lacks a daily approval audit entry.
+- It parses the immutable daily audit evidence, rejects duplicate employee IDs (including OFF entries), and checks that the non-OFF start times still match persisted Security assignments.
+- It rejects unexpected extra assignments and assignments whose shift pattern belongs to another department.
+- It writes an immutable `security_roster_month_approved` audit event after successful validation.
+- It deliberately does not invent a minimum guard count or a continuous-coverage rule for 4+ person teams.
+
+The monthly approval service is **not yet wired to an HTTP route or screen**. This requires the shared application route/template entry point, which is outside the approved Workstream 2 write boundary.
+
+## Files in PR #15
+
+- `app/attendance_import.py`
+- `app/security_roster.py`
+- `app/security_roster_import.py`
+- `app/security_roster_workflow.py`
+- `app/templates/attendance_review.html`
+- `tests/test_attendance_import.py`
+- `tests/test_security_roster_import.py`
+- `tests/test_security_roster_workflow.py`
+
+## Tests and validation
+
+- I executed 26 targeted local tests in an isolated SQLite harness using the current Workstream 2 parser/proposal/workflow logic and a minimal model surface. They passed: 26 passed.
+- These are targeted local behavior tests, **not** the complete repository pytest suite and not a substitute for PostgreSQL integration or Windows validation.
+- The container does not have `psycopg` or `xlrd`; package installation was attempted but the environment has no package-index network access. Therefore I could not execute the full project suite locally or exercise the legacy `.xls` reader locally.
+- Latest available GitHub Actions run #679 was created for a preceding PR head and both Ubuntu/PostgreSQL and Windows jobs failed in about one to two seconds. Raw job metadata shows empty runner names and zero job steps; downloadable job logs are unavailable (404/BlobNotFound). The same no-runner/no-step pattern appears in earlier runs. This is not evidence that test assertions ran and failed; the runner/service startup cause remains unknown.
+- Current branch head still needs a real CI run with runners started and test steps executed. No Ubuntu/PostgreSQL or Windows CI pass is claimed.
+
+## Shared-file integration work requested from Workstream 1 / coordinator
+
+The following narrow changes are required before claiming end-to-end completion. Workstream 2 has not made these shared edits.
+
+1. **`app/main.py::_security_roster_aliases`** — currently requires exactly three active Security employees and checks exactly three distinct employee IDs. The new parser/backend accepts two or more. Suggested narrow change: require at least two active employees and validate that every alias resolves to one distinct employee; do not touch unrelated routes.
+2. **Security confirmation route + `app/templates/security_roster.html`** — collect a required HR reason and pass it into `confirm_security_roster_day` / the daily audit entry. The current route accepts a review checkbox only and the service currently writes a fixed daily reason.
+3. **Security month approval route/template** — expose `approve_security_roster_month(db, month_start, admin, reason)` with CSRF protection, authenticated HR admin, and a required free-text reason; display month status and missing dates before allowing submission.
+4. **`app/main.py::attendance_review_page` and `attendance_review.html`** — join the employee's effective department for the work date and display it. Current review query returns the attendance record and Employee, not the department.
+5. **Attendance upload preview route** — stage the original file bytes temporarily, show parser issues and a source summary before creating an `AttendanceImportBatch`; only the explicit confirmation action should persist the batch. Preserve the existing SHA-256 duplicate protection and original bytes.
+6. **CI/service issue** — restore usable Ubuntu and Windows runners for the existing pull-request workflow. The PR target branch does include a pull-request workflow trigger; the current failure is at job startup rather than a missing PR trigger.
+
+### Business rule requiring hotel/HR confirmation
+
+The existing approved design documents exactly three active Security employees with 12-hour shifts when two work and 8-hour shifts when all three work. The new Workstream 2 brief asks for two, three, or more employees and prohibits inventing team size or shift timing. For 4+ teams, the implementation uses only uniquely configured shift patterns and blocks ambiguity.
+
+The hotel still needs to define:
+- minimum concurrent officers required for each shift, if any;
+- whether uninterrupted 24-hour coverage is mandatory;
+- whether overlapping guard shifts are acceptable for handover/coverage or are always an error.
+
+Until HR confirms these, no 4+ person minimum-coverage claim is made.
+
+## Integration status
+
+PR #15 remains Draft and unmerged. It is mergeable according to GitHub's current metadata, but it is not approved for integration. Team 1 identified `feature/platform-hardening` as the integration baseline; the Workstream 2 branch is diverged from that baseline by one commit and has a workflow/acceptance-test delta. Team 1 must reconcile that branch baseline before retargeting or merging.
+
+No changes were made to `main`. No successful Windows or PostgreSQL CI result is claimed.
