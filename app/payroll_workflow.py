@@ -6,7 +6,7 @@ Those formulas remain blocked until the hotel confirms the 30-versus-40 divisor.
 
 from calendar import monthrange
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -61,7 +61,16 @@ def create_payroll_period(db: Session, period_start: date, actor: str) -> Payrol
             | (EmployeeServicePeriod.end_date >= start),
         )
     ).all()
-    employee_ids = {item.employee_id for item in service_periods}
+    service_days_by_employee: dict[int, int] = {}
+    for item in service_periods:
+        overlap_start = max(item.start_date, start)
+        overlap_end = min(item.end_date or end, end)
+        if overlap_start <= overlap_end:
+            service_days_by_employee[item.employee_id] = (
+                service_days_by_employee.get(item.employee_id, 0)
+                + (overlap_end - overlap_start).days + 1
+            )
+    employee_ids = set(service_days_by_employee)
 
     # Legacy active employees without a service-period row remain eligible.
     legacy_active = db.scalars(
@@ -70,7 +79,12 @@ def create_payroll_period(db: Session, period_start: date, actor: str) -> Payrol
             Employee.hire_date <= end,
         )
     ).all()
-    employee_ids.update(item.id for item in legacy_active)
+    for item in legacy_active:
+        if item.id not in service_days_by_employee:
+            overlap_start = max(item.hire_date, start)
+            if overlap_start <= end:
+                service_days_by_employee[item.id] = (end - overlap_start).days + 1
+                employee_ids.add(item.id)
 
     if not employee_ids:
         raise ValueError("No employees have a service period in this payroll month.")
@@ -97,7 +111,12 @@ def create_payroll_period(db: Session, period_start: date, actor: str) -> Payrol
             employee_name_snapshot=employee.full_name,
             department_name_snapshot=employee.department.name if employee.department else "",
             position_snapshot=employee.position,
-            basic_salary_snapshot=Decimal(employee.basic_salary),
+            basic_salary_snapshot=(
+                Decimal(employee.basic_salary) * Decimal(service_days_by_employee[employee.id])
+                / Decimal((end - start).days + 1)
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            monthly_basic_salary_snapshot=Decimal(employee.basic_salary),
+            payable_service_days=min(service_days_by_employee[employee.id], (end - start).days + 1),
             daily_hours_snapshot=Decimal(employee.daily_hours),
         )
         db.add(line)
