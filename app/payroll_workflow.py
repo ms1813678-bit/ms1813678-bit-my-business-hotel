@@ -352,13 +352,13 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
     now = datetime.utcnow()
     run_installments = db.scalars(
         select(AdvanceInstallment)
+        .join(AdvanceRequest, AdvanceRequest.id == AdvanceInstallment.advance_request_id)
         .where(
             AdvanceInstallment.payroll_month == run.period_start,
             AdvanceInstallment.status.in_(("scheduled", "reversed")),
             AdvanceInstallment.applied_payroll_run_id.is_(None),
-            AdvanceInstallment.advance_request_id.in_(
-                select(AdvanceRequest.id).where(AdvanceRequest.employee_id.in_(employee_ids or {-1}))
-            ),
+            AdvanceRequest.status == "paid",
+            AdvanceRequest.employee_id.in_(employee_ids or {-1}),
         )
         .with_for_update()
     ).all()
