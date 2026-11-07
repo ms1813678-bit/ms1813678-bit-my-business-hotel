@@ -31,6 +31,7 @@ def reserved_amount(db: Session, employee_id: int, payroll_month: date, exclude_
         AdvanceRequest.employee_id == employee_id,
         AdvanceRequest.payroll_month == payroll_month,
         AdvanceRequest.status.in_(RESERVING_STATUSES),
+        AdvanceRequest.advance_type == "regular",
     )
     if exclude_id is not None:
         statement = statement.where(AdvanceRequest.id != exclude_id)
