@@ -7,6 +7,7 @@ on:
       - feature/platform-hardening
       - work/leave-management-foundation
       - work/rewards-sanctions-v2
+      - work/payroll-foundation
   pull_request:
     branches:
       - main
