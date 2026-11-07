@@ -10,6 +10,7 @@ on:
     branches:
       - main
       - feature/auth-security
+      - feature/attendance-end-to-end-acceptance
       - feature/platform-hardening
   workflow_dispatch:
 
