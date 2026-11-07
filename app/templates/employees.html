@@ -73,11 +73,13 @@
 <td><ul>{% for period in service_periods if period.employee_id == e.id %}
 <li>{{ period.start_date.strftime("%d/%m/%Y") }} — {% if period.end_date %}{{ period.end_date.strftime("%d/%m/%Y") }}{% else %}مستمرة{% endif %}{% if period.start_reason %} ({{ period.start_reason }}){% endif %}{% if period.end_reason %} — سبب الانتهاء: {{ period.end_reason }}{% endif %}</li>
 {% else %}<li>لا توجد فترات خدمة مسجلة.</li>{% endfor %}</ul></td>
-<td><form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form">
+<td>{% if e.status == "archived" %}
+<form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <label>تاريخ إعادة التعيين<input type="date" name="new_hire_date" required></label>
 <label>سبب إعادة التعيين<input name="reason" required placeholder="سبب إعادة التعيين"></label>
-<button type="submit">إعادة تعيين بنفس الكود</button></form></td>
+<button type="submit">إعادة تعيين بنفس الكود</button></form>
+{% else %}<span class="muted">تحتاج هذه الحالة القديمة إلى مراجعة سجل الخدمة قبل إعادة التعيين.</span>{% endif %}</td>
 </tr>
 {% else %}<tr><td colspan="6">لا يوجد موظفون سابقون مسجلون.</td></tr>{% endfor %}
 </tbody></table></div></section>
