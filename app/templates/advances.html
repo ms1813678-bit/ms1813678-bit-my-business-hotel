@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>السلف | M.Y. Business Hotel</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة السلف</h1>
+      <p class="muted">Salary advances · HR administrator only</p></div>
+    <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a> · <a href="/leave">الإجازات</a></nav>
+  </header>
+
+  {% if error %}
+  <section class="notice error">
+    {% if error == "request" %}تعذر تسجيل السلفة. تحقق من أن تاريخ الطلب بين يوم 15 و22، وأن المبلغ ضمن الحد المسموح، وأن الموظف نشط.
+    {% elif error == "approve" %}تعذر اعتماد السلفة. تحقق من حالتها ومن الحد الشهري المسموح.
+    {% elif error == "reject" %}تعذر رفض الطلب. يجب إدخال سبب الرفض وأن تكون الحالة معلقة.
+    {% elif error == "paid" %}لا يمكن تسجيل الصرف إلا بعد اعتماد السلفة.
+    {% else %}السجل المطلوب غير موجود.{% endif %}
+  </section>
+  {% endif %}
+
+  <section class="notice">
+    <h2>تسجيل طلب سلفة / New advance request</h2>
+    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. إجمالي السلف المحجوزة للموظف في الشهر الواحد لا يتجاوز 25% من راتبه الأساسي. المبلغ المصروف يُخصم كاملًا من راتب الشهر التالي.</p>
+    <form method="post" action="/advances">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>الموظف / Employee
+          <select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }} ({{ e.basic_salary }} جنيه)</option>{% endfor %}</select>
+        </label>
+        <label>تاريخ الطلب / Request date<input type="date" name="request_date" max="{{ today }}" required></label>
+        <label>المبلغ بالجنيه / Amount (EGP)<input type="number" name="amount" min="0.01" step="0.01" required></label>
+        <label>السبب / Reason<input name="reason" maxlength="2000" required></label>
+      </div>
+      <button type="submit">تسجيل الطلب / Submit request</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>طلبات السلف والسجل / Advances register</h2>
+    <div class="table-wrap"><table><thead><tr>
+      <th>الموظف</th><th>تاريخ الطلب</th><th>المبلغ</th><th>أساس الراتب</th><th>حد 25%</th><th>خصم في راتب</th><th>الحالة</th><th>الإجراء</th>
+    </tr></thead><tbody>
+    {% for a in requests %}
+    <tr>
+      <td>{{ employee_codes.get(a.employee_id, "—") }} — {{ employee_names.get(a.employee_id, "—") }}</td>
+      <td>{{ a.request_date.strftime("%d/%m/%Y") }}</td>
+      <td>{{ "%.2f"|format(a.amount) }} ج</td>
+      <td>{{ "%.2f"|format(a.salary_basis) }} ج</td>
+      <td>{{ "%.2f"|format(a.salary_basis * 0.25) }} ج</td>
+      <td>{{ a.payroll_month.strftime("%m/%Y") }}</td>
+      <td>{{ a.status }}</td>
+      <td>
+        {% if a.status == "pending" %}
+        <form method="post" action="/advances/{{ a.id }}/approve" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">اعتماد</button>
+        </form>
+        <form method="post" action="/advances/{{ a.id }}/reject" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" placeholder="سبب الرفض" required><button type="submit">رفض</button>
+        </form>
+        {% elif a.status == "approved" %}
+        <form method="post" action="/advances/{{ a.id }}/paid" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">تأكيد الصرف</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    <tr><td colspan="8"><span class="muted">السبب: {{ a.reason }}{% if a.rejection_reason %} · سبب الرفض: {{ a.rejection_reason }}{% endif %}</span></td></tr>
+    {% else %}<tr><td colspan="8">لا توجد طلبات سلف مسجلة.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="notice">
+    <p><strong>ملاحظة:</strong> هذه الوحدة تسجل السلفة واعتمادها وصرفها والشهر المستحق للخصم. ربط الخصم الفعلي بدورة الرواتب سيتم عند استكمال وحدة الرواتب، ولن يتم اعتبار السلفة مخصومة قبل ذلك.</p>
+  </section>
+</main>
+</body>
+</html>
