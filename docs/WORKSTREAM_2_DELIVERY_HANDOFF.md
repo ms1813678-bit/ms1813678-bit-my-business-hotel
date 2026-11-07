@@ -88,7 +88,7 @@ The monthly approval service is **not yet wired to an HTTP route or screen**. Th
 
 The following narrow changes are required before claiming end-to-end completion. Workstream 2 has not made these shared edits.
 
-1. **`app/main.py::_security_roster_aliases`** — must continue to require exactly three active Security employees and exact employee mapping. The parser/backend now enforce the same fixed team rule; route remains a shared-file integration item.
+1. **`app/main.py::_security_roster_aliases`** — read-only inspection confirms the current route already requires exactly three active Security employees and exact employee mapping, consistent with the parser/backend. No route change is needed for team size; the shared file was left untouched.
 2. **Security confirmation route + `app/templates/security_roster.html`** — collect a required HR reason and pass it into `confirm_security_roster_day` / the daily audit entry. The current route accepts a review checkbox only and the service currently writes a fixed daily reason.
 3. **Security month approval route/template** — expose `approve_security_roster_month(db, month_start, admin, reason)` with CSRF protection, authenticated HR admin, and a required free-text reason; display month status and missing dates before allowing submission.
 4. **`app/main.py::attendance_review_page` and `attendance_review.html`** — join the employee's effective department for the work date and display it. Current review query returns the attendance record and Employee, not the department.
