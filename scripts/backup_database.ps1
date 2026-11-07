@@ -24,7 +24,8 @@ $dbUrl = [string]$settings["DATABASE_URL"]
 if ([string]::IsNullOrWhiteSpace($dbUrl) -or $dbUrl -notmatch '^postgresql\+psycopg://') { throw "DATABASE_URL must be a configured postgresql+psycopg URL." }
 $uri = [Uri]($dbUrl -replace '^postgresql\+psycopg://', 'postgresql://')
 $userInfo = $uri.UserInfo.Split(':', 2)
-if ($userInfo.Count -ne 2 -or [string]::IsNullOrWhiteSpace($uri.Host) -or $uri.AbsolutePath.Trim('/') -eq '') { throw "DATABASE_URL must include username, password, host, and database name." }
+if ($userInfo.Count -ne 2 -or [string]::IsNullOrWhiteSpace($userInfo[1]) -or [string]::IsNullOrWhiteSpace($uri.Host) -or $uri.AbsolutePath.Trim('/') -eq '') { throw "DATABASE_URL must include username, password, host, and database name." }
+if ($uri.Host -notin @("127.0.0.1", "localhost", "::1")) { throw "Backups are restricted to the local PostgreSQL server (127.0.0.1, localhost, or ::1)." }
 $dbUser = [Uri]::UnescapeDataString($userInfo[0])
 $dbPassword = [Uri]::UnescapeDataString($userInfo[1])
 $dbName = [Uri]::UnescapeDataString($uri.AbsolutePath.Trim('/'))
@@ -39,7 +40,7 @@ New-Item -ItemType Directory -Path $destination | Out-Null
 $env:PGPASSWORD = $dbPassword
 try {
     $dumpPath = Join-Path $destination "database.dump"
-    Invoke-Checked $pgDump.Source @("--host=$($uri.Host)", "--port=$dbPort", "--username=$dbUser", "--dbname=$dbName", "--format=custom", "--no-owner", "--no-acl", "--file=$dumpPath")
+    Invoke-Checked $pgDump.Source @("--host=$($uri.Host)", "--port=$dbPort", "--username=$dbUser", "--dbname=$dbName", "--no-password", "--format=custom", "--no-owner", "--no-acl", "--file=$dumpPath")
 } finally { Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue }
 $photoSource = Join-Path $ProjectRoot "var\employee_photos"
 $photoDestination = Join-Path $destination "employee_photos"
