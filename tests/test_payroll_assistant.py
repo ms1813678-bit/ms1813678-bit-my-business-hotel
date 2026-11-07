@@ -107,3 +107,16 @@ def test_change_explanation_lists_only_changed_components():
 )
 def test_local_command_intent_arabic_and_english(message, expected):
     assert interpret_local_command(message) == expected
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("compare this month with last month", "compare_payroll"),
+        ("review duplicate deductions", "review_deductions"),
+        ("check payroll anomalies", "analyze_payroll"),
+        ("show payroll summary", "payroll_summary"),
+        ("unknown request", "help"),
+    ],
+)
+def test_local_command_intent_english(message, expected):
+    assert interpret_local_command(message) == expected
