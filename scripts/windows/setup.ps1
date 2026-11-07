@@ -67,5 +67,12 @@ $Shortcut.Arguments = ('-NoProfile -ExecutionPolicy Bypass -File "' + $Launcher 
 $Shortcut.WorkingDirectory = $ProjectRoot
 $Shortcut.Description = "Start the local M.Y. Business Hotel HR application"
 $Shortcut.Save()
+$ReportTaskRegistrar = Join-Path $ProjectRoot "scripts\windows\register_monthly_report_task.ps1"
+try {
+    & $ReportTaskRegistrar
+} catch {
+    Write-Warning ("Could not register the monthly report task: " + $_.Exception.Message)
+    Write-Warning "You can register it later by running scripts\windows\register_monthly_report_task.ps1."
+}
 Write-Host "Setup completed. Start the application from the desktop shortcut." -ForegroundColor Green
 Write-Host "The application is local-only and does not auto-start with Windows."
