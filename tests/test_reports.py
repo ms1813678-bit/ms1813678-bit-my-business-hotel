@@ -107,6 +107,7 @@ def test_hr_report_preserves_employee_and_payroll_history():
                 charged_days=Decimal("2.00"),
                 reason="Synthetic annual leave",
                 status="confirmed",
+                created_by="test-admin",
             ))
             run = PayrollRun(
                 period_start=date(2026, 10, 1),
@@ -132,7 +133,7 @@ def test_hr_report_preserves_employee_and_payroll_history():
             db.commit()
 
             content = build_hr_workbook(db, date(2026, 10, 1), date(2026, 10, 31))
-            workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+            workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
             try:
                 assert workbook["Employees"].cell(2, 1).value == "MY-REPORT-0001"
                 assert workbook["Attendance"].cell(2, 2).value == "MY-REPORT-0001"
