@@ -271,8 +271,8 @@ def _security_roster_aliases(db):
         Employee.department_id == department.id,
         Employee.status == "active",
     ).order_by(Employee.id)).all()
-    if len(employees) != 3:
-        raise ValueError("security_department_must_have_exactly_three_active_employees")
+    if len(employees) < 2:
+        raise ValueError("security_department_must_have_at_least_two_active_employees")
     aliases = {}
     normalized_owners = {}
     for employee in employees:
@@ -285,8 +285,8 @@ def _security_roster_aliases(db):
                 raise ValueError("security_employee_identifiers_are_ambiguous_for_excel_mapping")
             normalized_owners[key] = employee.id
             aliases[str(value)] = employee.id
-    if len({value for value in aliases.values()}) != 3:
-        raise ValueError("security_employee_identifiers_must_resolve_to_three_employees")
+    if len({value for value in aliases.values()}) < 2:
+        raise ValueError("security_employee_identifiers_must_resolve_to_at_least_two_employees")
     return aliases
 
 
