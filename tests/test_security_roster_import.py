@@ -61,7 +61,7 @@ def test_unknown_employee_mapping_is_rejected():
     try:
         parse_security_roster_xlsx(data, {"Fayez": 11})
     except ValueError as exc:
-        assert str(exc) == "aliases_must_resolve_to_at_least_two_unique_security_employees"
+        assert str(exc) == "aliases_must_resolve_to_exactly_three_unique_security_employees"
     else:
         raise AssertionError("expected ValueError")
 
@@ -188,27 +188,15 @@ def test_explicit_header_only_sheet_is_not_silently_replaced():
     assert parsed["issues"][0]["reason"] == "no_valid_roster_rows"
 
 
-@pytest.mark.parametrize(
-    "names,aliases",
-    [
+def test_parser_rejects_any_team_size_other_than_three():
+    for names, aliases in (
         (["Fayez", "Yasser"], {"Fayez": 21, "Yasser": 22}),
-        (
-            ["Fayez", "Yasser", "Walid", "Hany"],
-            {"Fayez": 31, "Yasser": 32, "Walid": 33, "Hany": 34},
-        ),
-    ],
-)
-def test_roster_parser_supports_two_or_more_employee_columns(names, aliases):
-    headers = ["Date", *names]
-    values = [date(2026, 11, 1), *([time(0, 0)] * len(names))]
-    parsed = parse_security_roster_xlsx(
-        _workbook_bytes([headers, values]),
-        aliases,
-    )
-    assert parsed["status"] == "parsed_for_review"
-    assert set(parsed["employee_headers"]) == set(aliases.values())
-    assert set(parsed["records"][0]["roster"]) == set(aliases.values())
-    assert parsed["records"][0]["roster"][next(iter(aliases.values()))] == time(0, 0)
+        (["Fayez", "Yasser", "Walid", "Hany"], {"Fayez": 31, "Yasser": 32, "Walid": 33, "Hany": 34}),
+    ):
+        headers = ["Date", *names]
+        values = [date(2026, 11, 1), *([time(0, 0)] * len(names))]
+        with pytest.raises(ValueError, match="aliases_must_resolve_to_exactly_three_unique_security_employees"):
+            parse_security_roster_xlsx(_workbook_bytes([headers, values]), aliases)
 
 
 def test_unmapped_employee_header_is_reported_instead_of_ignored():
