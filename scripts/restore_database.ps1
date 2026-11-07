@@ -32,7 +32,8 @@ $dbUrl = [string]$settings["DATABASE_URL"]
 if ([string]::IsNullOrWhiteSpace($dbUrl) -or $dbUrl -notmatch '^postgresql\+psycopg://') { throw "DATABASE_URL is not configured." }
 $uri = [Uri]($dbUrl -replace '^postgresql\+psycopg://', 'postgresql://')
 $userInfo = $uri.UserInfo.Split(':', 2)
-if ($userInfo.Count -ne 2 -or $uri.AbsolutePath.Trim('/') -eq '') { throw "DATABASE_URL is incomplete." }
+if ($userInfo.Count -ne 2 -or [string]::IsNullOrWhiteSpace($userInfo[1]) -or [string]::IsNullOrWhiteSpace($uri.Host) -or $uri.AbsolutePath.Trim('/') -eq '') { throw "DATABASE_URL must include username, password, host, and database name." }
+if ($uri.Host -notin @("127.0.0.1", "localhost", "::1")) { throw "Restore is restricted to the local PostgreSQL server (127.0.0.1, localhost, or ::1)." }
 $dbUser = [Uri]::UnescapeDataString($userInfo[0])
 $dbPassword = [Uri]::UnescapeDataString($userInfo[1])
 $dbName = [Uri]::UnescapeDataString($uri.AbsolutePath.Trim('/'))
@@ -45,7 +46,7 @@ $confirmation = Read-Host "This will restore database '$dbName'. Type RESTORE-$d
 if ($confirmation -cne "RESTORE-$dbName") { throw "Confirmation did not match; no changes made." }
 $env:PGPASSWORD = $dbPassword
 try {
-    $tableCount = (& $psql.Source "--host=$($uri.Host)" "--port=$dbPort" "--username=$dbUser" "--dbname=$dbName" "--tuples-only" "--no-align" "--command=SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p','S','v','m','f') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%';")
+    $tableCount = (& $psql.Source "--host=$($uri.Host)" "--port=$dbPort" "--username=$dbUser" "--dbname=$dbName" "--no-password" "--tuples-only" "--no-align" "--command=SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p','S','v','m','f') AND n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%';")
     if ($LASTEXITCODE -ne 0) { throw "Could not verify that the target database is empty." }
     if ([int]("$tableCount".Trim()) -ne 0) { throw "Target database is not empty. Restore stopped to avoid overwriting data. Use a newly created empty database with the matching name." }
 
@@ -64,7 +65,7 @@ try {
     if ($hadPreviousPhotos) { Move-Item -LiteralPath $photoTarget -Destination $photoPrevious }
     try {
         Move-Item -LiteralPath $photoStage -Destination $photoTarget
-        & $pgRestore.Source "--host=$($uri.Host)" "--port=$dbPort" "--username=$dbUser" "--dbname=$dbName" "--no-owner" "--no-acl" "--exit-on-error" "--single-transaction" $dumpPath
+        & $pgRestore.Source "--host=$($uri.Host)" "--port=$dbPort" "--username=$dbUser" "--dbname=$dbName" "--no-password" "--no-owner" "--no-acl" "--exit-on-error" "--single-transaction" $dumpPath
         if ($LASTEXITCODE -ne 0) { throw "pg_restore failed with exit code $LASTEXITCODE" }
     } catch {
         if (Test-Path -LiteralPath $photoTarget) { Remove-Item -LiteralPath $photoTarget -Recurse -Force }
