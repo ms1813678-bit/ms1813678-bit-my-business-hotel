@@ -1684,3 +1684,31 @@ def test_employee_data_change_review_rejects_effective_date_before_hire_date(cli
         request_row = db.get(EmployeeDataChangeRequest, request_id)
         assert request_row.status == "pending"
 
+def test_employee_photo_rejects_excessive_pixel_dimensions(client, monkeypatch, tmp_path):
+    import io
+    from PIL import Image
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "EMPLOYEE_PHOTO_DIR", tmp_path)
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (4500, 4500), "white").save(image_bytes, format="PNG")
+    response = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Oversized Pixel Photo",
+            "department_id": client.test_department_id,
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        files={"photo": ("large-dimensions.png", image_bytes.getvalue(), "image/png")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert list(tmp_path.iterdir()) == []
+
