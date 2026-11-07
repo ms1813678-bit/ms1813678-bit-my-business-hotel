@@ -26,7 +26,7 @@
 
   <section class="notice">
     <h2>تسجيل طلب سلفة / New advance request</h2>
-    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. إجمالي السلف القائمة غير المخصومة على الموظف لا يتجاوز 25% من راتبه الأساسي، حتى لو كانت الطلبات في أشهر مختلفة. شهر الخصم هو شهر طلب السلفة، ويُدفع الراتب في اليوم الخامس من الشهر التالي. يمكن اعتماد السلفة على 1 إلى 36 قسطًا.</p>
+    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. السلفة الشهرية العادية فقط تخضع لحد 25% من الراتب الأساسي. السلفة المقسطة مستقلة عن هذا الحد ويمكن أن تتجاوز الراتب الشهري، ويحدد جدولها عدد الأقساط. شهر الاستحقاق المحاسبي هو شهر الطلب، ويُدفع الراتب في اليوم الخامس من الشهر التالي.</p>
     <form method="post" action="/advances">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="form-grid">
@@ -34,6 +34,12 @@
           <select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }} ({{ e.basic_salary }} جنيه)</option>{% endfor %}</select>
         </label>
         <label>تاريخ الطلب / Request date<input type="date" name="request_date" max="{{ today }}" required></label>
+        <label>نوع السلفة / Advance type
+          <select name="advance_type" required>
+            <option value="regular">سلفة شهرية عادية — حد 25% من الأساسي</option>
+            <option value="installment">سلفة مقسطة — بدون حد 25%</option>
+          </select>
+        </label>
         <label>المبلغ بالجنيه / Amount (EGP)<input type="number" name="amount" min="0.01" step="0.01" required></label>
         <label>السبب / Reason<input name="reason" maxlength="2000" required></label>
       </div>
@@ -64,15 +70,16 @@
   <section class="notice">
     <h2>طلبات السلف والسجل / Advances register</h2>
     <div class="table-wrap"><table><thead><tr>
-      <th>الموظف</th><th>تاريخ الطلب</th><th>المبلغ</th><th>أساس الراتب</th><th>حد 25%</th><th>خصم في راتب</th><th>الحالة</th><th>الإجراء</th>
+      <th>الموظف</th><th>تاريخ الطلب</th><th>النوع</th><th>المبلغ</th><th>أساس الراتب</th><th>حد 25%</th><th>خصم في راتب</th><th>الحالة</th><th>الإجراء</th>
     </tr></thead><tbody>
     {% for a in requests %}
     <tr>
       <td>{{ employee_codes.get(a.employee_id, "—") }} — {{ employee_names.get(a.employee_id, "—") }}</td>
       <td>{{ a.request_date.strftime("%d/%m/%Y") }}</td>
+      <td>{% if a.advance_type == "installment" %}مقسطة{% else %}عادية{% endif %}</td>
       <td>{{ "%.2f"|format(a.amount) }} ج</td>
       <td>{{ "%.2f"|format(a.salary_basis) }} ج</td>
-      <td>{{ "%.2f"|format(a.salary_basis * 0.25) }} ج</td>
+      <td>{% if a.advance_type == "installment" %}غير مطبق{% else %}{{ "%.2f"|format(a.salary_basis * 0.25) }} ج{% endif %}</td>
       <td>{{ a.payroll_month.strftime("%m/%Y") }}</td>
       <td>{{ a.status }}</td>
       <td>
@@ -95,7 +102,7 @@
     </tbody></table></div>
   </section>
   <section class="notice">
-    <p><strong>ملاحظة:</strong> هذه الوحدة تسجل السلفة واعتمادها وصرفها والشهر المستحق للخصم. ربط الخصم الفعلي بدورة الرواتب سيتم عند استكمال وحدة الرواتب، ولن يتم اعتبار السلفة مخصومة قبل ذلك.</p>
+    <p><strong>ملاحظة:</strong> الـ25% يطبق على السلفة الشهرية العادية فقط. السلفة المقسطة لا تخضع له، ويمكن أن تتجاوز الراتب، وخصمها يتم حسب جدول الأقساط. هذه الوحدة تسجل السلفة واعتمادها وصرفها والشهر المستحق للخصم. ربط الخصم الفعلي بدورة الرواتب سيتم عند استكمال وحدة الرواتب، ولن يتم اعتبار السلفة مخصومة قبل ذلك.</p>
   </section>
 </main>
 </body>
