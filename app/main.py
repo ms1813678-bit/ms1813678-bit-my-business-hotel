@@ -24,6 +24,7 @@ from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
 from app.advance_workflow import approve_advance, create_advance, mark_advance_paid, reject_advance
+from app.models import AdvanceInstallment
 from app.staff_actions_workflow import approve_staff_action, cancel_staff_action, create_staff_action, record_employee_acknowledgement
 from app.reports import build_hr_pdf, build_hr_workbook
 from app.payroll_workflow import (
@@ -1264,15 +1265,20 @@ def advances_page(request: Request, admin: AdminAccount = Depends(get_current_ad
         advance_summary = {}
         for employee in employees:
             employee_requests = [item for item in requests if item.employee_id == employee.id]
-            outstanding = sum(
-                (Decimal(item.amount) for item in employee_requests
-                 if item.status in {"pending", "approved", "paid"}),
-                Decimal("0.00"),
-            )
-            deducted = sum(
-                (Decimal(item.amount) for item in employee_requests if item.status == "deducted"),
-                Decimal("0.00"),
-            )
+            outstanding = Decimal("0.00")
+            deducted = Decimal("0.00")
+            for item in employee_requests:
+                if item.status in {"pending", "approved", "paid"}:
+                    outstanding += Decimal(item.amount)
+                elif item.status == "deducted":
+                    applied = db.scalar(
+                        select(func.coalesce(func.sum(AdvanceInstallment.amount), 0)).where(
+                            AdvanceInstallment.advance_request_id == item.id,
+                            AdvanceInstallment.status == "applied",
+                        )
+                    ) or Decimal("0.00")
+                    deducted += Decimal(applied)
+                    outstanding += max(Decimal("0.00"), Decimal(item.amount) - Decimal(applied))
             total = sum(
                 (Decimal(item.amount) for item in employee_requests),
                 Decimal("0.00"),
