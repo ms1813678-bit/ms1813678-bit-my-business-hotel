@@ -12,6 +12,7 @@ from app.models import (
 )
 from app.security_roster_workflow import (
     prepare_security_roster, confirm_security_roster_day,
+    approve_security_roster_month,
 )
 
 
@@ -529,3 +530,56 @@ def test_roster_preview_marks_already_approved_date_and_disables_confirmation(ro
 
     assert approved_day["already_approved"] is True
     assert approved_day["can_confirm"] is False
+
+
+def test_security_month_approval_requires_every_day_to_be_reviewed(roster_db):
+    db, employees, admin = roster_db
+    parsed = _parsed(employees, date(2026, 11, 1))
+    day = prepare_security_roster(db, parsed)["days"][0]
+    confirm_security_roster_day(
+        db, day["work_date"], day["roster"], admin, parsed["issues"]
+    )
+    db.commit()
+
+    with pytest.raises(
+        ValueError,
+        match="security_roster_month_has_unreviewed_days",
+    ):
+        approve_security_roster_month(
+            db, date(2026, 11, 1), admin, "Reviewed the Security month",
+        )
+
+
+def test_security_month_approval_requires_reason_and_writes_audit(roster_db):
+    db, employees, admin = roster_db
+    for day_number in range(1, 31):
+        work_date = date(2026, 11, day_number)
+        parsed = _parsed(employees, work_date)
+        day = prepare_security_roster(db, parsed)["days"][0]
+        confirm_security_roster_day(
+            db, work_date, day["roster"], admin, parsed["issues"]
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="security_roster_month_approval_reason_required",
+    ):
+        approve_security_roster_month(db, date(2026, 11, 1), admin, "   ")
+
+    approval = approve_security_roster_month(
+        db,
+        date(2026, 11, 1),
+        admin,
+        "راجعت واعتمدت جميع أيام كشف الأمن لشهر نوفمبر 2026",
+    )
+    db.commit()
+
+    assert approval.action == "security_roster_month_approved"
+    assert approval.entity_id == "2026-11"
+    assert "reviewed_days=30" in approval.new_value
+    assert approval.reason == "راجعت واعتمدت جميع أيام كشف الأمن لشهر نوفمبر 2026"
+
+    with pytest.raises(ValueError, match="security_roster_month_already_approved"):
+        approve_security_roster_month(
+            db, date(2026, 11, 1), admin, "Duplicate approval attempt",
+        )
