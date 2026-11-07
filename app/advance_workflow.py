@@ -11,6 +11,15 @@ from app.models import AdvanceRequest, AuditLog, Employee
 RESERVING_STATUSES = ("pending", "approved", "paid")
 
 
+def payroll_month_for_advance(request_date: date) -> date:
+    """Return the salary period charged for an advance request.
+
+    The salary period is the request month; payroll is paid on the fifth of the
+    following month. This keeps accounting month separate from payout date.
+    """
+    return date(request_date.year, request_date.month, 1)
+
+
 def next_payroll_month(request_date: date) -> date:
     if request_date.month == 12:
         return date(request_date.year + 1, 1, 1)
@@ -69,7 +78,7 @@ def create_advance(
     if salary <= 0:
         raise ValueError("The employee must have a positive basic salary.")
 
-    payroll_month = next_payroll_month(request_date)
+    payroll_month = payroll_month_for_advance(request_date)
     cap = (salary * Decimal("0.25")).quantize(Decimal("0.01"))
     already_reserved = reserved_amount(db, employee_id, payroll_month)
     if already_reserved + amount > cap:
@@ -97,7 +106,41 @@ def create_advance(
     return request
 
 
-def approve_advance(db: Session, request: AdvanceRequest, actor: str) -> None:
+def create_installments(db: Session, request: AdvanceRequest, installment_count: int, actor: str) -> list[AdvanceInstallment]:
+    """Persist the approved repayment schedule exactly once."""
+    from app.advance_repayment_schedule import build_repayment_schedule
+
+    existing = db.scalars(
+        select(AdvanceInstallment)
+        .where(AdvanceInstallment.advance_request_id == request.id)
+        .order_by(AdvanceInstallment.installment_number)
+    ).all()
+    if existing:
+        if len(existing) != installment_count:
+            raise ValueError("Advance installment schedule already exists with a different count.")
+        return existing
+
+    schedule = build_repayment_schedule(
+        Decimal(request.amount), request.request_date, installment_count
+    )
+    rows = [
+        AdvanceInstallment(
+            advance_request_id=request.id,
+            installment_number=item["installment_number"],
+            amount=item["amount"],
+            payroll_month=item["payroll_month"],
+            scheduled_payment_date=item["pay_date"],
+            status="scheduled",
+            created_at=datetime.utcnow(),
+        )
+        for item in schedule
+    ]
+    db.add_all(rows)
+    db.flush()
+    return rows
+
+
+def approve_advance(db: Session, request: AdvanceRequest, actor: str, installment_count: int = 1) -> None:
     if request.status != "pending":
         raise ValueError("Only a pending advance can be approved.")
     employee = db.scalar(
@@ -111,6 +154,9 @@ def approve_advance(db: Session, request: AdvanceRequest, actor: str) -> None:
     )
     if already_reserved + Decimal(request.amount) > cap:
         raise ValueError("The monthly advance limit would be exceeded.")
+    if installment_count < 1 or installment_count > 36:
+        raise ValueError("Installment count must be between 1 and 36.")
+    create_installments(db, request, installment_count, actor)
     request.status = "approved"
     request.approved_by = actor
     request.approved_at = datetime.utcnow()
