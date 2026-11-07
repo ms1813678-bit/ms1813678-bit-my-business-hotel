@@ -26,7 +26,7 @@
 
   <section class="notice">
     <h2>تسجيل طلب سلفة / New advance request</h2>
-    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. إجمالي السلف القائمة غير المخصومة على الموظف لا يتجاوز 25% من راتبه الأساسي، حتى لو كانت الطلبات في أشهر مختلفة. المبلغ المصروف يُخصم كاملًا من راتب الشهر التالي.</p>
+    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. إجمالي السلف القائمة غير المخصومة على الموظف لا يتجاوز 25% من راتبه الأساسي، حتى لو كانت الطلبات في أشهر مختلفة. شهر الخصم هو شهر طلب السلفة، ويُدفع الراتب في اليوم الخامس من الشهر التالي. يمكن اعتماد السلفة على 1 إلى 36 قسطًا.</p>
     <form method="post" action="/advances">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="form-grid">
@@ -78,7 +78,7 @@
       <td>
         {% if a.status == "pending" %}
         <form method="post" action="/advances/{{ a.id }}/approve" class="inline-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">اعتماد</button>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>الأقساط <input type="number" name="installment_count" min="1" max="36" value="1" required></label><button type="submit">اعتماد</button>
         </form>
         <form method="post" action="/advances/{{ a.id }}/reject" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" placeholder="سبب الرفض" required><button type="submit">رفض</button>
