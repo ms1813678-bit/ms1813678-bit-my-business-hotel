@@ -19,8 +19,8 @@
 <label>رقم البصمة<input name="fingerprint_id" maxlength="50"></label>
 <label>الصورة الشخصية (اختياري JPG/PNG/WEBP، حد 5MB)<input name="photo" type="file" accept="image/jpeg,image/png,image/webp"></label>
 </div><button type="submit">حفظ الموظف</button></form></section>
-<section class="notice"><h2>سجل الموظفين</h2><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>الفرع</th><th>المسمى</th><th>الحالة</th></tr></thead><tbody>
-{% for e in employees %}<tr><td>{{ e.code }}</td><td>{% if e.photo_path %}<img src="/employees/{{ e.id }}/photo" alt="صورة {{ e.full_name }}" width="48" height="48">{% endif %} {{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{% for b in all_branches if b.id == e.branch_id %}{{ b.name }}{% else %}—{% endfor %}</td><td>{{ e.position }}</td><td>{{ e.status }}
+<section class="notice"><h2>الموظفون الحاليون</h2><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>الفرع</th><th>المسمى</th><th>الحالة</th></tr></thead><tbody>
+{% for e in active_employees %}<tr><td>{{ e.code }}</td><td>{% if e.photo_path %}<img src="/employees/{{ e.id }}/photo" alt="صورة {{ e.full_name }}" width="48" height="48">{% endif %} {{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{% for b in all_branches if b.id == e.branch_id %}{{ b.name }}{% else %}—{% endfor %}</td><td>{{ e.position }}</td><td>{{ e.status }}
 <details><summary>تعديل البيانات</summary><form method="post" action="/employees/{{ e.id }}/edit">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="form-grid">
 <label>الاسم بالكامل<input name="full_name" required maxlength="200" value="{{ e.full_name }}"></label>
@@ -58,6 +58,25 @@
 {% endif %}
 </td></tr>{% else %}<tr><td colspan="6">لا يوجد موظفون مسجلون بعد.</td></tr>{% endfor %}
 </tbody></table></div></section>
+<section class="notice">
+<h2>سجل الموظفين السابقين</h2>
+<p class="muted">هذا السجل منفصل عن الموظفين الحاليين. تظل بيانات الموظف وكوده محفوظة عند انتهاء الخدمة.</p>
+<div class="table-wrap"><table><thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>المسمى الوظيفي</th><th>فترات الخدمة</th><th>إجراء</th></tr></thead><tbody>
+{% for e in former_employees %}
+<tr>
+<td>{{ e.code }}</td><td>{{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{{ e.position }}</td>
+<td><ul>{% for period in service_periods if period.employee_id == e.id %}
+<li>{{ period.start_date.strftime("%d/%m/%Y") }} — {% if period.end_date %}{{ period.end_date.strftime("%d/%m/%Y") }}{% else %}مستمرة{% endif %}{% if period.start_reason %} ({{ period.start_reason }}){% endif %}{% if period.end_reason %} — سبب الانتهاء: {{ period.end_reason }}{% endif %}</li>
+{% else %}<li>لا توجد فترات خدمة مسجلة.</li>{% endfor %}</ul></td>
+<td><form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>تاريخ إعادة التعيين<input type="date" name="new_hire_date" required></label>
+<label>سبب إعادة التعيين<input name="reason" required placeholder="سبب إعادة التعيين"></label>
+<button type="submit">إعادة تعيين بنفس الكود</button></form></td>
+</tr>
+{% else %}<tr><td colspan="6">لا يوجد موظفون سابقون مسجلون.</td></tr>{% endfor %}
+</tbody></table></div></section>
+
 
 <section class="notice"><h2>طلبات تصحيح البيانات الشخصية</h2>
 {% for r in data_change_requests %}
