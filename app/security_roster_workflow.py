@@ -57,13 +57,13 @@ def resolve_security_employees(db):
             Employee.status == "active",
         ).order_by(Employee.id)
     ).all()
-    if len(employees) != 3:
-        raise ValueError("security_department_must_have_exactly_three_active_employees")
+    if len(employees) < 2:
+        raise ValueError("security_department_must_have_at_least_two_active_employees")
     return department, employees
 
 
 def prepare_security_roster(db, parsed_workbook):
-    """Resolve spreadsheet headers exactly to the fixed three active employees and prepare dates."""
+    """Resolve spreadsheet headers exactly to the all active Security employees and prepare dates."""
     department, employees = resolve_security_employees(db)
     by_name = {}
     for employee in employees:
