@@ -1715,6 +1715,9 @@ def test_employee_photo_rejects_excessive_pixel_dimensions(client, monkeypatch, 
 
 
 def test_employee_photo_is_removed_when_creation_transaction_fails(client, monkeypatch, tmp_path):
+    from io import BytesIO
+    from PIL import Image
+
     assert login(client).status_code == 303
     from app import main as main_module
 
