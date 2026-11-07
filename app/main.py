@@ -1267,20 +1267,25 @@ def advances_page(request: Request, admin: AdminAccount = Depends(get_current_ad
         advance_summary = {}
         for employee in employees:
             employee_requests = [item for item in requests if item.employee_id == employee.id]
-            outstanding = Decimal("0.00")
+            regular_outstanding = Decimal("0.00")
+            installment_outstanding = Decimal("0.00")
             deducted = Decimal("0.00")
             for item in employee_requests:
+                applied = db.scalar(
+                    select(func.coalesce(func.sum(AdvanceInstallment.amount), 0)).where(
+                        AdvanceInstallment.advance_request_id == item.id,
+                        AdvanceInstallment.status == "applied",
+                    )
+                ) or Decimal("0.00")
                 if item.status in {"pending", "approved", "paid"}:
-                    outstanding += Decimal(item.amount)
-                elif item.status == "deducted":
-                    applied = db.scalar(
-                        select(func.coalesce(func.sum(AdvanceInstallment.amount), 0)).where(
-                            AdvanceInstallment.advance_request_id == item.id,
-                            AdvanceInstallment.status == "applied",
-                        )
-                    ) or Decimal("0.00")
-                    deducted += Decimal(applied)
-                    outstanding += max(Decimal("0.00"), Decimal(item.amount) - Decimal(applied))
+                    remaining = Decimal(item.amount) - Decimal(applied)
+                else:
+                    remaining = Decimal(item.amount) - Decimal(applied)
+                if item.advance_type == "regular":
+                    regular_outstanding += max(Decimal("0.00"), remaining)
+                else:
+                    installment_outstanding += max(Decimal("0.00"), remaining)
+                deducted += Decimal(applied)
             total = sum(
                 (Decimal(item.amount) for item in employee_requests),
                 Decimal("0.00"),
@@ -1290,9 +1295,11 @@ def advances_page(request: Request, admin: AdminAccount = Depends(get_current_ad
                 "latest": employee_requests[0] if employee_requests else None,
                 "total": total,
                 "deducted": deducted,
-                "outstanding": outstanding,
+                "outstanding": regular_outstanding + installment_outstanding,
+                "regular_outstanding": regular_outstanding,
+                "installment_outstanding": installment_outstanding,
                 "limit": cap,
-                "available": max(Decimal("0.00"), cap - outstanding),
+                "available": max(Decimal("0.00"), cap - regular_outstanding),
             }
         return templates.TemplateResponse(
             request=request,
