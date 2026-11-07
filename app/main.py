@@ -74,6 +74,7 @@ async def _app_lifespan(application):
 
 EMPLOYEE_PHOTO_DIR = Path("var") / "employee_photos"
 EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024
+EMPLOYEE_PHOTO_MAX_PIXELS = 20_000_000
 EMPLOYEE_PHOTO_FIELDS = {"full_name", "phone", "address", "position", "national_id"}
 
 
@@ -88,6 +89,8 @@ def _store_employee_photo(upload: UploadFile | None) -> str | None:
     try:
         import io
         with Image.open(io.BytesIO(raw)) as image_file:
+            if image_file.width * image_file.height > EMPLOYEE_PHOTO_MAX_PIXELS:
+                raise HTTPException(status_code=400, detail="أبعاد الصورة أكبر من الحد المسموح.")
             image_file.verify()
             image_format = image_file.format
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
