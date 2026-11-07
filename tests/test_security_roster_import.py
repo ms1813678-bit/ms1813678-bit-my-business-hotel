@@ -208,3 +208,20 @@ def test_roster_parser_supports_two_or_more_employee_columns(names, aliases):
     assert set(parsed["employee_headers"]) == set(aliases.values())
     assert set(parsed["records"][0]["roster"]) == set(aliases.values())
     assert parsed["records"][0]["roster"][next(iter(aliases.values()))] == time(0, 0)
+
+
+def test_unmapped_employee_header_is_reported_instead_of_ignored():
+    data = _workbook_bytes([
+        ["Date", "Fayez", "Yasser", "Walid", "Unknown Guard"],
+        [date(2026, 11, 1), time(8, 0), time(16, 0), time(0, 0), time(20, 0)],
+    ])
+    result = parse_security_roster_xlsx(data, ALIASES)
+
+    assert result["status"] == "needs_review"
+    assert len(result["records"]) == 1
+    assert any(
+        issue["reason"] == "unknown_or_unmapped_employee_header"
+        and issue["header"] == "Unknown Guard"
+        and issue["column"] == 5
+        for issue in result["issues"]
+    )
