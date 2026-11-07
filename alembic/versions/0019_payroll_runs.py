@@ -105,7 +105,7 @@ def upgrade():
 
     # Link financial source records to the payroll run that consumed them.
     for table, column in (
-        ("advance_requests", "deducted_payroll_run_id"),
+        ("advance_requests", "payroll_run_id"),
         ("staff_actions", "payroll_run_id"),
     ):
         columns = {item["name"] for item in sa.inspect(op.get_bind()).get_columns(table)}
