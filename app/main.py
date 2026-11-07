@@ -1470,6 +1470,216 @@ def staff_action_acknowledgement_route(
     return RedirectResponse("/staff-actions", status_code=303)
 
 
+@app.get("/payroll", response_class=HTMLResponse)
+def payroll_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
+    with SessionLocal() as db:
+        runs = db.scalars(
+            select(PayrollRun).order_by(PayrollRun.period_start.desc())
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="payroll.html",
+            context={
+                "runs": runs,
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+            },
+        )
+
+
+@app.post("/payroll", dependencies=[Depends(csrf_protect)])
+def create_payroll_run_route(
+    year: int = Form(...),
+    month: int = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = create_payroll_run(db, year=year, month=month, actor=admin.username)
+            run_id = run.id
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/payroll?error=create", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.get("/payroll/runs/{run_id}", response_class=HTMLResponse)
+def payroll_run_page(
+    run_id: int,
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    with SessionLocal() as db:
+        run = db.get(PayrollRun, run_id)
+        if run is None:
+            return RedirectResponse("/payroll?error=run", status_code=303)
+        items = db.scalars(
+            select(PayrollItem)
+            .where(PayrollItem.payroll_run_id == run.id)
+            .order_by(PayrollItem.employee_id)
+        ).all()
+        employee_ids = [item.employee_id for item in items]
+        employees = db.scalars(
+            select(Employee).where(Employee.id.in_(employee_ids or {-1}))
+        ).all()
+        employee_names = {e.id: e.full_name for e in employees}
+        employee_codes = {e.id: e.code for e in employees}
+        summaries = {item.id: payment_totals(db, item) for item in items}
+        payments = db.scalars(
+            select(PayrollPayment)
+            .where(PayrollPayment.payroll_item_id.in_([item.id for item in items] or {-1}))
+            .order_by(PayrollPayment.paid_at.desc(), PayrollPayment.id.desc())
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="payroll_run.html",
+            context={
+                "run": run,
+                "items": items,
+                "employee_names": employee_names,
+                "employee_codes": employee_codes,
+                "summaries": summaries,
+                "payments": payments,
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+            },
+        )
+
+
+@app.post("/payroll/runs/{run_id}/approve", dependencies=[Depends(csrf_protect)])
+def approve_payroll_run_route(
+    run_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = db.scalar(
+                select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+            )
+            if run is None:
+                return RedirectResponse("/payroll?error=run", status_code=303)
+            approve_payroll_run(db, run, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=approve", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/runs/{run_id}/close", dependencies=[Depends(csrf_protect)])
+def close_payroll_run_route(
+    run_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = db.scalar(
+                select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+            )
+            if run is None:
+                return RedirectResponse("/payroll?error=run", status_code=303)
+            close_payroll_run(db, run, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=close", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/runs/{run_id}/reopen", dependencies=[Depends(csrf_protect)])
+def reopen_payroll_run_route(
+    run_id: int,
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = db.scalar(
+                select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+            )
+            if run is None:
+                return RedirectResponse("/payroll?error=run", status_code=303)
+            reopen_payroll_run(db, run, admin.username, reason)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=reopen", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/items/{item_id}/update", dependencies=[Depends(csrf_protect)])
+def update_payroll_item_route(
+    item_id: int,
+    attendance_bonus: Decimal = Form(Decimal("0")),
+    performance_bonus: Decimal = Form(Decimal("0")),
+    occupancy_bonus: Decimal = Form(Decimal("0")),
+    overtime_hours: Decimal = Form(Decimal("0")),
+    other_bonus: Decimal = Form(Decimal("0")),
+    absence_days: Decimal = Form(Decimal("0")),
+    lateness_deduction: Decimal = Form(Decimal("0")),
+    insurance_share: Decimal = Form(Decimal("0")),
+    taxes: Decimal = Form(Decimal("0")),
+    other_deductions: Decimal = Form(Decimal("0")),
+    note: str = Form(""),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    run_id = None
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(PayrollItem).where(PayrollItem.id == item_id).with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/payroll?error=item", status_code=303)
+            run_id = item.payroll_run_id
+            update_payroll_item(
+                db,
+                item,
+                {
+                    "attendance_bonus": attendance_bonus,
+                    "performance_bonus": performance_bonus,
+                    "occupancy_bonus": occupancy_bonus,
+                    "overtime_hours": overtime_hours,
+                    "other_bonus": other_bonus,
+                    "absence_days": absence_days,
+                    "lateness_deduction": lateness_deduction,
+                    "insurance_share": insurance_share,
+                    "taxes": taxes,
+                    "other_deductions": other_deductions,
+                    "note": note,
+                },
+                admin.username,
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=item", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/items/{item_id}/payments", dependencies=[Depends(csrf_protect)])
+def add_payroll_payment_route(
+    item_id: int,
+    amount: Decimal = Form(...),
+    paid_date: date = Form(...),
+    method: str = Form(...),
+    reference: str = Form(""),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    run_id = None
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(PayrollItem).where(PayrollItem.id == item_id).with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/payroll?error=item", status_code=303)
+            run_id = item.payroll_run_id
+            add_payroll_payment(
+                db,
+                item,
+                amount=amount,
+                paid_date=paid_date,
+                method=method,
+                reference=reference,
+                actor=admin.username,
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=payment", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
     with SessionLocal() as db:
