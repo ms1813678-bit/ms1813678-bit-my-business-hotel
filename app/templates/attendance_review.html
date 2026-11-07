@@ -38,8 +38,6 @@
       <p>الوردية: {{ record.scheduled_start_at or "غير محددة" }} إلى {{ record.scheduled_end_at or "غير محددة" }}</p>
       <p>تقرير البرنامج: دخول {{ record.program_clock_in or "غير موجود" }} — خروج {{ record.program_clock_out or "غير موجود" }}</p>
       <p>البصمة: أول حركة {{ record.fingerprint_in or "غير موجودة" }} — آخر حركة {{ record.fingerprint_out or "غير موجودة" }}</p>
-      <p>مصدر تقرير البرنامج: دخول {{ record.program_clock_in or "غير موجود" }} — خروج {{ record.program_clock_out or "غير موجود" }}</p>
-      <p>مصدر جهاز البصمة: أول حركة {{ record.fingerprint_in or "غير موجودة" }} — آخر حركة {{ record.fingerprint_out or "غير موجودة" }}</p>
       <p>الدقائق المقترحة: {{ record.worked_minutes if record.worked_minutes is not none else "غير محسوبة" }}</p>
       {% if record.suggested_clock_in and record.scheduled_start_at %}
         {% if record.suggested_clock_in > record.scheduled_start_at %}
