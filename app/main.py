@@ -1032,20 +1032,22 @@ def create_employee(
     fingerprint_id = fingerprint_id.strip() or None
     if not full_name or not position:
         raise HTTPException(status_code=400, detail="اسم الموظف والمسمى الوظيفي مطلوبان.")
-    with SessionLocal.begin() as db:
-        department = db.get(Department, department_id)
-        if department is None or not department.active:
-            raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
-        branch = db.get(Branch, branch_id) if branch_id is not None else None
-        if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
-            raise HTTPException(status_code=400, detail="الفرع المحدد غير تابع للقسم المختار أو غير متاح.")
-        for field_name, value in (("national_id", national_id), ("fingerprint_id", fingerprint_id)):
-            if value is not None and db.scalar(
-                select(Employee.id).where(getattr(Employee, field_name) == value).limit(1)
-            ) is not None:
-                raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
-        photo_path = _store_employee_photo(photo)
-        try:
+
+    photo_path = None
+    try:
+        with SessionLocal.begin() as db:
+            department = db.get(Department, department_id)
+            if department is None or not department.active:
+                raise HTTPException(status_code=400, detail="القسم المحدد غير متاح.")
+            branch = db.get(Branch, branch_id) if branch_id is not None else None
+            if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
+                raise HTTPException(status_code=400, detail="الفرع المحدد غير تابع للقسم المختار أو غير متاح.")
+            for field_name, value in (("national_id", national_id), ("fingerprint_id", fingerprint_id)):
+                if value is not None and db.scalar(
+                    select(Employee.id).where(getattr(Employee, field_name) == value).limit(1)
+                ) is not None:
+                    raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
+            photo_path = _store_employee_photo(photo)
             employee = Employee(
                 code=allocate_employee_code(db), full_name=full_name,
                 national_id=national_id, phone=phone.strip() or None,
@@ -1064,17 +1066,16 @@ def create_employee(
                 new_value=f"code={employee.code}; full_name={employee.full_name}; department_id={department_id}; branch_id={branch_id}",
                 reason="Initial employee record created",
             ))
-        except Exception:
-            # The photo is written before the database transaction commits. If
-            # any subsequent database operation fails, remove the unreferenced file.
-            if photo_path:
-                try:
-                    (EMPLOYEE_PHOTO_DIR / photo_path).unlink(missing_ok=True)
-                except OSError:
-                    pass
-            raise
+    except Exception:
+        # Include transaction-commit failures: the image is stored outside the
+        # database, so remove it whenever employee creation does not commit.
+        if photo_path:
+            try:
+                (EMPLOYEE_PHOTO_DIR / photo_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
     return RedirectResponse("/employees", status_code=303)
-
 
 @app.post("/employees/{employee_id}/edit", dependencies=[Depends(csrf_protect)])
 def edit_employee(
