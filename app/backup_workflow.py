@@ -414,6 +414,7 @@ def restore_backup(
         pre_restore = create_backup(db, "pre_restore", actor)
         if pre_restore.status != "success" or not pre_restore.archive_path:
             raise RuntimeError("A verified pre-restore backup could not be created; restore was cancelled.")
+        pre_restore_id = pre_restore.id
         pre_restore_path = Path(pre_restore.archive_path)
         pre_restore_hash = pre_restore.sha256
 
@@ -437,7 +438,7 @@ def restore_backup(
                     actor=actor,
                     action="backup_restore_rolled_back",
                     entity_type="backup_run",
-                    entity_id=str(pre_restore.id),
+                    entity_id=str(pre_restore_id),
                     old_value=str(selected),
                     new_value=str(pre_restore_path),
                     reason=f"Restore failed and previous database was restored: {restore_error}"[:4000],
