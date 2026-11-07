@@ -48,8 +48,11 @@ def create_staff_action(
     if category == "financial_reward" and not is_financial:
         raise ValueError("A financial reward must have a financial amount.")
     if is_financial:
-        if amount is None or amount <= 0 or payroll_month is None:
+        if amount is None or payroll_month is None:
             raise ValueError("Financial actions need a positive amount and payroll month.")
+        amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+        if amount <= 0:
+            raise ValueError("Financial action amount must be positive.")
         if payroll_month.day != 1:
             raise ValueError("Payroll month must be entered as the first day of the month.")
 
@@ -187,6 +190,13 @@ def update_draft_staff_action(
     """Edit an unapproved action with before/after audit and duplicate protection."""
     if item.status != "draft":
         raise ValueError("Only draft staff actions can be edited.")
+    if item.kind not in {"sanction", "reward"}:
+        raise ValueError("Invalid staff action type.")
+    employee = db.scalar(
+        select(Employee).where(Employee.id == item.employee_id).with_for_update()
+    )
+    if employee is None or employee.status != "active":
+        raise ValueError("The employee is not active.")
     allowed = SANCTION_CATEGORIES if item.kind == "sanction" else REWARD_CATEGORIES
     if category not in allowed:
         raise ValueError("Invalid category for this action.")
