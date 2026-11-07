@@ -1171,6 +1171,12 @@ def confirm_leave_record(
             )
             if record is None:
                 return RedirectResponse("/leave?error=record", status_code=303)
+            # Serialize balance-consuming approvals for the same employee.
+            db.scalar(
+                select(Employee)
+                .where(Employee.id == record.employee_id)
+                .with_for_update()
+            )
             confirm_leave(db, record, admin.username)
     except (ValueError, SQLAlchemyError):
         return RedirectResponse("/leave?error=confirm", status_code=303)
