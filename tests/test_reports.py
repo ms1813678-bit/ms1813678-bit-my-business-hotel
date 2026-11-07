@@ -156,10 +156,6 @@ def test_hr_report_preserves_employee_and_payroll_history():
                 assert comparison.cell(2, 8).value == 0
                 assert comparison.cell(2, 9).value == 8000
                 assert comparison.cell(2, 12).value == 1
-                assert workbook["Payroll comparison"].cell(2, 4).value == 1
-                assert workbook["Payroll comparison"].cell(2, 7).value == 8000
-                assert workbook["Payroll comparison"].cell(2, 8).value == 0
-                assert workbook["Payroll comparison"].cell(2, 12).value == 1
             finally:
                 workbook.close()
     finally:
