@@ -207,8 +207,11 @@ def update_draft_staff_action(
     if category == "financial_reward" and not is_financial:
         raise ValueError("A financial reward must have a financial amount.")
     if is_financial:
-        if amount is None or amount <= 0 or payroll_month is None:
+        if amount is None or payroll_month is None:
             raise ValueError("Financial actions need a positive amount and payroll month.")
+        amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+        if amount <= 0:
+            raise ValueError("Financial action amount must be positive.")
         if payroll_month.day != 1:
             raise ValueError("Payroll month must be entered as the first day of the month.")
         duplicate = db.scalar(
