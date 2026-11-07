@@ -160,7 +160,10 @@ def approve_advance(db: Session, request: AdvanceRequest, actor: str, installmen
         )
         if already_reserved + Decimal(request.amount) > cap:
             raise ValueError("The monthly advance limit would be exceeded.")
-    if installment_count < 1 or installment_count > 36:
+    if request.advance_type == "regular":
+        if installment_count != 1:
+            raise ValueError("Regular advances must be deducted as one monthly advance.")
+    elif installment_count < 1 or installment_count > 36:
         raise ValueError("Installment count must be between 1 and 36.")
     create_installments(db, request, installment_count, actor)
     request.status = "approved"
