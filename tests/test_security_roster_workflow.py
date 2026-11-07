@@ -302,3 +302,67 @@ def test_two_person_team_is_supported(roster_db):
     db.commit()
     assert len(result["assignments"]) == 2
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 2
+
+
+def test_four_person_team_allows_off_and_uses_configured_midnight_pattern():
+    from app.security_roster import build_security_day_proposal
+
+    roster = {
+        1: time(0, 0),
+        2: time(8, 0),
+        3: time(16, 0),
+        4: "OFF",
+    }
+    patterns = [
+        {"id": 1, "start_time": time(0, 0), "end_time": time(8, 0)},
+        {"id": 2, "start_time": time(8, 0), "end_time": time(16, 0)},
+        {"id": 3, "start_time": time(16, 0), "end_time": time(0, 0)},
+    ]
+    proposal = build_security_day_proposal(roster, patterns)
+
+    assert proposal["status"] == "ready_for_admin_review"
+    assert len(proposal["assignments"]) == 3
+    assert {item["employee_id"] for item in proposal["assignments"]} == {1, 2, 3}
+    assert next(item for item in proposal["assignments"] if item["employee_id"] == 1)["start_time"] == time(0, 0)
+
+
+def test_four_person_team_with_ambiguous_start_is_blocked():
+    from app.security_roster import build_security_day_proposal
+
+    roster = {
+        1: time(8, 0),
+        2: time(12, 0),
+        3: time(16, 0),
+        4: time(20, 0),
+    }
+    patterns = [
+        {"id": 1, "start_time": time(8, 0), "end_time": time(16, 0)},
+        {"id": 2, "start_time": time(8, 0), "end_time": time(20, 0)},
+        {"id": 3, "start_time": time(12, 0), "end_time": time(20, 0)},
+        {"id": 4, "start_time": time(16, 0), "end_time": time(0, 0)},
+        {"id": 5, "start_time": time(20, 0), "end_time": time(4, 0)},
+    ]
+    proposal = build_security_day_proposal(roster, patterns)
+
+    assert proposal["status"] == "needs_review"
+    assert any("shift_pattern_resolution_ambiguous:1" in issue for issue in proposal["issues"])
+
+
+def test_four_person_team_duplicate_start_times_are_blocked():
+    from app.security_roster import build_security_day_proposal
+
+    roster = {
+        1: time(8, 0),
+        2: time(8, 0),
+        3: time(16, 0),
+        4: time(20, 0),
+    }
+    patterns = [
+        {"id": 1, "start_time": time(8, 0), "end_time": time(16, 0)},
+        {"id": 2, "start_time": time(16, 0), "end_time": time(0, 0)},
+        {"id": 3, "start_time": time(20, 0), "end_time": time(4, 0)},
+    ]
+    proposal = build_security_day_proposal(roster, patterns)
+
+    assert proposal["status"] == "needs_review"
+    assert "duplicate_security_shift_start_times" in proposal["issues"]
