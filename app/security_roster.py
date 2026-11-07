@@ -52,8 +52,8 @@ def build_security_day_proposal(roster, shift_patterns):
     """Return a reviewable proposal without inferring unconfigured durations.
 
     At least two employees must be present in the roster and at least two guards
-    must work each day. Two working guards require 12-hour patterns; three
-    require 8-hour patterns. Larger daily teams must match configured patterns.
+    must work each day. Two working guards require 12-hour patterns; three or more
+    require 8-hour patterns. Each start must match one configured active pattern.
     Ambiguity, missing patterns, duplicate starts, and overlaps block approval.
     """
     if not isinstance(roster, dict) or len(roster) < 2:
@@ -93,7 +93,7 @@ def build_security_day_proposal(roster, shift_patterns):
         }
 
     assignments = []
-    if len(working) in (2, 3):
+    if len(working) >= 2:
         duration = 12 if len(working) == 2 else 8
         for employee_id, start in working:
             end = _plus_hours(start, duration)
