@@ -9,6 +9,7 @@ on:
       - work/rewards-sanctions-v2
       - work/payroll-foundation
       - work/backup-recovery-v2
+      - integration/release-hardening-v2
   pull_request:
     branches:
       - main
@@ -16,6 +17,7 @@ on:
       - work/leave-management-foundation
       - work/rewards-sanctions-v2
       - work/payroll-foundation
+      - work/backup-recovery-v2
   workflow_dispatch:
 
 permissions:
