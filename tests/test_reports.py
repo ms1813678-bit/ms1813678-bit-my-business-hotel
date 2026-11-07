@@ -146,6 +146,16 @@ def test_hr_report_preserves_employee_and_payroll_history():
                 assert workbook["Leave"].cell(2, 3).value == "سنوية"
                 assert workbook["Payroll"].cell(2, 4).value == "MY-REPORT-0001"
                 assert workbook["Payroll"].cell(2, 5).value == "Name at payroll time"
+                comparison = workbook["Payroll comparison"]
+                assert comparison.max_row == 2
+                assert comparison.cell(2, 1).value == date(2026, 10, 1)
+                assert comparison.cell(2, 3).value == "closed"
+                assert comparison.cell(2, 4).value == 1
+                assert comparison.cell(2, 5).value == 8000
+                assert comparison.cell(2, 7).value == 8000
+                assert comparison.cell(2, 8).value == 0
+                assert comparison.cell(2, 9).value == 8000
+                assert comparison.cell(2, 12).value == 1
                 assert workbook["Payroll comparison"].cell(2, 4).value == 1
                 assert workbook["Payroll comparison"].cell(2, 7).value == 8000
                 assert workbook["Payroll comparison"].cell(2, 8).value == 0
