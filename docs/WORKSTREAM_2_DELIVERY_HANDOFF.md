@@ -78,17 +78,17 @@ The monthly approval service is **not yet wired to an HTTP route or screen**. Th
 
 ## Tests and validation
 
-- Before the HR-confirmed flexible-team rule was added, 26 targeted behavior checks passed in an isolated SQLite harness. The newly added fixed-team regression tests have **not yet been executed**; do not treat the earlier 26 checks as validation of the latest changes.
+- Before the flexible-team rule and 8-hour threshold update, 26 targeted behavior checks passed in an isolated SQLite harness. The latest regression tests have **not yet been executed locally**; do not treat the earlier 26 checks as validation of the latest changes.
 - These are targeted local behavior tests, **not** the complete repository pytest suite and not a substitute for PostgreSQL integration or Windows validation.
 - The container does not have `psycopg` or `xlrd`; package installation was attempted but the environment has no package-index network access. Therefore I could not execute the full project suite locally or exercise the legacy `.xls` reader locally.
-- Latest inspected GitHub Actions run #699 (run ID `42367511642`) ran for the fixed-team update. Both Ubuntu/PostgreSQL and Windows jobs failed; the retry was accepted but failed again. GitHub returned empty step lists and the job-log endpoint returned 404/BlobNotFound, so there is no evidence that pytest assertions ran. The runner/service startup cause remains unknown; no CI pass is claimed.
+- Latest inspected run #739 (run ID `42395890487`) was queued for the latest PR head when checked. The preceding run #737 failed on Windows and Ubuntu/PostgreSQL; both jobs exposed no steps or logs, so there is no evidence pytest started. No CI pass is claimed for the current head.
 - Current branch head still needs a real CI run with runners started and test steps executed. No Ubuntu/PostgreSQL or Windows CI pass is claimed.
 
 ## Shared-file integration work requested from Workstream 1 / coordinator
 
 The following narrow changes are required before claiming end-to-end completion. Workstream 2 has not made these shared edits.
 
-1. **`app/main.py::_security_roster_aliases`** — read-only inspection confirms the current route still requires at least two active Security employees; the active team size is flexible. It must be coordinated with Team 1 to accept any active team size of two or more; this shared route was not changed in this branch. No route change is needed for team size; the shared file was left untouched.
+1. **`app/main.py::_security_roster_aliases`** — read-only inspection confirms the current shared route still requires exactly three active Security employees. It must be coordinated with Team 1 to accept any active team size of two or more; this shared route was not changed in this branch.
 2. **Security confirmation route + `app/templates/security_roster.html`** — collect a required HR reason and pass it into `confirm_security_roster_day` / the daily audit entry. The current route accepts a review checkbox only and the service currently writes a fixed daily reason.
 3. **Security month approval route/template** — expose `approve_security_roster_month(db, month_start, admin, reason)` with CSRF protection, authenticated HR admin, and a required free-text reason; display month status and missing dates before allowing submission.
 4. **`app/main.py::attendance_review_page` and `attendance_review.html`** — join the employee's effective department for the work date and display it. Current review query returns the attendance record and Employee, not the department.
