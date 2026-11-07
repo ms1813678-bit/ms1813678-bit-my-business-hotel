@@ -81,6 +81,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
             )
         request.session.clear()
         request.session["admin_username"] = admin.username
+        request.session["admin_session_version"] = admin.session_version
         # Rotate the CSRF token when the anonymous session becomes authenticated.
         csrf_token = get_csrf_token(request)
     return RedirectResponse("/", status_code=303)
