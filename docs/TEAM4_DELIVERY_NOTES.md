@@ -48,6 +48,18 @@ boundary tests cover invalid months, negative minute/day inputs, and a hire on
 the final calendar day. These are authored tests; they are not yet confirmed
 passing because CI is still failing and local execution is unavailable here.
 
+## Overtime approval safety finding — 2026-11-07
+
+The current payroll schema stores overtime hours and amount but has no persisted
+management approval state or approver identity. Until Team 1 adds and integrates
+that approval workflow in the shared model and route, Team 4 now blocks positive
+overtime-hour edits in the payroll workflow. The offline assistant also flags
+overtime unless approval is explicitly represented as `True`. This is a
+fail-closed interim safeguard, not a replacement for a real approval workflow.
+A route regression test verifies that an unapproved overtime submission is
+rejected without changing the payroll item. Positive overtime remains unavailable
+until the approval data and controls are implemented and reviewed.
+
 ## Integration boundary / team 1 handoff
 
 The assistant router and navigation are not wired into `app/main.py`, because that
