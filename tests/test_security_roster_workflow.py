@@ -583,3 +583,125 @@ def test_security_month_approval_requires_reason_and_writes_audit(roster_db):
         approve_security_roster_month(
             db, date(2026, 11, 1), admin, "Duplicate approval attempt",
         )
+
+
+def test_security_month_approval_rejects_assignment_added_after_daily_review(roster_db):
+    db, employees, admin = roster_db
+    for day_number in range(1, 31):
+        work_date = date(2026, 11, day_number)
+        parsed = _parsed(employees, work_date)
+        confirm_security_roster_day(
+            db, work_date, parsed["records"][0]["roster"], admin, [],
+        )
+
+    department = db.scalar(select(Department).where(Department.name == "Security"))
+    pattern = db.scalar(select(ShiftPattern).where(
+        ShiftPattern.department_id == department.id,
+        ShiftPattern.start_time == time(0, 0),
+        ShiftPattern.end_time == time(8, 0),
+    ))
+    extra = Employee(
+        code="SEC-EXTRA-MONTH",
+        full_name="Additional Security Employee",
+        department_id=department.id,
+        position="Security",
+        hire_date=date(2024, 1, 1),
+        status="active",
+        basic_salary=Decimal("5000"),
+        daily_hours=Decimal("8"),
+    )
+    db.add(extra)
+    db.flush()
+    db.add(SecurityShiftAssignment(
+        employee_id=extra.id,
+        work_date=date(2026, 11, 1),
+        shift_pattern_id=pattern.id,
+        notes="Unexpected assignment after daily review",
+    ))
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="security_roster_month_daily_evidence_mismatch",
+    ):
+        approve_security_roster_month(
+            db, date(2026, 11, 1), admin, "Review must reject late assignment",
+        )
+
+
+def test_security_month_approval_rejects_non_security_pattern_for_rostered_employee(roster_db):
+    from sqlalchemy import update
+
+    db, employees, admin = roster_db
+    for day_number in range(1, 31):
+        work_date = date(2026, 11, day_number)
+        parsed = _parsed(employees, work_date)
+        confirm_security_roster_day(
+            db, work_date, parsed["records"][0]["roster"], admin, [],
+        )
+
+    reception = Department(name="Reception", active=True)
+    db.add(reception)
+    db.flush()
+    foreign_pattern = ShiftPattern(
+        department_id=reception.id,
+        code="REC-TEST",
+        name="Foreign department pattern",
+        start_time=time(0, 0),
+        end_time=time(8, 0),
+        active=True,
+    )
+    db.add(foreign_pattern)
+    db.flush()
+    assignment = db.scalar(select(SecurityShiftAssignment).where(
+        SecurityShiftAssignment.employee_id == employees[0].id,
+        SecurityShiftAssignment.work_date == date(2026, 11, 1),
+    ))
+    db.execute(
+        update(SecurityShiftAssignment)
+        .where(SecurityShiftAssignment.id == assignment.id)
+        .values(shift_pattern_id=foreign_pattern.id)
+    )
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="security_roster_month_contains_assignment_with_non_security_pattern",
+    ):
+        approve_security_roster_month(
+            db, date(2026, 11, 1), admin, "Review wrong department assignment",
+        )
+
+
+def test_security_month_approval_rejects_duplicate_employee_ids_in_daily_audit(roster_db):
+    from sqlalchemy import update
+
+    db, employees, admin = roster_db
+    for day_number in range(1, 31):
+        work_date = date(2026, 11, day_number)
+        parsed = _parsed(employees, work_date)
+        confirm_security_roster_day(
+            db, work_date, parsed["records"][0]["roster"], admin, [],
+        )
+
+    original = db.scalar(select(AuditLog).where(
+        AuditLog.action == "security_roster_day_approved",
+        AuditLog.entity_id == "2026-11-01",
+    ))
+    db.execute(
+        update(AuditLog)
+        .where(AuditLog.id == original.id)
+        .values(new_value=(
+            f"{employees[0].id}:00:00; {employees[0].id}:OFF; "
+            f"{employees[1].id}:08:00; {employees[2].id}:16:00"
+        ))
+    )
+    db.flush()
+
+    with pytest.raises(
+        ValueError,
+        match="security_roster_month_daily_audit_has_duplicate_employees",
+    ):
+        approve_security_roster_month(
+            db, date(2026, 11, 1), admin, "Reject duplicate audit employee",
+        )
