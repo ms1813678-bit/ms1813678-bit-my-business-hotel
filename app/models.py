@@ -371,7 +371,7 @@ class LeaveRecord(Base):
     __table_args__ = (
         CheckConstraint("end_date >= start_date", name="ck_leave_records_date_range"),
         CheckConstraint("calendar_days >= 1", name="ck_leave_records_calendar_days"),
-        CheckConstraint("charged_days >= 0", name="ck_leave_records_charged_days"),
+        CheckConstraint("charged_days > 0", name="ck_leave_records_charged_days"),
         CheckConstraint(
             "status IN ('draft', 'confirmed', 'cancelled')",
             name="ck_leave_records_status",
