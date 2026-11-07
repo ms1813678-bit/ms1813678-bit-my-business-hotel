@@ -500,6 +500,59 @@ def test_draft_leave_edit_records_before_and_after_audit(leave_client):
         assert "Updated draft reason" in audit.new_value
 
 
+def test_draft_leave_edit_cannot_charge_more_than_calendar_days(leave_client):
+    from app.leave_workflow import update_draft_leave
+
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/leave"))
+    start = date.today() + timedelta(days=20)
+    response = client.post(
+        "/leave/records",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "leave_type_id": client.test_annual_id,
+            "start_date": start.isoformat(),
+            "end_date": (start + timedelta(days=1)).isoformat(),
+            "charged_days": "1",
+            "reason": "Synthetic bounded charge test",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        record = db.scalar(select(LeaveRecord))
+        with pytest.raises(ValueError, match="cannot exceed calendar days"):
+            update_draft_leave(
+                db, record,
+                start_date=start,
+                end_date=start + timedelta(days=1),
+                charged_days=Decimal("2.01"),
+                reason="Attempted excessive charge",
+                actor="leave-admin",
+            )
+
+
+def test_balance_entry_requires_nonblank_reason(leave_client):
+    from app.leave_workflow import add_balance_entry
+
+    client = leave_client
+    with client.test_session_factory() as db:
+        leave_type = db.get(LeaveType, client.test_annual_id)
+        with pytest.raises(ValueError, match="reason is required"):
+            add_balance_entry(
+                db,
+                employee_id=client.test_employee_id,
+                leave_type=leave_type,
+                transaction_type="opening",
+                days_delta=Decimal("5"),
+                reason="   ",
+                actor="leave-admin",
+            )
+
+
 def test_confirmed_leave_cannot_be_edited(leave_client):
     from app.leave_workflow import update_draft_leave
 
