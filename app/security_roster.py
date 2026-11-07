@@ -118,11 +118,31 @@ def build_security_day_proposal(roster, shift_patterns):
                 "shift_pattern_id": matches[0]["id"],
             })
     else:
-        return {
-            "status": "needs_review",
-            "assignments": [],
-            "issues": ["daily_security_working_count_must_be_two_or_three"],
-        }
+        for employee_id, start in working:
+            matches = [
+                pattern for pattern in shift_patterns
+                if _pattern_time(pattern["start_time"]) == start
+            ]
+            if len(matches) != 1:
+                kind = "missing" if not matches else "ambiguous"
+                issues.append(
+                    f"shift_pattern_resolution_{kind}:{employee_id}:"
+                    f"{start.isoformat(timespec='minutes')}"
+                )
+                continue
+            pattern = matches[0]
+            end = _pattern_time(pattern["end_time"])
+            if _interval_segments(start, end) is None:
+                issues.append(f"invalid_zero_length_shift_pattern:{employee_id}")
+                continue
+            duration_minutes = (_minutes(end) - _minutes(start)) % (24 * 60)
+            assignments.append({
+                "employee_id": employee_id,
+                "start_time": start,
+                "end_time": end,
+                "duration_hours": duration_minutes / 60,
+                "shift_pattern_id": matches[0]["id"],
+            })
 
     intervals = {}
     for item in assignments:
