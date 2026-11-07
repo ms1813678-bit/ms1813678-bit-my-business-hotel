@@ -49,23 +49,17 @@
   <section class="notice">
     <h2>تفاصيل الرواتب / Employee payroll items</h2>
     <div class="table-wrap"><table><thead><tr>
-      <th>الموظف</th><th>الأساسي</th><th>بعد التناسب</th><th>إضافي</th><th>خصم غياب</th><th>خصم تأخير</th><th>مكافآت مالية</th><th>جزاءات مالية</th><th>سلف</th><th>التأمين</th><th>الضرائب</th><th>خصومات أخرى</th><th>الصافي</th><th>المدفوع</th><th>المتبقي</th><th>حالة الصرف</th>
+      <th>الموظف</th><th>الأساسي</th><th>بعد التناسب</th><th>إجمالي المستحقات</th><th>إجمالي الخصومات</th><th>الصافي</th><th>المدفوع</th><th>المتبقي</th><th>حالة الصرف</th>
     </tr></thead><tbody>
     {% for item in items %}
     {% set p = summaries.get(item.id) %}
+    {% set f = financials.get(item.id) %}
     <tr>
       <td>{{ employee_codes.get(item.employee_id, "—") }} — {{ employee_names.get(item.employee_id, "—") }}</td>
       <td>{{ "%.2f"|format(item.salary_basis) }}</td>
       <td>{{ "%.2f"|format(item.base_salary) }}</td>
-      <td>{{ "%.2f"|format(item.overtime_amount) }}</td>
-      <td>{{ "%.2f"|format(item.absence_deduction) }}</td>
-      <td>{{ "%.2f"|format(item.lateness_deduction) }}</td>
-      <td>{{ "%.2f"|format(item.staff_reward_amount) }}</td>
-      <td>{{ "%.2f"|format(item.staff_sanction_amount) }}</td>
-      <td>{{ "%.2f"|format(item.advance_deduction) }}</td>
-      <td>{{ "%.2f"|format(item.insurance_share) }}</td>
-      <td>{{ "%.2f"|format(item.taxes) }}</td>
-      <td>{{ "%.2f"|format(item.other_deductions) }}</td>
+      <td>{{ "%.2f"|format(f.gross) }}</td>
+      <td>{{ "%.2f"|format(f.deductions) }}</td>
       <td><strong>{{ "%.2f"|format(item.net_pay) }}</strong></td>
       <td>{{ "%.2f"|format(p[0]) }}</td>
       <td>{{ "%.2f"|format(p[1]) }}</td>
@@ -76,7 +70,7 @@
       </td>
     </tr>
     {% if run.status in ["draft", "reopened"] %}
-    <tr><td colspan="16">
+    <tr><td colspan="9">
       <form method="post" action="/payroll/items/{{ item.id }}/update">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-grid">
