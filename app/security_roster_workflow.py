@@ -363,14 +363,16 @@ def approve_security_roster_month(
     for work_date in work_dates:
         audit = audit_by_date[work_date.isoformat()]
         expected = {}
+        seen_employee_ids = set()
         raw_values = str(audit.new_value or "")
         for token in raw_values.split(";"):
             employee_text, separator, value = token.strip().partition(":")
             if not separator or not employee_text.isdigit():
                 raise ValueError("security_roster_month_daily_audit_is_invalid")
             employee_id = int(employee_text)
-            if employee_id in expected:
+            if employee_id in seen_employee_ids:
                 raise ValueError("security_roster_month_daily_audit_has_duplicate_employees")
+            seen_employee_ids.add(employee_id)
             value = value.strip()
             if value.upper() == "OFF":
                 continue
