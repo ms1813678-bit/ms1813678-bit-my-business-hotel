@@ -6,10 +6,12 @@ on:
       - feature/auth-security
       - feature/platform-hardening
       - work/leave-management-foundation
+      - work/rewards-sanctions
   pull_request:
     branches:
       - main
       - feature/auth-security
+      - work/leave-management-foundation
   workflow_dispatch:
 
 permissions:
