@@ -48,6 +48,8 @@ def upgrade():
             sa.Column("department_name_snapshot", sa.String(length=100), nullable=False),
             sa.Column("position_snapshot", sa.String(length=120), nullable=False),
             sa.Column("basic_salary_snapshot", sa.Numeric(12, 2), nullable=False),
+            sa.Column("monthly_basic_salary_snapshot", sa.Numeric(12, 2), nullable=False),
+            sa.Column("payable_service_days", sa.Integer(), nullable=False),
             sa.Column("daily_hours_snapshot", sa.Numeric(5, 2), nullable=False),
             sa.Column("attendance_bonus", sa.Numeric(12, 2), nullable=False, server_default="0"),
             sa.Column("performance_bonus", sa.Numeric(12, 2), nullable=False, server_default="0"),
@@ -62,7 +64,8 @@ def upgrade():
             sa.Column("advance_deduction", sa.Numeric(12, 2), nullable=False, server_default="0"),
             sa.Column("notes", sa.Text(), nullable=True),
             sa.UniqueConstraint("payroll_period_id", "employee_id", name="uq_payroll_line_period_employee"),
-            sa.CheckConstraint("basic_salary_snapshot >= 0", name="ck_payroll_line_base_salary_nonnegative"),
+            sa.CheckConstraint("basic_salary_snapshot >= 0 AND monthly_basic_salary_snapshot >= 0", name="ck_payroll_line_base_salary_nonnegative"),
+            sa.CheckConstraint("payable_service_days BETWEEN 0 AND 31", name="ck_payroll_line_service_days"),
             sa.CheckConstraint(
                 "attendance_bonus >= 0 AND performance_bonus >= 0 AND occupancy_bonus >= 0 "
                 "AND overtime_amount >= 0 AND other_bonus >= 0 "
