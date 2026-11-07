@@ -1584,3 +1584,81 @@ def test_overnight_attendance_review_prefills_clock_out_on_next_date(client):
     page = client.get("/attendance/review")
     assert page.status_code == 200
     assert 'value="2026-11-02T07:03"' in page.text
+
+
+def test_employee_archive_and_rehire_preserve_code_and_service_history(client):
+    from app.main import SessionLocal
+    from app.models import EmployeeServicePeriod
+
+    assert login(client).status_code == 303
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Lifecycle Acceptance Employee",
+            "department_id": str(client.test_department_id),
+            "position": "Test Position",
+            "hire_date": "2025-04-10",
+            "basic_salary": "5000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+
+    with SessionLocal() as db:
+        employee = db.query(Employee).filter_by(
+            full_name="Lifecycle Acceptance Employee"
+        ).one()
+        employee_id = employee.id
+        original_code = employee.code
+        first_period = db.query(EmployeeServicePeriod).filter_by(
+            employee_id=employee_id
+        ).one()
+        assert first_period.start_date == date(2025, 4, 10)
+        assert first_period.end_date is None
+
+    archived = client.post(
+        f"/employees/{employee_id}/archive",
+        data={"csrf_token": token, "reason": "Synthetic lifecycle test archive"},
+        follow_redirects=False,
+    )
+    assert archived.status_code == 303
+
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        periods = db.query(EmployeeServicePeriod).filter_by(
+            employee_id=employee_id
+        ).order_by(EmployeeServicePeriod.id).all()
+        assert employee.status == "archived"
+        assert employee.code == original_code
+        assert len(periods) == 1
+        assert periods[0].end_date == date.today()
+        assert periods[0].end_reason == "Synthetic lifecycle test archive"
+
+    new_hire_date = date.today() + timedelta(days=1)
+    rehired = client.post(
+        f"/employees/{employee_id}/rehire",
+        data={
+            "csrf_token": token,
+            "new_hire_date": new_hire_date.isoformat(),
+            "reason": "Synthetic lifecycle test rehire",
+        },
+        follow_redirects=False,
+    )
+    assert rehired.status_code == 303
+
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        periods = db.query(EmployeeServicePeriod).filter_by(
+            employee_id=employee_id
+        ).order_by(EmployeeServicePeriod.id).all()
+        assert employee.status == "active"
+        assert employee.code == original_code
+        assert employee.hire_date == new_hire_date
+        assert len(periods) == 2
+        assert periods[0].end_date == date.today()
+        assert periods[1].start_date == new_hire_date
+        assert periods[1].end_date is None
+        assert periods[1].start_reason == "Synthetic lifecycle test rehire"
