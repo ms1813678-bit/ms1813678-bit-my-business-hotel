@@ -256,16 +256,18 @@ def test_one_working_guard_is_rejected_even_with_three_employee_roster():
     )
     assert proposal["status"] == "needs_review"
     assert proposal["assignments"] == []
-    assert "daily_security_working_count_must_be_two_or_three" in proposal["issues"]
+    assert "daily_security_working_count_must_be_at_least_two" in proposal["issues"]
 
 
-def test_two_or_four_configured_active_security_employees_are_rejected(roster_db):
+def test_one_active_security_employee_is_rejected_but_four_are_supported(roster_db):
     db, employees, _admin = roster_db
     department = db.scalar(select(Department).where(Department.name == "Security"))
+    employees[1].status = "inactive"
     employees[2].status = "inactive"
     db.flush()
-    with pytest.raises(ValueError, match="security_department_must_have_exactly_three_active_employees"):
-        prepare_security_roster(db, _parsed(employees[:2]))
+    with pytest.raises(ValueError, match="security_department_must_have_at_least_two_active_employees"):
+        prepare_security_roster(db, _parsed(employees[:1]))
+    employees[1].status = "active"
     employees[2].status = "active"
     db.flush()
     fourth = Employee(
@@ -275,8 +277,8 @@ def test_two_or_four_configured_active_security_employees_are_rejected(roster_db
     )
     db.add(fourth)
     db.flush()
-    with pytest.raises(ValueError, match="security_department_must_have_exactly_three_active_employees"):
-        prepare_security_roster(db, _parsed(employees))
+    prepared = prepare_security_roster(db, _parsed(employees))
+    assert len(prepared["employee_headers"]) == 3
 
 
 def test_unmapped_roster_employee_header_blocks_day_confirmation(roster_db):
