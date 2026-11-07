@@ -9,7 +9,9 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
+    existing_tables = set(sa.inspect(op.get_bind()).get_table_names())
+    if "leave_types" not in existing_tables:
+        op.create_table(
         "leave_types",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("code", sa.String(length=40), nullable=False),
@@ -21,7 +23,8 @@ def upgrade():
         sa.UniqueConstraint("code", name="uq_leave_types_code"),
         sa.CheckConstraint("length(trim(code)) > 0", name="ck_leave_types_code_nonempty"),
     )
-    op.create_table(
+    if "leave_records" not in existing_tables:
+        op.create_table(
         "leave_records",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("employee_id", sa.Integer(), sa.ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False),
@@ -44,12 +47,13 @@ def upgrade():
         sa.CheckConstraint("charged_days >= 0", name="ck_leave_records_charged_days"),
         sa.CheckConstraint("status IN ('draft', 'confirmed', 'cancelled')", name="ck_leave_records_status"),
     )
-    op.create_index("ix_leave_records_employee_id", "leave_records", ["employee_id"])
-    op.create_index("ix_leave_records_leave_type_id", "leave_records", ["leave_type_id"])
-    op.create_index("ix_leave_records_start_date", "leave_records", ["start_date"])
-    op.create_index("ix_leave_records_end_date", "leave_records", ["end_date"])
+        op.create_index("ix_leave_records_employee_id", "leave_records", ["employee_id"])
+        op.create_index("ix_leave_records_leave_type_id", "leave_records", ["leave_type_id"])
+        op.create_index("ix_leave_records_start_date", "leave_records", ["start_date"])
+        op.create_index("ix_leave_records_end_date", "leave_records", ["end_date"])
 
-    op.create_table(
+    if "leave_balance_transactions" not in existing_tables:
+        op.create_table(
         "leave_balance_transactions",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("employee_id", sa.Integer(), sa.ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False),
@@ -70,9 +74,9 @@ def upgrade():
             name="uq_leave_balance_transaction_record_type",
         ),
     )
-    op.create_index("ix_leave_balance_transactions_employee_id", "leave_balance_transactions", ["employee_id"])
-    op.create_index("ix_leave_balance_transactions_leave_type_id", "leave_balance_transactions", ["leave_type_id"])
-    op.create_index("ix_leave_balance_transactions_leave_record_id", "leave_balance_transactions", ["leave_record_id"])
+        op.create_index("ix_leave_balance_transactions_employee_id", "leave_balance_transactions", ["employee_id"])
+        op.create_index("ix_leave_balance_transactions_leave_type_id", "leave_balance_transactions", ["leave_type_id"])
+        op.create_index("ix_leave_balance_transactions_leave_record_id", "leave_balance_transactions", ["leave_record_id"])
 
     # Seed leave categories only; no employee entitlement or opening balance is invented.
     leave_types = sa.table(
@@ -84,7 +88,8 @@ def upgrade():
         sa.column("tracks_balance", sa.Boolean),
         sa.column("active", sa.Boolean),
     )
-    op.bulk_insert(leave_types, [
+    if "leave_types" not in existing_tables:
+        op.bulk_insert(leave_types, [
         {"code": "annual", "name_ar": "سنوية", "name_en": "Annual", "is_paid": True, "tracks_balance": True, "active": True},
         {"code": "sick", "name_ar": "مرضية", "name_en": "Sick", "is_paid": True, "tracks_balance": True, "active": True},
         {"code": "casual", "name_ar": "عارضة / طارئة", "name_en": "Casual / Emergency", "is_paid": True, "tracks_balance": True, "active": True},
@@ -95,5 +100,6 @@ def upgrade():
 
 
 def downgrade():
-    # Leave history is business data. Do not erase it during a version rollback.
-    raise RuntimeError("Migration 0016 is forward-only; preserve leave records and balance history.")
+    # Preserve leave types, records, and balance transactions as HR history.
+    # Re-upgrade is idempotent because upgrade() checks for existing tables.
+    pass
