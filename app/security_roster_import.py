@@ -65,21 +65,30 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
     if len(expected_employee_ids) < 2:
         raise ValueError("aliases_must_resolve_to_at_least_two_unique_security_employees")
 
+    workbook = None
     try:
         workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+        selected_sheets = [workbook[sheet_name]] if sheet_name else workbook.worksheets
+        # Read all worksheet XML while the file error boundary is active.
+        # openpyxl read_only worksheets are lazy and can fail during iteration.
+        sheets = [
+            (sheet.title, list(sheet.iter_rows(values_only=True)))
+            for sheet in selected_sheets
+        ]
     except Exception as exc:
         raise ValueError("invalid_or_unsupported_excel_workbook") from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
 
-    try:
-        sheets = [workbook[sheet_name]] if sheet_name else workbook.worksheets
-        empty_header_result = None
-        for sheet in sheets:
+    empty_header_result = None
+    for sheet_title, rows in sheets:
             header = None
             date_col = None
             employee_cols = {}
             employee_headers = {}
             header_row = None
-            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            for row_idx, row in enumerate(rows, start=1):
                 normalized = [_norm(v) for v in row]
                 employee_positions = [
                     (idx, alias) for idx, alias in enumerate(normalized) if alias in aliases
@@ -106,7 +115,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 ]
                 if duplicate_headers:
                     return {
-                        "sheet_name": sheet.title,
+                        "sheet_name": sheet_title,
                         "employee_headers": {},
                         "records": [],
                         "issues": duplicate_headers,
@@ -151,10 +160,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
             records = []
             issues = list(unknown_headers)
             seen_dates = set()
-            for row_idx, row in enumerate(
-                sheet.iter_rows(min_row=header_row + 1, values_only=True),
-                start=header_row + 1,
-            ):
+            for row_idx, row in enumerate(rows[header_row:], start=header_row + 1):
                 if not row or date_col >= len(row):
                     continue
                 work_date = _cell_date(row[date_col])
@@ -207,5 +213,3 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
         if empty_header_result is not None:
             return empty_header_result
         raise ValueError("security_roster_header_not_found")
-    finally:
-        workbook.close()
