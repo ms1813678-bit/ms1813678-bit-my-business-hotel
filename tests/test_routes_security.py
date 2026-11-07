@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -1725,25 +1725,29 @@ def test_employee_photo_is_removed_when_creation_transaction_fails(client, monke
     Image.new("RGB", (2, 2), color="white").save(image_buffer, format="PNG")
     image_bytes = image_buffer.getvalue()
 
-    def fail_employee_code(_db):
-        raise RuntimeError("simulated employee creation failure")
+    def fail_commit(_session):
+        raise RuntimeError("simulated database commit failure")
 
-    monkeypatch.setattr(main_module, "allocate_employee_code", fail_employee_code)
+    session_class = main_module.SessionLocal.class_
+    event.listen(session_class, "before_commit", fail_commit)
     token = csrf_from(client.get("/employees"))
-    with pytest.raises(RuntimeError, match="simulated employee creation failure"):
-        client.post(
-            "/employees",
-            data={
-                "csrf_token": token,
-                "full_name": "Photo Rollback Employee",
-                "department_id": str(client.test_department_id),
-                "position": "Test Position",
-                "hire_date": date.today().isoformat(),
-                "basic_salary": "1000.00",
-                "daily_hours": "8",
-            },
-            files={"photo": ("employee.png", image_bytes, "image/png")},
-        )
+    try:
+        with pytest.raises(RuntimeError, match="simulated database commit failure"):
+            client.post(
+                "/employees",
+                data={
+                    "csrf_token": token,
+                    "full_name": "Photo Rollback Employee",
+                    "department_id": str(client.test_department_id),
+                    "position": "Test Position",
+                    "hire_date": date.today().isoformat(),
+                    "basic_salary": "1000.00",
+                    "daily_hours": "8",
+                },
+                files={"photo": ("employee.png", image_bytes, "image/png")},
+            )
+    finally:
+        event.remove(session_class, "before_commit", fail_commit)
 
     assert photo_dir.exists()
     assert list(photo_dir.iterdir()) == []
