@@ -106,7 +106,41 @@ def create_advance(
     return request
 
 
-def approve_advance(db: Session, request: AdvanceRequest, actor: str) -> None:
+def create_installments(db: Session, request: AdvanceRequest, installment_count: int, actor: str) -> list[AdvanceInstallment]:
+    """Persist the approved repayment schedule exactly once."""
+    from app.advance_repayment_schedule import build_repayment_schedule
+
+    existing = db.scalars(
+        select(AdvanceInstallment)
+        .where(AdvanceInstallment.advance_request_id == request.id)
+        .order_by(AdvanceInstallment.installment_number)
+    ).all()
+    if existing:
+        if len(existing) != installment_count:
+            raise ValueError("Advance installment schedule already exists with a different count.")
+        return existing
+
+    schedule = build_repayment_schedule(
+        Decimal(request.amount), request.request_date, installment_count
+    )
+    rows = [
+        AdvanceInstallment(
+            advance_request_id=request.id,
+            installment_number=item["installment_number"],
+            amount=item["amount"],
+            payroll_month=item["payroll_month"],
+            scheduled_payment_date=item["pay_date"],
+            status="scheduled",
+            created_at=datetime.utcnow(),
+        )
+        for item in schedule
+    ]
+    db.add_all(rows)
+    db.flush()
+    return rows
+
+
+def approve_advance(db: Session, request: AdvanceRequest, actor: str, installment_count: int = 1) -> None:
     if request.status != "pending":
         raise ValueError("Only a pending advance can be approved.")
     employee = db.scalar(
@@ -120,6 +154,9 @@ def approve_advance(db: Session, request: AdvanceRequest, actor: str) -> None:
     )
     if already_reserved + Decimal(request.amount) > cap:
         raise ValueError("The monthly advance limit would be exceeded.")
+    if installment_count < 1 or installment_count > 36:
+        raise ValueError("Installment count must be between 1 and 36.")
+    create_installments(db, request, installment_count, actor)
     request.status = "approved"
     request.approved_by = actor
     request.approved_at = datetime.utcnow()
