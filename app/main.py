@@ -1525,6 +1525,27 @@ def payroll_run_page(
         employee_names = {e.id: e.full_name for e in employees}
         employee_codes = {e.id: e.code for e in employees}
         summaries = {item.id: payment_totals(db, item) for item in items}
+        financials = {}
+        for item in items:
+            gross = (
+                Decimal(item.base_salary)
+                + Decimal(item.attendance_bonus)
+                + Decimal(item.performance_bonus)
+                + Decimal(item.occupancy_bonus)
+                + Decimal(item.overtime_amount)
+                + Decimal(item.other_bonus)
+                + Decimal(item.staff_reward_amount)
+            )
+            deductions = (
+                Decimal(item.absence_deduction)
+                + Decimal(item.lateness_deduction)
+                + Decimal(item.insurance_share)
+                + Decimal(item.taxes)
+                + Decimal(item.other_deductions)
+                + Decimal(item.advance_deduction)
+                + Decimal(item.staff_sanction_amount)
+            )
+            financials[item.id] = {"gross": gross, "deductions": deductions}
         payments = db.scalars(
             select(PayrollPayment)
             .where(PayrollPayment.payroll_item_id.in_([item.id for item in items] or {-1}))
@@ -1539,6 +1560,7 @@ def payroll_run_page(
                 "employee_names": employee_names,
                 "employee_codes": employee_codes,
                 "summaries": summaries,
+                "financials": financials,
                 "payments": payments,
                 "csrf_token": get_csrf_token(request),
                 "error": request.query_params.get("error"),
