@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>الجزاءات والمكافآت | M.Y. Business Hotel</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>الجزاءات والمكافآت</h1>
+      <p class="muted">Sanctions & rewards · HR administrator only</p></div>
+    <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a> · <a href="/leave">الإجازات</a> · <a href="/advances">السلف</a></nav>
+  </header>
+
+  {% if error %}
+  <section class="notice error">
+    {% if error == "create" %}تعذر تسجيل الإجراء. راجع نوعه وتصنيفه والمبلغ وشهر الرواتب والسبب.
+    {% elif error == "approve" %}تعذر اعتماد الإجراء. تأكد أنه ما زال مسودة.
+    {% elif error == "cancel" %}تعذر إلغاء الإجراء. يجب إدخال سبب واضح وألا يكون قد طُبق على الرواتب.
+    {% elif error == "ack" %}تعذر تسجيل إفادة الموظف. يجب اعتماد الإجراء أولًا، وإدخال ملاحظة عند رفض الاطلاع.
+    {% else %}السجل المطلوب غير موجود.{% endif %}
+  </section>
+  {% endif %}
+
+  <section class="notice">
+    <h2>تسجيل جزاء أو مكافأة / New staff action</h2>
+    <p class="muted">القيم المالية يحددها مسؤول الموارد البشرية يدويًا. لا توجد معادلات تلقائية للمكافآت أو الجزاءات. يجب تحديد شهر الرواتب للإجراء المالي.</p>
+    <form method="post" action="/staff-actions">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>نوع الإجراء / Type
+          <select name="kind" required>
+            <option value="sanction">جزاء / Sanction</option>
+            <option value="reward">مكافأة / Reward</option>
+          </select>
+        </label>
+        <label>التصنيف / Category
+          <select name="category" required>
+            <optgroup label="الجزاءات / Sanctions">
+              <option value="verbal_notice">تنبيه شفهي / Verbal notice</option>
+              <option value="first_warning">إنذار أول / First warning</option>
+              <option value="final_warning">إنذار نهائي / Final warning</option>
+              <option value="salary_deduction">خصم من الراتب / Salary deduction</option>
+              <option value="suspension">إيقاف عن العمل / Suspension</option>
+            </optgroup>
+            <optgroup label="المكافآت / Rewards">
+              <option value="financial_reward">مكافأة مالية / Financial reward</option>
+              <option value="certificate">شهادة تقدير / Certificate</option>
+              <option value="commendation">إشادة / Commendation</option>
+              <option value="promotion_recommendation">توصية بالترقية / Promotion recommendation</option>
+            </optgroup>
+            <option value="custom">نوع مخصص / Custom</option>
+          </select>
+        </label>
+        <label>الموظف / Employee
+          <select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }}</option>{% endfor %}</select>
+        </label>
+        <label>عنوان الإجراء / Title<input name="title" maxlength="200" required></label>
+        <label>شهر الرواتب / Payroll month<input type="date" name="payroll_month"></label>
+        <label>المبلغ بالجنيه / Amount (EGP)<input type="number" name="amount" min="0.01" step="0.01"></label>
+        <label><input type="checkbox" name="is_financial" value="yes"> إجراء مالي / Financial item</label>
+        <label>السبب والتفاصيل / Reason<textarea name="reason" rows="3" maxlength="4000" required></textarea></label>
+      </div>
+      <button type="submit">حفظ كمسودة / Save draft</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>سجل الجزاءات والمكافآت / History</h2>
+    <div class="table-wrap"><table><thead><tr>
+      <th>الموظف</th><th>النوع</th><th>التصنيف</th><th>الإجراء</th><th>القيمة</th><th>شهر الراتب</th><th>الحالة</th><th>إفادة الموظف</th><th>الإجراءات</th>
+    </tr></thead><tbody>
+    {% for a in actions %}
+    <tr>
+      <td>{{ employee_codes.get(a.employee_id, "—") }} — {{ employee_names.get(a.employee_id, "—") }}</td>
+      <td>{{ "جزاء" if a.kind == "sanction" else "مكافأة" }}</td>
+      <td>{{ a.category }}</td>
+      <td>{{ a.title }}</td>
+      <td>{% if a.is_financial %}{{ "%.2f"|format(a.amount) }} ج{% else %}—{% endif %}</td>
+      <td>{% if a.payroll_month %}{{ a.payroll_month.strftime("%m/%Y") }}{% else %}—{% endif %}</td>
+      <td>{{ a.status }}</td>
+      <td>{{ a.acknowledgement_status }}</td>
+      <td>
+        {% if a.status == "draft" %}
+        <form method="post" action="/staff-actions/{{ a.id }}/approve" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">اعتماد</button>
+        </form>
+        {% endif %}
+        {% if a.status != "cancelled" and not a.payroll_applied_at %}
+        <form method="post" action="/staff-actions/{{ a.id }}/cancel" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" placeholder="سبب الإلغاء" required><button type="submit">إلغاء</button>
+        </form>
+        {% endif %}
+        {% if a.status == "approved" %}
+        <form method="post" action="/staff-actions/{{ a.id }}/acknowledgement" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="status" value="viewed">
+          <input name="note" placeholder="ملاحظة اختيارية">
+          <button type="submit">تم إطلاع الموظف</button>
+        </form>
+        <form method="post" action="/staff-actions/{{ a.id }}/acknowledgement" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="status" value="declined">
+          <input name="note" placeholder="سبب رفض الاطلاع" required>
+          <button type="submit">رفض الاطلاع</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    <tr><td colspan="9"><span class="muted">السبب: {{ a.reason }}{% if a.acknowledgement_note %} · إفادة الموظف: {{ a.acknowledgement_note }}{% endif %}{% if a.cancellation_reason %} · سبب الإلغاء: {{ a.cancellation_reason }}{% endif %}</span></td></tr>
+    {% else %}<tr><td colspan="9">لا توجد جزاءات أو مكافآت مسجلة.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="notice">
+    <p><strong>مهم:</strong> تسجيل «تم إطلاع الموظف» هو توثيق إداري بواسطة مسؤول الموارد البشرية بعد إطلاع الموظف أو توقيعه على المستند الورقي. هذا الإجراء ليس توقيعًا إلكترونيًا من الموظف؛ لا توجد حسابات دخول للموظفين في النظام الحالي. القيم المالية المعتمدة ستُربط بالرواتب عند اكتمال وحدة الرواتب.</p>
+  </section>
+</main>
+</body>
+</html>
