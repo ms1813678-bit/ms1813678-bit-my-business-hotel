@@ -22,7 +22,7 @@ scheduler. No existing payroll implementation was replaced.
 
 `app/payroll_assistant.py` provides local, read-only payroll arithmetic checks,
 duplicate source-ID detection, snapshot comparison, overtime approval checks,
-overtime hours/amount consistency checks, and Arabic/English command classification. It has no network client and cannot change or approve payroll data.
+overtime hours/amount consistency checks, negative overtime-hour detection, and Arabic/English command classification. It has no network client and cannot change or approve payroll data.
 This is a deterministic offline assistant foundation, not a connected generative
 language model or a complete chat UI. Currency rounding uses the same ROUND_HALF_UP
 policy as the payroll math module.
@@ -45,7 +45,8 @@ A synthetic regression case checks partial payment amounts and status counts.
 The Excel report writer also prefixes formula-like user text (including values
 starting with whitespace followed by `=`, `+`, `-`, or `@`) so spreadsheet
 software treats exported user-controlled strings as literal text. Regression
-tests cover these prefixes and confirm numeric values remain numeric.
+tests cover these prefixes and confirm numeric values remain numeric. The offline
+assistant also treats negative overtime hours as a critical finding.
 
 The payroll route acceptance test also verifies that a second request for
 the same month is rejected and does not create a duplicate run. Boundary tests
