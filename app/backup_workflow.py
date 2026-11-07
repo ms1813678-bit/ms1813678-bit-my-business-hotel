@@ -140,6 +140,20 @@ def _schema_revision(db: Session) -> str | None:
         return None
 
 
+def _hash_zip_photos(archive: zipfile.ZipFile) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    count = 0
+    for name in sorted(
+        item for item in archive.namelist()
+        if item.startswith("employee_photos/") and not item.endswith("/")
+    ):
+        relative = name.split("/", 1)[1]
+        digest.update(relative.encode("utf-8"))
+        digest.update(hashlib.sha256(archive.read(name)).hexdigest().encode("ascii"))
+        count += 1
+    return digest.hexdigest(), count
+
+
 def _read_manifest(archive_path: Path) -> dict:
     with zipfile.ZipFile(archive_path, "r") as archive:
         bad_file = archive.testzip()
@@ -152,6 +166,11 @@ def _read_manifest(archive_path: Path) -> dict:
         dump = archive.read("database.dump")
         if hashlib.sha256(dump).hexdigest() != manifest.get("database_sha256"):
             raise ValueError("Database dump hash does not match the manifest.")
+        photo_hash, photo_count = _hash_zip_photos(archive)
+        if photo_hash != manifest.get("employee_photos_sha256"):
+            raise ValueError("Employee photo archive hash does not match the manifest.")
+        if photo_count != manifest.get("employee_photo_count"):
+            raise ValueError("Employee photo count does not match the manifest.")
         return manifest
 
 
@@ -249,7 +268,7 @@ def create_backup(db: Session, backup_type: str, actor: str) -> BackupRun:
             }
             archive_dir = backup_root / backup_type
             archive_dir.mkdir(parents=True, exist_ok=True)
-            stamp = created_at.strftime("%Y%m%d_%H%M%S")
+            stamp = created_at.strftime("%Y%m%d_%H%M%S_%f")
             archive_path = archive_dir / f"mybusinesshotel_{backup_type}_{stamp}.zip"
             temporary_archive = work / "verified_backup.zip"
             with zipfile.ZipFile(temporary_archive, "w", compression=zipfile.ZIP_DEFLATED) as archive:
