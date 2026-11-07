@@ -22,7 +22,8 @@ from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
-from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod
+from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
+from app.models import AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
@@ -982,6 +983,201 @@ def employee_photo(
                 "X-Content-Type-Options": "nosniff",
             },
         )
+
+
+@app.get("/leave", response_class=HTMLResponse)
+def leave_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
+    with SessionLocal() as db:
+        employees = db.scalars(
+            select(Employee).where(Employee.status == "active").order_by(Employee.code)
+        ).all()
+        leave_types = db.scalars(
+            select(LeaveType).where(LeaveType.active.is_(True)).order_by(LeaveType.id)
+        ).all()
+        records = db.scalars(
+            select(LeaveRecord).order_by(LeaveRecord.created_at.desc(), LeaveRecord.id.desc())
+        ).all()
+        all_employees = db.scalars(select(Employee).order_by(Employee.code)).all()
+        transactions = db.scalars(
+            select(LeaveBalanceTransaction).order_by(
+                LeaveBalanceTransaction.created_at.desc(),
+                LeaveBalanceTransaction.id.desc(),
+            ).limit(100)
+        ).all()
+        balance_rows = db.execute(
+            select(
+                LeaveBalanceTransaction.employee_id,
+                LeaveBalanceTransaction.leave_type_id,
+                func.sum(LeaveBalanceTransaction.days_delta),
+            ).group_by(
+                LeaveBalanceTransaction.employee_id,
+                LeaveBalanceTransaction.leave_type_id,
+            )
+        ).all()
+        balances = {
+            f"{employee_id}:{leave_type_id}": Decimal(str(total or 0))
+            for employee_id, leave_type_id, total in balance_rows
+        }
+        return templates.TemplateResponse(
+            request=request,
+            name="leave.html",
+            context={
+                "employees": employees,
+                "all_employees": all_employees,
+                "leave_types": leave_types,
+                "records": records,
+                "employee_names": {employee.id: employee.full_name for employee in all_employees},
+                "employee_codes": {employee.id: employee.code for employee in all_employees},
+                "type_names": {item.id: item.name_ar for item in db.scalars(select(LeaveType)).all()},
+                "balances": balances,
+                "transactions": transactions,
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+            },
+        )
+
+
+@app.post("/leave/types", dependencies=[Depends(csrf_protect)])
+def create_leave_type(
+    code: str = Form(...),
+    name_ar: str = Form(...),
+    name_en: str = Form(...),
+    is_paid: str | None = Form(None),
+    tracks_balance: str | None = Form(None),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    normalized_code = code.strip().lower()
+    if not normalized_code or not normalized_code.replace("_", "").isalnum():
+        return RedirectResponse("/leave?error=type", status_code=303)
+    with SessionLocal.begin() as db:
+        if db.scalar(select(LeaveType.id).where(LeaveType.code == normalized_code)):
+            return RedirectResponse("/leave?error=type", status_code=303)
+        item = LeaveType(
+            code=normalized_code,
+            name_ar=name_ar.strip(),
+            name_en=name_en.strip(),
+            is_paid=is_paid == "yes",
+            tracks_balance=tracks_balance == "yes",
+            active=True,
+        )
+        db.add(item)
+        db.flush()
+        db.add(AuditLog(
+            actor=admin.username, action="leave_type_created",
+            entity_type="leave_type", entity_id=str(item.id),
+            new_value=f"{normalized_code}|{name_ar.strip()}|{name_en.strip()}",
+            reason="Created by HR administrator",
+        ))
+    return RedirectResponse("/leave", status_code=303)
+
+
+@app.post("/leave/balances", dependencies=[Depends(csrf_protect)])
+def record_leave_balance(
+    employee_id: int = Form(...),
+    leave_type_id: int = Form(...),
+    transaction_type: str = Form(...),
+    days_delta: Decimal = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    if transaction_type not in {"opening", "adjustment"} or not reason.strip():
+        return RedirectResponse("/leave?error=balance", status_code=303)
+    try:
+        with SessionLocal.begin() as db:
+            employee = db.get(Employee, employee_id)
+            leave_type = db.get(LeaveType, leave_type_id)
+            if employee is None or employee.status != "active" or leave_type is None:
+                raise ValueError("Invalid employee or leave type.")
+            add_balance_entry(
+                db, employee_id=employee_id, leave_type=leave_type,
+                transaction_type=transaction_type, days_delta=days_delta,
+                reason=reason, actor=admin.username,
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/leave?error=balance", status_code=303)
+    return RedirectResponse("/leave", status_code=303)
+
+
+@app.post("/leave/records", dependencies=[Depends(csrf_protect)])
+def create_leave_record(
+    employee_id: int = Form(...),
+    leave_type_id: int = Form(...),
+    start_date: date = Form(...),
+    end_date: date = Form(...),
+    charged_days: Decimal = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    if end_date < start_date or charged_days < 0 or not reason.strip():
+        return RedirectResponse("/leave?error=dates", status_code=303)
+    calendar_days = (end_date - start_date).days + 1
+    if charged_days > Decimal(calendar_days):
+        return RedirectResponse("/leave?error=days", status_code=303)
+    with SessionLocal.begin() as db:
+        employee = db.get(Employee, employee_id)
+        leave_type = db.get(LeaveType, leave_type_id)
+        if employee is None or employee.status != "active" or leave_type is None or not leave_type.active:
+            return RedirectResponse("/leave?error=employee", status_code=303)
+        # Planned leave needs at least 72 hours' notice. Sick and emergency leave
+        # are exceptions, but the administrator must still enter a reason.
+        starts_at = datetime.combine(start_date, datetime.min.time())
+        if leave_type.code not in {"sick", "casual"} and starts_at < datetime.now() + timedelta(hours=72):
+            return RedirectResponse("/leave?error=notice", status_code=303)
+        record = LeaveRecord(
+            employee_id=employee_id,
+            leave_type_id=leave_type_id,
+            start_date=start_date,
+            end_date=end_date,
+            calendar_days=calendar_days,
+            charged_days=charged_days,
+            reason=reason.strip(),
+            status="draft",
+            created_by=admin.username,
+        )
+        db.add(record)
+        db.flush()
+        db.add(AuditLog(
+            actor=admin.username, action="leave_record_created",
+            entity_type="leave_record", entity_id=str(record.id),
+            new_value=f"{start_date.isoformat()}|{end_date.isoformat()}|{charged_days}",
+            reason=reason.strip(),
+        ))
+    return RedirectResponse("/leave", status_code=303)
+
+
+@app.post("/leave/records/{record_id}/confirm", dependencies=[Depends(csrf_protect)])
+def confirm_leave_record(
+    record_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            record = db.get(LeaveRecord, record_id)
+            if record is None:
+                return RedirectResponse("/leave?error=record", status_code=303)
+            confirm_leave(db, record, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/leave?error=confirm", status_code=303)
+    return RedirectResponse("/leave", status_code=303)
+
+
+@app.post("/leave/records/{record_id}/cancel", dependencies=[Depends(csrf_protect)])
+def cancel_leave_record(
+    record_id: int,
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    if not reason.strip():
+        return RedirectResponse("/leave?error=cancel", status_code=303)
+    try:
+        with SessionLocal.begin() as db:
+            record = db.get(LeaveRecord, record_id)
+            if record is None:
+                return RedirectResponse("/leave?error=record", status_code=303)
+            cancel_leave(db, record, admin.username, reason)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/leave?error=cancel", status_code=303)
+    return RedirectResponse("/leave", status_code=303)
 
 
 @app.get("/employees", response_class=HTMLResponse)
