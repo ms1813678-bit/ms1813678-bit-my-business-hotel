@@ -128,8 +128,21 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
             if header is None:
                 continue
 
+            known_header_columns = {date_col, *employee_cols.values()}
+            unknown_headers = [
+                {
+                    "row": header_row,
+                    "column": index + 1,
+                    "header": str(value).strip(),
+                    "reason": "unknown_or_unmapped_employee_header",
+                }
+                for index, value in enumerate(header)
+                if value is not None
+                and str(value).strip()
+                and index not in known_header_columns
+            ]
             records = []
-            issues = []
+            issues = list(unknown_headers)
             seen_dates = set()
             for row_idx, row in enumerate(
                 sheet.iter_rows(min_row=header_row + 1, values_only=True),
