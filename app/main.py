@@ -1045,24 +1045,34 @@ def create_employee(
             ) is not None:
                 raise HTTPException(status_code=409, detail=f"القيمة المدخلة في {field_name} مستخدمة لموظف آخر.")
         photo_path = _store_employee_photo(photo)
-        employee = Employee(
-            code=allocate_employee_code(db), full_name=full_name,
-            national_id=national_id, phone=phone.strip() or None,
-            address=address.strip() or None, department_id=department_id,
-            branch_id=branch_id, position=position, hire_date=hire_date,
-            probation_start_date=probation_start_date, probation_end_date=probation_end_date,
-            basic_salary=basic_salary, daily_hours=daily_hours,
-            fingerprint_id=fingerprint_id, photo_path=photo_path, status="active",
-        )
-        db.add(employee)
-        db.flush()
-        db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason="Initial employment"))
-        db.add(AuditLog(
-            actor=admin.username, action="employee_created",
-            entity_type="employee", entity_id=str(employee.id),
-            new_value=f"code={employee.code}; full_name={employee.full_name}; department_id={department_id}; branch_id={branch_id}",
-            reason="Initial employee record created",
-        ))
+        try:
+            employee = Employee(
+                code=allocate_employee_code(db), full_name=full_name,
+                national_id=national_id, phone=phone.strip() or None,
+                address=address.strip() or None, department_id=department_id,
+                branch_id=branch_id, position=position, hire_date=hire_date,
+                probation_start_date=probation_start_date, probation_end_date=probation_end_date,
+                basic_salary=basic_salary, daily_hours=daily_hours,
+                fingerprint_id=fingerprint_id, photo_path=photo_path, status="active",
+            )
+            db.add(employee)
+            db.flush()
+            db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason="Initial employment"))
+            db.add(AuditLog(
+                actor=admin.username, action="employee_created",
+                entity_type="employee", entity_id=str(employee.id),
+                new_value=f"code={employee.code}; full_name={employee.full_name}; department_id={department_id}; branch_id={branch_id}",
+                reason="Initial employee record created",
+            ))
+        except Exception:
+            # The photo is written before the database transaction commits. If
+            # any subsequent database operation fails, remove the unreferenced file.
+            if photo_path:
+                try:
+                    (EMPLOYEE_PHOTO_DIR / photo_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
     return RedirectResponse("/employees", status_code=303)
 
 
