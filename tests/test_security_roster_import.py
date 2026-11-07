@@ -225,3 +225,16 @@ def test_unmapped_employee_header_is_reported_instead_of_ignored():
         and issue["column"] == 5
         for issue in result["issues"]
     )
+
+
+def test_roster_accepts_work_date_label_and_ignores_known_metadata_columns():
+    data = _workbook_bytes([
+        ["Work Date", "Fayez", "Yasser", "Walid", "Notes", "Total Hours"],
+        [date(2026, 11, 1), time(8, 0), time(16, 0), time(0, 0), "checked", 24],
+    ])
+    result = parse_security_roster_xlsx(data, ALIASES)
+
+    assert result["status"] == "parsed_for_review"
+    assert len(result["records"]) == 1
+    assert result["records"][0]["work_date"] == date(2026, 11, 1)
+    assert result["issues"] == []
