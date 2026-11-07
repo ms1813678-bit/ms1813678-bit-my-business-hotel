@@ -561,6 +561,10 @@ class PayrollItem(Base):
     employee_id: Mapped[int] = mapped_column(
         ForeignKey("employees.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    employee_code_snapshot: Mapped[str] = mapped_column(String(20), nullable=False)
+    employee_name_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    department_name_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    position_snapshot: Mapped[str] = mapped_column(String(120), nullable=False)
     salary_basis: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     base_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     daily_hours: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
