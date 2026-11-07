@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.advance_repayment_schedule import build_repayment_schedule
+from app.advance_workflow import payroll_month_for_advance
 
 
 def test_six_installments_start_on_fifth_of_following_month():
@@ -56,3 +57,16 @@ def test_remainder_is_preserved_to_the_cent():
 def test_invalid_amount_or_installment_count_is_rejected(amount, count):
     with pytest.raises(ValueError):
         build_repayment_schedule(amount, date(2026, 9, 15), count)
+
+
+
+@pytest.mark.parametrize(
+    "request_date,expected_payroll_month",
+    [
+        (date(2026, 9, 15), date(2026, 9, 1)),
+        (date(2026, 10, 19), date(2026, 10, 1)),
+        (date(2026, 12, 22), date(2026, 12, 1)),
+    ],
+)
+def test_advance_is_assigned_to_its_request_month(request_date, expected_payroll_month):
+    assert payroll_month_for_advance(request_date) == expected_payroll_month
