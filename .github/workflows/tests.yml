@@ -9,6 +9,7 @@ on:
     branches:
       - main
       - feature/auth-security
+      - feature/platform-hardening
   workflow_dispatch:
 
 permissions:
