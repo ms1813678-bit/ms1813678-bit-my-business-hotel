@@ -5,11 +5,16 @@ from io import BytesIO
 import pytest
 from openpyxl import load_workbook
 from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+from fastapi.testclient import TestClient
 
 from decimal import Decimal
 
 from app.db import Base
+from app.dependencies import get_current_admin
+from app.main import app
+from app.models import AdminAccount
 from app.models import (
     AttendanceDailyRecord,
     Department,
@@ -157,5 +162,33 @@ def test_hr_pdf_export_creates_a_valid_pdf_document():
         assert content.startswith(b"%PDF-")
         assert len(content) > 1000
     finally:
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+
+def test_dashboard_displays_live_hr_workflow_metrics(monkeypatch):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    def override_admin():
+        return AdminAccount(username="dashboard-admin", active=True)
+
+    app.dependency_overrides[get_current_admin] = override_admin
+    monkeypatch.setattr("app.main.SessionLocal", factory)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/")
+        assert response.status_code == 200
+        assert "الموظفون النشطون" in response.text
+        assert "مسيرات الرواتب المفتوحة" in response.text
+        assert "0" in response.text
+    finally:
+        app.dependency_overrides.clear()
         Base.metadata.drop_all(engine)
         engine.dispose()
