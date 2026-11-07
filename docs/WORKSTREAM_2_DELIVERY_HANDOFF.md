@@ -6,7 +6,7 @@ Date: 2026-11-07
 
 - Repository: `ms1813678-bit/ms1813678-bit-my-business-hotel`
 - Working branch: `work/attendance-review`
-- Pull request: [#15 — Attendance: support variable-size Security rosters and harden Excel import](https://github.com/ms1813678-bit/ms1813678-bit-my-business-hotel/pull/15)
+- Pull request: [#15 — Attendance: enforce fixed Security roster rules and harden Excel import](https://github.com/ms1813678-bit/ms1813678-bit-my-business-hotel/pull/15)
 - No changes have been made to `main`.
 - No employee, payroll, leave, advances, authentication, model, migration, or navigation files were changed by Workstream 2.
 
@@ -81,7 +81,7 @@ The monthly approval service is **not yet wired to an HTTP route or screen**. Th
 - Before the HR-confirmed fixed-three-person rule was added, 26 targeted behavior checks passed in an isolated SQLite harness. The newly added fixed-team regression tests have **not yet been executed**; do not treat the earlier 26 checks as validation of the latest changes.
 - These are targeted local behavior tests, **not** the complete repository pytest suite and not a substitute for PostgreSQL integration or Windows validation.
 - The container does not have `psycopg` or `xlrd`; package installation was attempted but the environment has no package-index network access. Therefore I could not execute the full project suite locally or exercise the legacy `.xls` reader locally.
-- Latest inspected GitHub Actions run #697 (run ID `42367444575`) was associated with the preceding PR head, and both Ubuntu/PostgreSQL and Windows jobs failed. Job metadata returned `steps: null` and no logs, so there is no evidence that pytest assertions ran. The latest fixed-team test commit has no associated PR-triggered run visible yet. The runner/service startup cause remains unknown.
+- Latest inspected GitHub Actions run #699 (run ID `42367511642`) ran for the fixed-team update. Both Ubuntu/PostgreSQL and Windows jobs failed; the retry was accepted but failed again. GitHub returned empty step lists and the job-log endpoint returned 404/BlobNotFound, so there is no evidence that pytest assertions ran. The runner/service startup cause remains unknown; no CI pass is claimed.
 - Current branch head still needs a real CI run with runners started and test steps executed. No Ubuntu/PostgreSQL or Windows CI pass is claimed.
 
 ## Shared-file integration work requested from Workstream 1 / coordinator
