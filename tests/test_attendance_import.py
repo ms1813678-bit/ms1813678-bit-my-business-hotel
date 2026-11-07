@@ -103,6 +103,16 @@ def test_rejects_unknown_extension_and_empty_file():
         parse_attendance_workbook(b"abc", "x.csv", "fingerprint", ALIASES)
 
 
+def test_corrupt_xlsx_is_reported_as_a_reviewable_import_error():
+    with pytest.raises(ValueError, match="invalid_or_unsupported_excel_workbook"):
+        parse_attendance_workbook(
+            b"this is not an xlsx workbook",
+            "corrupt.xlsx",
+            "fingerprint",
+            ALIASES,
+        )
+
+
 
 def test_auto_detection_skips_header_only_sheet_and_reads_later_data_sheet():
     raw = workbook_bytes([
