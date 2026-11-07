@@ -6,10 +6,11 @@ an AI model or internet connection.
 """
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Iterable, Mapping
 
 
+CENT = Decimal("0.01")
 EARNING_FIELDS = (
     "base_salary",
     "attendance_bonus",
@@ -30,6 +31,10 @@ DEDUCTION_FIELDS = (
 )
 
 
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
 def _amount(row: Mapping[str, Any], field: str) -> Decimal:
     value = row.get(field, 0)
     try:
@@ -46,9 +51,9 @@ def payroll_totals(row: Mapping[str, Any]) -> dict[str, Decimal]:
     gross = sum((_amount(row, field) for field in EARNING_FIELDS), Decimal("0"))
     deductions = sum((_amount(row, field) for field in DEDUCTION_FIELDS), Decimal("0"))
     return {
-        "gross": gross.quantize(Decimal("0.01")),
-        "deductions": deductions.quantize(Decimal("0.01")),
-        "net": (gross - deductions).quantize(Decimal("0.01")),
+        "gross": _money(gross),
+        "deductions": _money(deductions),
+        "net": _money(gross - deductions),
     }
 
 
@@ -80,7 +85,7 @@ def analyze_payroll_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, st
 
         try:
             totals = payroll_totals(row)
-            stored_net = _amount(row, "net_pay").quantize(Decimal("0.01"))
+            stored_net = _money(_amount(row, "net_pay"))
             if totals["net"] != stored_net:
                 findings.append({
                     "severity": "critical",
@@ -145,12 +150,12 @@ def explain_payroll_change(
     for field in fields:
         before = _amount(previous, field)
         after = _amount(current, field)
-        delta = (after - before).quantize(Decimal("0.01"))
+        delta = _money(after - before)
         if delta:
             changes.append({
                 "field": field,
-                "previous": before.quantize(Decimal("0.01")),
-                "current": after.quantize(Decimal("0.01")),
+                "previous": _money(before),
+                "current": _money(after),
                 "difference": delta,
             })
     return {"changes": changes, "change_count": len(changes)}
