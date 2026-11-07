@@ -299,8 +299,9 @@ def approve_security_roster_month(
     """Approve a Security roster month only after every calendar day is approved.
 
     Daily approval audit entries are the evidence of reviewed working/OFF
-    assignments. This month-level gate deliberately does not infer a staffing
-    minimum or continuous-coverage policy that the hotel has not specified.
+    assignments. Their non-OFF start times must still match the persisted
+    SecurityShiftAssignment/ShiftPattern rows. This gate does not infer a
+    staffing minimum or continuous-coverage policy the hotel has not specified.
     """
     if not isinstance(month_start, date) or month_start.day != 1:
         raise ValueError("security_roster_month_start_must_be_first_day")
@@ -319,23 +320,33 @@ def approve_security_roster_month(
     if not clean_reason:
         raise ValueError("security_roster_month_approval_reason_required")
 
+    department = db.scalar(select(Department).where(
+        Department.name == "Security",
+        Department.active.is_(True),
+    ).with_for_update())
+    if department is None:
+        raise ValueError("security_department_not_configured")
+
     period_end = date(
         month_start.year,
         month_start.month,
         monthrange(month_start.year, month_start.month)[1],
     )
-    date_ids = [
-        (month_start + timedelta(days=offset)).isoformat()
+    work_dates = [
+        month_start + timedelta(days=offset)
         for offset in range((period_end - month_start).days + 1)
     ]
-    approved_days = set(db.scalars(
-        select(AuditLog.entity_id).where(
-            AuditLog.action == "security_roster_day_approved",
-            AuditLog.entity_type == "security_roster",
-            AuditLog.entity_id.in_(date_ids),
-        )
-    ).all())
-    missing_days = [day for day in date_ids if day not in approved_days]
+    date_ids = [work_date.isoformat() for work_date in work_dates]
+    daily_logs = db.scalars(select(AuditLog).where(
+        AuditLog.action == "security_roster_day_approved",
+        AuditLog.entity_type == "security_roster",
+        AuditLog.entity_id.in_(date_ids),
+    )).all()
+    audit_by_date = {entry.entity_id: entry for entry in daily_logs}
+    if len(audit_by_date) != len(daily_logs):
+        raise ValueError("security_roster_month_has_duplicate_daily_approval_evidence")
+
+    missing_days = [value for value in date_ids if value not in audit_by_date]
     if missing_days:
         preview = ", ".join(missing_days[:5])
         suffix = ", ..." if len(missing_days) > 5 else ""
@@ -343,6 +354,51 @@ def approve_security_roster_month(
             "security_roster_month_has_unreviewed_days:"
             f"{len(missing_days)}:{preview}{suffix}"
         )
+
+    expected_by_date = {}
+    for work_date in work_dates:
+        audit = audit_by_date[work_date.isoformat()]
+        expected = {}
+        raw_values = str(audit.new_value or "")
+        for token in raw_values.split(";"):
+            employee_text, separator, value = token.strip().partition(":")
+            if not separator or not employee_text.isdigit():
+                raise ValueError("security_roster_month_daily_audit_is_invalid")
+            employee_id = int(employee_text)
+            if employee_id in expected:
+                raise ValueError("security_roster_month_daily_audit_has_duplicate_employees")
+            value = value.strip()
+            if value.upper() == "OFF":
+                continue
+            try:
+                expected[employee_id] = time.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(
+                    "security_roster_month_daily_audit_has_invalid_shift_time"
+                ) from exc
+        expected_by_date[work_date] = expected
+
+    actual_by_date = {work_date: {} for work_date in work_dates}
+    actual_rows = db.execute(
+        select(SecurityShiftAssignment, ShiftPattern)
+        .join(ShiftPattern, ShiftPattern.id == SecurityShiftAssignment.shift_pattern_id)
+        .where(
+            ShiftPattern.department_id == department.id,
+            SecurityShiftAssignment.work_date.in_(work_dates),
+        )
+    ).all()
+    for assignment, pattern in actual_rows:
+        employee_assignments = actual_by_date[assignment.work_date]
+        if assignment.employee_id in employee_assignments:
+            raise ValueError("security_roster_month_has_duplicate_employee_assignments")
+        employee_assignments[assignment.employee_id] = pattern.start_time
+
+    for work_date in work_dates:
+        if expected_by_date[work_date] != actual_by_date[work_date]:
+            raise ValueError(
+                "security_roster_month_daily_evidence_mismatch:"
+                f"{work_date.isoformat()}"
+            )
 
     month_key = month_start.strftime("%Y-%m")
     existing = db.scalar(select(AuditLog.id).where(
@@ -361,7 +417,8 @@ def approve_security_roster_month(
         new_value=(
             f"period_start={month_start.isoformat()}; "
             f"period_end={period_end.isoformat()}; "
-            f"reviewed_days={len(approved_days)}"
+            f"reviewed_days={len(audit_by_date)}; "
+            "daily_assignment_evidence=matched"
         ),
         reason=clean_reason,
     )
