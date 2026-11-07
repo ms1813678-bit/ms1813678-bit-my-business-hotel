@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>مسير الرواتب | M.Y. Business Hotel</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>مسير رواتب {{ run.period_start.strftime("%m/%Y") }}</h1>
+      <p class="muted">موعد الصرف المخطط: {{ run.pay_date.strftime("%d/%m/%Y") }} · الحالة: {{ run.status }}</p></div>
+    <nav><a href="/payroll">كل المسيرات</a> · <a href="/">الرئيسية</a></nav>
+  </header>
+  {% if error %}
+  <section class="notice error">
+    {% if error == "approve" %}تعذر اعتماد المسير. تأكد من اعتماد الحضور ووجود موظفين وبنود صحيحة.
+    {% elif error == "close" %}تعذر إغلاق المسير. يجب اعتماده أولًا.
+    {% elif error == "reopen" %}تعذر إعادة فتح المسير. يجب إدخال سبب واضح وأن تكون الحالة مغلقة.
+    {% elif error == "item" %}تعذر تعديل بند الراتب. تأكد أن المسير في حالة مسودة أو معاد فتحه وأن الخصومات لا تتجاوز المستحق.
+    {% elif error == "payment" %}تعذر تسجيل الدفعة. تحقق من أن المسير مغلق وأن المبلغ لا يتجاوز المتبقي.
+    {% else %}تعذر تنفيذ العملية.{% endif %}
+  </section>
+  {% endif %}
+
+  <section class="notice">
+    <h2>مراحل اعتماد المسير / Payroll workflow</h2>
+    <p class="muted">المسودة ← اعتماد الموارد البشرية ← إغلاق الشهر ← تسجيل الصرف النقدي أو التحويل البنكي. إعادة فتح مسير مغلق تتطلب سببًا مسجلًا في سجل المراجعة.</p>
+    {% if run.status in ["draft", "reopened"] %}
+    <form method="post" action="/payroll/runs/{{ run.id }}/approve" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">اعتماد المسير</button>
+    </form>
+    {% endif %}
+    {% if run.status == "approved" %}
+    <form method="post" action="/payroll/runs/{{ run.id }}/close" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">إغلاق الشهر</button>
+    </form>
+    {% endif %}
+    {% if run.status == "closed" %}
+    <form method="post" action="/payroll/runs/{{ run.id }}/reopen" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input name="reason" placeholder="سبب إعادة فتح المسير" required>
+      <button type="submit">إعادة فتح المسير</button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="notice">
+    <h2>تفاصيل الرواتب / Employee payroll items</h2>
+    <div class="table-wrap"><table><thead><tr>
+      <th>الموظف</th><th>الأساسي</th><th>بعد التناسب</th><th>إجمالي المستحقات</th><th>إجمالي الخصومات</th><th>الصافي</th><th>المدفوع</th><th>المتبقي</th><th>حالة الصرف</th>
+    </tr></thead><tbody>
+    {% for item in items %}
+    {% set p = summaries.get(item.id) %}
+    {% set f = financials.get(item.id) %}
+    <tr>
+      <td>{{ item.employee_code_snapshot }} — {{ item.employee_name_snapshot }}</td>
+      <td>{{ "%.2f"|format(item.salary_basis) }}</td>
+      <td>{{ "%.2f"|format(item.base_salary) }}</td>
+      <td>{{ "%.2f"|format(f.gross) }}</td>
+      <td>{{ "%.2f"|format(f.deductions) }}</td>
+      <td><strong>{{ "%.2f"|format(item.net_pay) }}</strong></td>
+      <td>{{ "%.2f"|format(p[0]) }}</td>
+      <td>{{ "%.2f"|format(p[1]) }}</td>
+      <td>
+        {% if p[2] == "unpaid" %}غير مدفوع
+        {% elif p[2] == "partially_paid" %}مدفوع جزئيًا
+        {% else %}مدفوع بالكامل{% endif %}
+      </td>
+    </tr>
+    {% if run.status in ["draft", "reopened"] %}
+    <tr><td colspan="9">
+      <form method="post" action="/payroll/items/{{ item.id }}/update">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>مكافأة حضور<input type="number" name="attendance_bonus" min="0" step="0.01" value="{{ item.attendance_bonus }}"></label>
+          <label>مكافأة أداء<input type="number" name="performance_bonus" min="0" step="0.01" value="{{ item.performance_bonus }}"></label>
+          <label>مكافأة إشغال<input type="number" name="occupancy_bonus" min="0" step="0.01" value="{{ item.occupancy_bonus }}"></label>
+          <label>ساعات إضافي معتمدة<input type="number" name="overtime_hours" min="0" step="0.25" value="{{ item.overtime_hours }}"></label>
+          <label>مكافآت أخرى<input type="number" name="other_bonus" min="0" step="0.01" value="{{ item.other_bonus }}"></label>
+          <label>أيام غياب معتمدة<input type="number" name="absence_days" min="0" max="31" step="0.25" value="{{ item.absence_days }}"></label>
+          <label>خصم تأخير/انصراف مبكر<input type="number" name="lateness_deduction" min="0" step="0.01" value="{{ item.lateness_deduction }}"></label>
+          <label>حصة التأمين<input type="number" name="insurance_share" min="0" step="0.01" value="{{ item.insurance_share }}"></label>
+          <label>الضرائب<input type="number" name="taxes" min="0" step="0.01" value="{{ item.taxes }}"></label>
+          <label>خصومات أخرى<input type="number" name="other_deductions" min="0" step="0.01" value="{{ item.other_deductions }}"></label>
+          <label>ملاحظات<input name="note" value="{{ item.note or '' }}"></label>
+        </div>
+        <button type="submit">حفظ ومراجعة الصافي</button>
+      </form>
+    </td></tr>
+    {% endif %}
+    {% if run.status == "closed" and p[1] > 0 %}
+    <tr><td colspan="16">
+      <form method="post" action="/payroll/items/{{ item.id }}/payments">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>المبلغ المدفوع<input type="number" name="amount" min="0.01" max="{{ p[1] }}" step="0.01" required></label>
+          <label>تاريخ الصرف<input type="date" name="paid_date" required></label>
+          <label>طريقة الصرف<select name="method"><option value="cash">نقدي / Cash</option><option value="bank_transfer">تحويل بنكي / Bank transfer</option></select></label>
+          <label>مرجع / رقم إيصال<input name="reference"></label>
+        </div>
+        <button type="submit">تسجيل دفعة</button>
+      </form>
+    </td></tr>
+    {% endif %}
+    {% else %}<tr><td colspan="16">لا توجد بنود رواتب في هذا المسير.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="notice">
+    <p><strong>ملاحظات الحساب:</strong> الأساسي الشهري ثابت، وساعات العمل لا تخفضه. سعر الساعة = الأساسي ÷ (ساعات اليوم × 30). خصم الغياب = الأساسي ÷ أيام الشهر الفعلية × أيام الغياب. الأوفر تايم بنفس سعر الساعة دون مضاعف، ويُدخل فقط بعد اعتماد ساعات العمل الإضافية المطلوبة من الإدارة. التأمين والضرائب يدويان دون حساب قانوني تلقائي.</p>
+    <p>خصم السلف والمكافآت والجزاءات المالية يظهر من السجلات المعتمدة للشهر. لا تعتبر السلفة مخصومة إلا بعد إغلاق المسير.</p>
+  </section>
+</main>
+</body>
+</html>

@@ -7,12 +7,14 @@ on:
       - feature/platform-hardening
       - work/leave-management-foundation
       - work/rewards-sanctions-v2
+      - work/payroll-foundation
   pull_request:
     branches:
       - main
       - feature/auth-security
       - work/leave-management-foundation
       - work/rewards-sanctions-v2
+      - work/payroll-foundation
   workflow_dispatch:
 
 permissions:

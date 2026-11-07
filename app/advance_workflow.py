@@ -17,9 +17,10 @@ def next_payroll_month(request_date: date) -> date:
     return date(request_date.year, request_date.month + 1, 1)
 
 
-def outstanding_amount(db: Session, employee_id: int, exclude_id: int | None = None) -> Decimal:
+def reserved_amount(db: Session, employee_id: int, payroll_month: date, exclude_id: int | None = None) -> Decimal:
     statement = select(func.coalesce(func.sum(AdvanceRequest.amount), 0)).where(
         AdvanceRequest.employee_id == employee_id,
+        AdvanceRequest.payroll_month == payroll_month,
         AdvanceRequest.status.in_(RESERVING_STATUSES),
     )
     if exclude_id is not None:
@@ -51,8 +52,11 @@ def create_advance(
 ) -> AdvanceRequest:
     if request_date.day < 15 or request_date.day > 22:
         raise ValueError("Advance requests are allowed only from day 15 through day 22.")
-    if request_date > date.today():
+    today = date.today()
+    if request_date > today:
         raise ValueError("An advance request date cannot be in the future.")
+    if (request_date.year, request_date.month) != (today.year, today.month):
+        raise ValueError("Advance requests must be recorded in the current month.")
     if amount <= 0 or not reason.strip():
         raise ValueError("Enter a positive amount and a reason.")
 
@@ -67,10 +71,10 @@ def create_advance(
 
     payroll_month = next_payroll_month(request_date)
     cap = (salary * Decimal("0.25")).quantize(Decimal("0.01"))
-    already_outstanding = outstanding_amount(db, employee_id)
-    if already_outstanding + amount > cap:
+    already_reserved = reserved_amount(db, employee_id, payroll_month)
+    if already_reserved + amount > cap:
         raise ValueError(
-            f"Outstanding advance limit is {cap}; already outstanding: {already_outstanding}."
+            f"Monthly advance limit is {cap}; already reserved: {already_reserved}."
         )
 
     request = AdvanceRequest(
@@ -102,11 +106,11 @@ def approve_advance(db: Session, request: AdvanceRequest, actor: str) -> None:
     if employee is None or employee.status != "active":
         raise ValueError("The employee is not active.")
     cap = (Decimal(request.salary_basis) * Decimal("0.25")).quantize(Decimal("0.01"))
-    already_outstanding = outstanding_amount(
-        db, request.employee_id, exclude_id=request.id
+    already_reserved = reserved_amount(
+        db, request.employee_id, request.payroll_month, exclude_id=request.id
     )
-    if already_outstanding + Decimal(request.amount) > cap:
-        raise ValueError("The outstanding advance limit would be exceeded.")
+    if already_reserved + Decimal(request.amount) > cap:
+        raise ValueError("The monthly advance limit would be exceeded.")
     request.status = "approved"
     request.approved_by = actor
     request.approved_at = datetime.utcnow()

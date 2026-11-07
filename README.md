@@ -1,33 +1,45 @@
 # M.Y. Business Hotel — HR & Payroll System
 
-A local-first, Arabic/English HR and payroll application for M.Y. Business Hotel in Maadi, Cairo.
+A local-first HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. The target is a Windows 11 computer running a local FastAPI application and PostgreSQL database. The only application user is the HR Manager / System Administrator.
 
-## Current status
+## Delivery status
 
-**Application foundation in progress — not production-ready.** The repository contains a FastAPI shell, PostgreSQL configuration, initial HR models, Argon2 password hashing, Arabic RTL pages, database-backed administrator authentication, session-bound CSRF protection, and integration tests.
+**Still under development — not production-ready.** The feature branches contain substantial HR modules, but the complete release has not yet been integrated, installed, and accepted on the target Windows computer. Do not enter real employee or payroll data until the final delivery gates are passed.
 
-## Requirements
+## Implemented in the current feature stack
 
-See [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the agreed product scope and business rules.
+- Single administrator authentication, session security, CSRF protection, and immutable audit history.
+- Employee register, department/branch assignment, employee code sequence, archive/rehire history, and employee change history.
+- Attendance workbook imports, raw source retention, reconciliation, exception review, and explicit daily/monthly approval.
+- Leave types, manually entered opening balances, leave confirmation/cancellation, and balance transaction history.
+- Salary advances with the 15th–22nd request window, 25% outstanding cap, and next-payroll tracking.
+- Sanctions and rewards with manual financial amounts and payroll-month assignment.
+- Monthly payroll runs, employee snapshots, approval/close/reopen workflow, manual insurance/tax entries, and cash/bank payment ledger.
+- Multi-sheet Excel reports, Arabic-capable PDF reports, live HR dashboard metrics, and a Windows scheduled task for the previous month's reports on day 1 at 09:00 Cairo time.
 
-## Local development (Windows)
+These modules are still being reviewed and tested on separate pull requests. Their presence on feature branches does not mean they have been merged into main.
 
-1. Install Python 3.11+ and PostgreSQL.
-2. Create a local PostgreSQL database and user with a strong, unique password.
-3. Copy `.env.example` to `.env`.
-4. Set `DATABASE_URL` to your real PostgreSQL URL, e.g. `postgresql+psycopg://hr_app:YOUR_PASSWORD@127.0.0.1:5432/my_business_hotel_hr`. The application refuses missing values and example placeholders such as `CHANGE_ME`.
-5. Generate a unique session key in PowerShell: `python -c "import secrets; print(secrets.token_urlsafe(48))"`, then set `SESSION_SECRET` in `.env`.
-6. Install: `python -m pip install -e ".[dev]"`.
-7. Apply schema migrations: `python -m scripts.initialize_database`.
-8. Seed standard departments: `python -m scripts.seed_departments`.
-9. Create the only administrator from the local terminal: `python -m scripts.create_admin`. The password is entered invisibly and is never configured through a public signup page.
-10. Run: `uvicorn app.main:app --host 127.0.0.1 --port 8000`.
-11. Open `http://127.0.0.1:8000`. The `/health` endpoint returns HTTP 503 if PostgreSQL cannot be reached.
+## Still required before release
 
-The session cookie uses an eight-hour lifetime, HttpOnly, and SameSite=Lax. Secure cookies are enabled automatically when `APP_ENV=production`; local HTTP development keeps Secure disabled. Keep the server bound to `127.0.0.1`; never expose it to the public internet.
+- Final integration and migration review across all feature branches.
+- Complete Arabic/English language selection and consistent RTL/LTR coverage.
+- Verified backup and restore system, including external-drive retention and restore testing.
+- Optional local AI assistant, which must never be required for core operations.
+- Full Windows 11 installation, upgrade, backup/restore, and end-to-end acceptance on the target computer.
+- Final review of unresolved payroll policy wording before approving live payroll calculations.
+
+## Local Windows setup
+
+See docs/WINDOWS_INSTALL.md for the current installation path. The application binds to 127.0.0.1 only and must not be exposed to the public internet.
+
+## Business rules and scope
+
+See docs/PROJECT_SPEC.md for the approved product scope and detailed HR rules. Purchasing, inventory, accounting, and other future modules are intentionally separate from this HR system.
 
 ## Safety
 
-- This is not production-ready. Do not enter real employee data until migrations, authorization, backup/restore, Windows installation, and security tests are complete.
-- Do not use production payroll data until calculations and approval controls are implemented and verified.
-- The administrator account is intentionally non-deletable and cannot be deactivated; use a controlled password-change procedure when that feature is implemented.
+- Use synthetic test records only until release approval.
+- Never commit .env, database passwords, session secrets, or real employee data.
+- Payroll must not be approved before the exact month's attendance is reviewed and approved.
+- Reports are read-only; no email is sent unless a separate, explicitly configured and verified email workflow is approved.
+- main remains unchanged until the user explicitly approves integration.

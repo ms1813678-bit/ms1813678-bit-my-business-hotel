@@ -101,8 +101,8 @@ def approve_staff_action(db: Session, item: StaffAction, actor: str) -> None:
 def cancel_staff_action(db: Session, item: StaffAction, actor: str, reason: str) -> None:
     if item.status == "cancelled":
         raise ValueError("This action is already cancelled.")
-    if item.payroll_applied_at is not None:
-        raise ValueError("An action already applied to payroll cannot be cancelled here.")
+    if item.payroll_run_id is not None or item.payroll_applied_at is not None:
+        raise ValueError("An action reserved by or applied to payroll cannot be cancelled here.")
     if not reason.strip():
         raise ValueError("A cancellation reason is required.")
     old_status = item.status

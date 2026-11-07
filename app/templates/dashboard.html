@@ -22,14 +22,25 @@
     </header>
     <section class="notice">
       <h2>مرحبًا بك</h2>
-      <p>تم تجهيز الواجهة الأساسية. ستظهر هنا مؤشرات الموظفين والحضور والإجازات والرواتب بعد تنفيذ وربط الوحدات.</p>
+      <p>ملخص مباشر لحالة العمل والملفات التي تحتاج إلى مراجعة مسؤول الموارد البشرية.</p>
       <p><a href="/employees">إدارة الموظفين</a></p>
       <p><a href="/leave">إدارة الإجازات والأرصدة</a></p>
       <p><a href="/advances">إدارة السلف</a></p>
       <p><a href="/staff-actions">الجزاءات والمكافآت</a></p>
+      <p><a href="/payroll">إدارة الرواتب</a></p>
+      <p><a href="/reports">التقارير والتصدير إلى Excel</a></p>
       <p><a href="/security-roster">استيراد ومراجعة جدول الأمن</a></p>
       <p><a href="/attendance/import">استيراد الحضور والبصمة</a></p>
       <p><a href="/attendance/reconcile">مطابقة الحضور الشهرية</a></p>
+    </section>
+    <section class="grid">
+      <article class="tile"><span>الموظفون النشطون</span><h3>{{ metrics.active_employees }}</h3><p>Active employees</p></article>
+      <article class="tile"><span>سجل الموظفين السابقين</span><h3>{{ metrics.former_employees }}</h3><p>Former employees</p></article>
+      <article class="tile"><span>الحضور الذي يحتاج مراجعة</span><h3>{{ metrics.attendance_review }}</h3><p>Attendance review</p></article>
+      <article class="tile"><span>الإجازات غير المؤكدة</span><h3>{{ metrics.leave_drafts }}</h3><p>Leave drafts</p></article>
+      <article class="tile"><span>السلف قيد الإجراء</span><h3>{{ metrics.advance_pending }}</h3><p>Pending advances</p></article>
+      <article class="tile"><span>الجزاءات والمكافآت غير المعتمدة</span><h3>{{ metrics.staff_action_drafts }}</h3><p>Staff actions to review</p></article>
+      <article class="tile"><span>مسيرات الرواتب المفتوحة</span><h3>{{ metrics.payroll_drafts }}</h3><p>Payroll drafts</p></article>
     </section>
     <section class="grid">
       <article class="tile"><span>01</span><h3>الموظفون</h3><p>البيانات الوظيفية والهيكل الإداري</p></article>

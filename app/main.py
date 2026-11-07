@@ -25,7 +25,17 @@ from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
 from app.advance_workflow import approve_advance, create_advance, mark_advance_paid, reject_advance
 from app.staff_actions_workflow import approve_staff_action, cancel_staff_action, create_staff_action, record_employee_acknowledgement
-from app.models import AdvanceRequest, StaffAction, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
+from app.reports import build_hr_pdf, build_hr_workbook
+from app.payroll_workflow import (
+    add_payroll_payment,
+    approve_payroll_run,
+    close_payroll_run,
+    create_payroll_run,
+    payment_totals,
+    reopen_payroll_run,
+    update_payroll_item,
+)
+from app.models import AdvanceRequest, StaffAction, PayrollRun, PayrollItem, PayrollPayment, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
@@ -179,10 +189,45 @@ def logout(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, admin: AdminAccount = Depends(get_current_admin)):
-    return templates.TemplateResponse(
-        request=request, name="dashboard.html",
-        context={"app_name": settings.app_name, "admin": admin.username, "csrf_token": get_csrf_token(request)},
-    )
+    with SessionLocal() as db:
+        metrics = {
+            "active_employees": db.scalar(
+                select(func.count(Employee.id)).where(Employee.status == "active")
+            ) or 0,
+            "former_employees": db.scalar(
+                select(func.count(Employee.id)).where(Employee.status != "active")
+            ) or 0,
+            "attendance_review": db.scalar(
+                select(func.count(AttendanceDailyRecord.id)).where(
+                    AttendanceDailyRecord.status.in_(["needs_review", "ready_for_review"])
+                )
+            ) or 0,
+            "leave_drafts": db.scalar(
+                select(func.count(LeaveRecord.id)).where(LeaveRecord.status == "draft")
+            ) or 0,
+            "advance_pending": db.scalar(
+                select(func.count(AdvanceRequest.id)).where(
+                    AdvanceRequest.status.in_(["pending", "approved"])
+                )
+            ) or 0,
+            "staff_action_drafts": db.scalar(
+                select(func.count(StaffAction.id)).where(StaffAction.status == "draft")
+            ) or 0,
+            "payroll_drafts": db.scalar(
+                select(func.count(PayrollRun.id)).where(
+                    PayrollRun.status.in_(["draft", "reopened"])
+                )
+            ) or 0,
+        }
+        return templates.TemplateResponse(
+            request=request, name="dashboard.html",
+            context={
+                "app_name": settings.app_name,
+                "admin": admin.username,
+                "csrf_token": get_csrf_token(request),
+                "metrics": metrics,
+            },
+        )
 
 
 @app.get("/security-roster", response_class=HTMLResponse)
@@ -1460,6 +1505,302 @@ def staff_action_acknowledgement_route(
         return RedirectResponse("/staff-actions?error=ack", status_code=303)
     return RedirectResponse("/staff-actions", status_code=303)
 
+
+@app.get("/payroll", response_class=HTMLResponse)
+def payroll_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
+    with SessionLocal() as db:
+        runs = db.scalars(
+            select(PayrollRun).order_by(PayrollRun.period_start.desc())
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="payroll.html",
+            context={
+                "runs": runs,
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+            },
+        )
+
+
+@app.post("/payroll", dependencies=[Depends(csrf_protect)])
+def create_payroll_run_route(
+    year: int = Form(...),
+    month: int = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = create_payroll_run(db, year=year, month=month, actor=admin.username)
+            run_id = run.id
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse("/payroll?error=create", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.get("/payroll/runs/{run_id}", response_class=HTMLResponse)
+def payroll_run_page(
+    run_id: int,
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    with SessionLocal() as db:
+        run = db.get(PayrollRun, run_id)
+        if run is None:
+            return RedirectResponse("/payroll?error=run", status_code=303)
+        items = db.scalars(
+            select(PayrollItem)
+            .where(PayrollItem.payroll_run_id == run.id)
+            .order_by(PayrollItem.employee_id)
+        ).all()
+        employee_ids = [item.employee_id for item in items]
+        employees = db.scalars(
+            select(Employee).where(Employee.id.in_(employee_ids or {-1}))
+        ).all()
+        employee_names = {e.id: e.full_name for e in employees}
+        employee_codes = {e.id: e.code for e in employees}
+        summaries = {item.id: payment_totals(db, item) for item in items}
+        financials = {}
+        for item in items:
+            gross = (
+                Decimal(item.base_salary)
+                + Decimal(item.attendance_bonus)
+                + Decimal(item.performance_bonus)
+                + Decimal(item.occupancy_bonus)
+                + Decimal(item.overtime_amount)
+                + Decimal(item.other_bonus)
+                + Decimal(item.staff_reward_amount)
+            )
+            deductions = (
+                Decimal(item.absence_deduction)
+                + Decimal(item.lateness_deduction)
+                + Decimal(item.insurance_share)
+                + Decimal(item.taxes)
+                + Decimal(item.other_deductions)
+                + Decimal(item.advance_deduction)
+                + Decimal(item.staff_sanction_amount)
+            )
+            financials[item.id] = {"gross": gross, "deductions": deductions}
+        payments = db.scalars(
+            select(PayrollPayment)
+            .where(PayrollPayment.payroll_item_id.in_([item.id for item in items] or {-1}))
+            .order_by(PayrollPayment.paid_at.desc(), PayrollPayment.id.desc())
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="payroll_run.html",
+            context={
+                "run": run,
+                "items": items,
+                "employee_names": employee_names,
+                "employee_codes": employee_codes,
+                "summaries": summaries,
+                "financials": financials,
+                "payments": payments,
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+            },
+        )
+
+
+@app.post("/payroll/runs/{run_id}/approve", dependencies=[Depends(csrf_protect)])
+def approve_payroll_run_route(
+    run_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = db.scalar(
+                select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+            )
+            if run is None:
+                return RedirectResponse("/payroll?error=run", status_code=303)
+            approve_payroll_run(db, run, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=approve", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/runs/{run_id}/close", dependencies=[Depends(csrf_protect)])
+def close_payroll_run_route(
+    run_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = db.scalar(
+                select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+            )
+            if run is None:
+                return RedirectResponse("/payroll?error=run", status_code=303)
+            close_payroll_run(db, run, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=close", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/runs/{run_id}/reopen", dependencies=[Depends(csrf_protect)])
+def reopen_payroll_run_route(
+    run_id: int,
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            run = db.scalar(
+                select(PayrollRun).where(PayrollRun.id == run_id).with_for_update()
+            )
+            if run is None:
+                return RedirectResponse("/payroll?error=run", status_code=303)
+            reopen_payroll_run(db, run, admin.username, reason)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=reopen", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/items/{item_id}/update", dependencies=[Depends(csrf_protect)])
+def update_payroll_item_route(
+    item_id: int,
+    attendance_bonus: Decimal = Form(Decimal("0")),
+    performance_bonus: Decimal = Form(Decimal("0")),
+    occupancy_bonus: Decimal = Form(Decimal("0")),
+    overtime_hours: Decimal = Form(Decimal("0")),
+    other_bonus: Decimal = Form(Decimal("0")),
+    absence_days: Decimal = Form(Decimal("0")),
+    lateness_deduction: Decimal = Form(Decimal("0")),
+    insurance_share: Decimal = Form(Decimal("0")),
+    taxes: Decimal = Form(Decimal("0")),
+    other_deductions: Decimal = Form(Decimal("0")),
+    note: str = Form(""),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    run_id = None
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(PayrollItem).where(PayrollItem.id == item_id).with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/payroll?error=item", status_code=303)
+            run_id = item.payroll_run_id
+            update_payroll_item(
+                db,
+                item,
+                {
+                    "attendance_bonus": attendance_bonus,
+                    "performance_bonus": performance_bonus,
+                    "occupancy_bonus": occupancy_bonus,
+                    "overtime_hours": overtime_hours,
+                    "other_bonus": other_bonus,
+                    "absence_days": absence_days,
+                    "lateness_deduction": lateness_deduction,
+                    "insurance_share": insurance_share,
+                    "taxes": taxes,
+                    "other_deductions": other_deductions,
+                    "note": note,
+                },
+                admin.username,
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=item", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/items/{item_id}/payments", dependencies=[Depends(csrf_protect)])
+def add_payroll_payment_route(
+    item_id: int,
+    amount: Decimal = Form(...),
+    paid_date: date = Form(...),
+    method: str = Form(...),
+    reference: str = Form(""),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    run_id = None
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(PayrollItem).where(PayrollItem.id == item_id).with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/payroll?error=item", status_code=303)
+            run_id = item.payroll_run_id
+            add_payroll_payment(
+                db,
+                item,
+                amount=amount,
+                paid_date=paid_date,
+                method=method,
+                reference=reference,
+                actor=admin.username,
+            )
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=payment", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    today = date.today()
+    default_start = date(today.year, today.month, 1)
+    return templates.TemplateResponse(
+        request=request,
+        name="reports.html",
+        context={
+            "start_date": request.query_params.get("start_date", default_start.isoformat()),
+            "end_date": request.query_params.get("end_date", today.isoformat()),
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@app.get("/reports/export.xlsx")
+def export_hr_reports(
+    start_date: date,
+    end_date: date,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal() as db:
+            content = build_hr_workbook(db, start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="تعذر إنشاء التقرير بسبب خطأ في قاعدة البيانات.")
+    filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}.xlsx"
+    from urllib.parse import quote
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+
+@app.get("/reports/export.pdf")
+def export_hr_reports_pdf(
+    start_date: date,
+    end_date: date,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal() as db:
+            content = build_hr_pdf(db, start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except SQLAlchemyError:
+        raise HTTPException(status_code=503, detail="تعذر إنشاء التقرير بسبب خطأ في قاعدة البيانات.")
+    filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}.pdf"
+    from urllib.parse import quote
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
