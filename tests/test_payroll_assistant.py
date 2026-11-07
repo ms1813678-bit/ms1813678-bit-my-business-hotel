@@ -74,6 +74,16 @@ def test_analyzer_treats_missing_overtime_approval_as_unapproved(approval):
     assert "unapproved_overtime" in codes
 
 
+@pytest.mark.parametrize(
+    ("hours", "amount"),
+    [("0", "125.00"), ("2", "0")],
+)
+def test_analyzer_flags_overtime_hours_amount_mismatch(hours, amount):
+    row = sample_row(overtime_hours=hours, overtime_amount=amount, overtime_approved=True)
+    codes = {finding["code"] for finding in analyze_payroll_rows([row])}
+    assert "overtime_hours_amount_mismatch" in codes
+
+
 def test_analyzer_accepts_explicit_overtime_approval():
     row = sample_row(overtime_hours="2", overtime_approved=True)
     codes = {finding["code"] for finding in analyze_payroll_rows([row])}
