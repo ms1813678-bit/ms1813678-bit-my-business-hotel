@@ -537,7 +537,7 @@ class PayrollLine(Base):
     __tablename__ = "payroll_lines"
     __table_args__ = (
         UniqueConstraint("payroll_period_id", "employee_id", name="uq_payroll_line_period_employee"),
-        CheckConstraint("base_salary >= 0", name="ck_payroll_line_base_salary_nonnegative"),
+        CheckConstraint("basic_salary_snapshot >= 0", name="ck_payroll_line_base_salary_nonnegative"),
         CheckConstraint(
             "attendance_bonus >= 0 AND performance_bonus >= 0 AND occupancy_bonus >= 0 "
             "AND overtime_amount >= 0 AND other_bonus >= 0 "
