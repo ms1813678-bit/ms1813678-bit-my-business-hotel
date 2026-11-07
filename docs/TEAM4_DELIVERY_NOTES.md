@@ -58,15 +58,15 @@ financial KPIs above. The assistant helper is not yet exposed through a route or
 
 ## Validation status — 2026-11-07
 
-The latest observed Actions run is `42364855416`, associated with commit
-`09e33122d74dbfe083fe3f78f8aac0305cc43af4`. Both Linux pytest and Windows compatibility
-jobs completed with failure. GitHub returned empty job-step lists, job-log downloads
-returned `BlobNotFound`, and the run had no artifacts. The failure location and root
-cause therefore cannot be established from the available run data.
+The latest observed Actions run for head commit
+`1fde6a63901841a7a703be94f9c534b96210fcd8` is run `42364917396`.
+Both Linux pytest and Windows compatibility jobs failed. A retry of both failed
+jobs was accepted and also completed with failure. GitHub returned empty job-step
+lists, job-log downloads returned `BlobNotFound`, and the run had no artifacts.
+The failure location and root cause therefore cannot be established from the
+available run data.
 
-The latest code/doc commits after that run have not yet been validated by CI or local
-test execution. No successful test run is claimed. This branch is not validated or
-ready to merge until CI failures can be diagnosed and all required checks pass.
-
-PR #14 intentionally remains Draft and unmerged pending successful validation and
-Team 1 integration review.
+The branch has not been tested locally in this environment. No successful test
+execution is claimed. Do not merge until CI failure diagnostics are available,
+all required checks pass, and Team 1 completes the shared-surface integration
+review. PR #14 remains Draft and unmerged.
