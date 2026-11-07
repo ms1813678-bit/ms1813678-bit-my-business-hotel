@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text, func
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from PIL import Image, UnidentifiedImageError
 from starlette.middleware.sessions import SessionMiddleware
@@ -19,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.auth import authenticate
 from app.config import settings
 from app.csrf import csrf_protect, get_csrf_token
-from app.db import SessionLocal, engine
+from app.db import SessionLocal, engine, get_db
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
