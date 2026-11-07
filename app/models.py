@@ -642,7 +642,7 @@ class BackupRun(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     archive_path: Mapped[str | None] = mapped_column(Text)
     sha256: Mapped[str | None] = mapped_column(String(64))
-    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     initiated_by: Mapped[str] = mapped_column(String(80), nullable=False)
