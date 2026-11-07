@@ -1,8 +1,8 @@
 """Build Security shift proposals from configured roster and shift-pattern rules.
 
-Two- and three-person teams retain the approved legacy 12h/8h duration rule.
-Larger teams must resolve every listed start to exactly one active configured
-Security ShiftPattern; this module never invents a shift duration.
+Exactly three Security employees are configured. Each day must have either
+three working guards (8-hour shifts) or two working guards (12-hour shifts).
+A one-guard day is invalid; OFF is not a shift.
 """
 from datetime import time
 
@@ -50,15 +50,16 @@ def _intervals_overlap(first, second):
 def build_security_day_proposal(roster, shift_patterns):
     """Return a reviewable proposal without inferring unconfigured durations.
 
-    For two or three employees, retain the existing 12h/8h rule. For larger
-    teams, resolve starts only against a unique configured pattern. Ambiguity,
-    missing patterns, duplicate starts, and interval overlaps block approval.
+    Exactly three employees must be present in the roster. Two working guards
+    require 12-hour patterns; three working guards require 8-hour patterns.
+    A one-guard day is rejected. Ambiguity, missing patterns, duplicate starts,
+    and interval overlaps block approval.
     """
-    if not isinstance(roster, dict) or len(roster) < 2:
+    if not isinstance(roster, dict) or len(roster) != 3:
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["security_roster_must_contain_at_least_two_employees"],
+            "issues": ["security_roster_must_contain_exactly_three_employees"],
         }
 
     working = []
@@ -79,7 +80,7 @@ def build_security_day_proposal(roster, shift_patterns):
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["daily_security_working_count_must_be_at_least_two"],
+            "issues": ["daily_security_working_count_must_be_two_or_three"],
         }
 
     starts = [start for _, start in working]
@@ -91,7 +92,7 @@ def build_security_day_proposal(roster, shift_patterns):
         }
 
     assignments = []
-    if len(roster) in (2, 3):
+    if len(working) in (2, 3):
         if len(working) not in (2, 3):
             return {
                 "status": "needs_review",
@@ -122,6 +123,13 @@ def build_security_day_proposal(roster, shift_patterns):
                 "shift_pattern_id": matches[0]["id"],
             })
     else:
+        return {
+            "status": "needs_review",
+            "assignments": [],
+            "issues": ["daily_security_working_count_must_be_two_or_three"],
+        }
+
+    if False:
         for employee_id, start in working:
             matches = [
                 pattern for pattern in shift_patterns
