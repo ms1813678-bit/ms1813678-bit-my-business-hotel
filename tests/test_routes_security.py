@@ -429,12 +429,32 @@ def test_employee_archive_and_rehire_preserve_service_history(client):
     )
     assert archive.status_code == 303
 
-    rehire = client.post(
+    future_rehire = client.post(
         f"/employees/{employee_id}/rehire",
         data={
             "csrf_token": token,
             "new_hire_date": (date.today() + timedelta(days=1)).isoformat(),
-            "reason": "Rehired after separation",
+            "reason": "Future rehire must be rejected",
+        },
+        follow_redirects=False,
+    )
+    assert future_rehire.status_code == 400
+
+    # Model a separation completed yesterday so a rehire effective today is valid.
+    with SessionLocal.begin() as db:
+        previous_period = (
+            db.query(EmployeeServicePeriod)
+            .filter_by(employee_id=employee_id)
+            .one()
+        )
+        previous_period.end_date = date.today() - timedelta(days=1)
+
+    rehire = client.post(
+        f"/employees/{employee_id}/rehire",
+        data={
+            "csrf_token": token,
+            "new_hire_date": date.today().isoformat(),
+            "reason": "Rehired effective today",
         },
         follow_redirects=False,
     )
@@ -450,11 +470,11 @@ def test_employee_archive_and_rehire_preserve_service_history(client):
         )
         assert employee.code == employee_code
         assert employee.status == "active"
-        assert employee.hire_date == date.today() + timedelta(days=1)
+        assert employee.hire_date == date.today()
         assert len(periods) == 2
-        assert periods[0].end_date == date.today()
+        assert periods[0].end_date == date.today() - timedelta(days=1)
         assert periods[0].end_reason == "End of first service"
-        assert periods[1].start_date == date.today() + timedelta(days=1)
+        assert periods[1].start_date == date.today()
 
 
 def test_employee_profile_edit_records_effective_dated_history_and_audit(client):
