@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text, func
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from PIL import Image, UnidentifiedImageError
 from starlette.middleware.sessions import SessionMiddleware
@@ -19,7 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.auth import authenticate
 from app.config import settings
 from app.csrf import csrf_protect, get_csrf_token
-from app.db import SessionLocal, engine
+from app.db import SessionLocal, engine, get_db
 from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
@@ -27,6 +28,7 @@ from app.advance_workflow import approve_advance, create_advance, mark_advance_p
 from app.models import AdvanceInstallment
 from app.staff_actions_workflow import approve_staff_action, cancel_staff_action, create_staff_action, record_employee_acknowledgement
 from app.reports import build_hr_pdf, build_hr_workbook
+from app.backup_workflow import create_backup, get_backup_root, restore_backup, save_backup_root
 from app.payroll_workflow import (
     add_payroll_payment,
     approve_payroll_run,
@@ -36,7 +38,7 @@ from app.payroll_workflow import (
     reopen_payroll_run,
     update_payroll_item,
 )
-from app.models import AdvanceRequest, StaffAction, PayrollRun, PayrollItem, PayrollPayment, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
+from app.models import AdvanceRequest, BackupRun, SystemSetting, StaffAction, PayrollRun, PayrollItem, PayrollPayment, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
@@ -1808,6 +1810,86 @@ def export_hr_reports_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+@app.get("/settings/backup", response_class=HTMLResponse)
+def backup_settings_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    with SessionLocal() as db:
+        root = get_backup_root(db)
+        runs = db.scalars(
+            select(BackupRun).order_by(BackupRun.created_at.desc(), BackupRun.id.desc()).limit(50)
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="backup.html",
+            context={
+                "backup_root": str(root) if root else "",
+                "runs": runs,
+                "csrf_token": get_csrf_token(request),
+                "error": request.query_params.get("error"),
+                "success": request.query_params.get("success"),
+            },
+        )
+
+
+@app.post("/settings/backup/root", dependencies=[Depends(csrf_protect)])
+def update_backup_root_route(
+    backup_root: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        with SessionLocal.begin() as db:
+            save_backup_root(db, backup_root, admin.username)
+    except (ValueError, OSError):
+        return RedirectResponse("/settings/backup?error=path", status_code=303)
+    return RedirectResponse("/settings/backup?success=path", status_code=303)
+
+
+@app.post("/settings/backup/create", dependencies=[Depends(csrf_protect)])
+def create_backup_route(
+    backup_type: str = Form("manual"),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    if backup_type not in {"daily", "weekly", "quarterly", "manual"}:
+        return RedirectResponse("/settings/backup?error=type", status_code=303)
+    with SessionLocal.begin() as db:
+        run = create_backup(db, backup_type, admin.username)
+        run_id = run.id
+        status = run.status
+    if status != "success":
+        return RedirectResponse(f"/settings/backup?error=backup&run={run_id}", status_code=303)
+    return RedirectResponse(f"/settings/backup?success=backup&run={run_id}", status_code=303)
+
+
+@app.post("/settings/backup/restore", dependencies=[Depends(csrf_protect)])
+def restore_backup_route(
+    backup_id: int = Form(...),
+    confirm_text: str = Form(...),
+    reason: str = Form(...),
+    db: Session = Depends(get_db),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    if confirm_text.strip() != "RESTORE" or not reason.strip():
+        return RedirectResponse("/settings/backup?error=confirm", status_code=303)
+    run = db.get(BackupRun, backup_id)
+    if run is None or run.status != "success" or not run.archive_path or not run.sha256:
+        return RedirectResponse("/settings/backup?error=archive", status_code=303)
+    archive_path = run.archive_path
+    expected_sha256 = run.sha256
+    db.close()
+    try:
+        restore_backup(
+            archive_path,
+            expected_sha256,
+            actor=admin.username,
+            reason=reason,
+        )
+    except Exception:
+        return RedirectResponse("/settings/backup?error=restore", status_code=303)
+    return RedirectResponse("/login?restored=1", status_code=303)
+
 
 @app.get("/employees", response_class=HTMLResponse)
 def employees_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
