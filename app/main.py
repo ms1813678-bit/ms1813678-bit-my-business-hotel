@@ -1,25 +1,49 @@
 from datetime import date
 from decimal import Decimal
 
-from fastapi import FastAPI, Form, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import authenticate
 from app.config import settings
+from app.csrf import csrf_protect, get_csrf_token
 from app.db import SessionLocal, engine
-from app.models import Department, Employee
+from app.dependencies import get_current_admin
+from app.models import AdminAccount, Department, Employee
 
 app = FastAPI(title=settings.app_name, docs_url=None if settings.app_env == "production" else "/docs")
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=False)
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax", https_only=False)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    session_cookie="session",
+    max_age=8 * 60 * 60,
+    path="/",
+    same_site="lax",
+    https_only=settings.app_env.lower() == "production",
+)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
+
+
+@app.exception_handler(HTTPException)
+async def authentication_exception_handler(request: Request, exc: HTTPException):
+    """Redirect browser page requests to login while preserving API 401 responses."""
+    accept = request.headers.get("accept", "").lower()
+    wants_html = "text/html" in accept and "application/json" not in accept
+    if exc.status_code == 401 and request.method in {"GET", "HEAD"} and wants_html:
+        return RedirectResponse("/login", status_code=303)
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=exc.headers,
+    )
 
 
 @app.get("/health")
@@ -34,62 +58,81 @@ def health():
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    return templates.TemplateResponse(request=request, name="login.html", context={"error": None})
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"error": None, "csrf_token": get_csrf_token(request)},
+    )
 
 
-@app.post("/login")
+@app.post("/login", dependencies=[Depends(csrf_protect)])
 def login(request: Request, username: str = Form(...), password: str = Form(...)):
     with SessionLocal() as db:
         admin = authenticate(db, username.strip(), password)
         if admin is None:
             return templates.TemplateResponse(
-                request=request, name="login.html",
-                context={"error": "اسم المستخدم أو كلمة المرور غير صحيحة."},
+                request=request,
+                name="login.html",
+                context={
+                    "error": "اسم المستخدم أو كلمة المرور غير صحيحة.",
+                    "csrf_token": get_csrf_token(request),
+                },
                 status_code=401,
             )
         request.session.clear()
         request.session["admin_username"] = admin.username
+        request.session["admin_session_version"] = admin.session_version
+        # Rotate the CSRF token when the anonymous session becomes authenticated.
+        csrf_token = get_csrf_token(request)
     return RedirectResponse("/", status_code=303)
 
 
-@app.post("/logout")
+@app.post("/logout", dependencies=[Depends(csrf_protect)])
 def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
 
-def require_admin(request: Request):
-    if not request.session.get("admin_username"):
-        return RedirectResponse("/login", status_code=303)
-    return None
-
-
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
-    redirect = require_admin(request)
-    if redirect:
-        return redirect
+def dashboard(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
     return templates.TemplateResponse(
-        request=request, name="dashboard.html",
-        context={"app_name": settings.app_name, "admin": request.session["admin_username"]},
+        request=request,
+        name="dashboard.html",
+        context={
+            "app_name": settings.app_name,
+            "admin": admin.username,
+            "csrf_token": get_csrf_token(request),
+        },
     )
 
 
 @app.get("/employees", response_class=HTMLResponse)
-def employees_page(request: Request):
-    redirect = require_admin(request)
-    if redirect:
-        return redirect
+def employees_page(
+    request: Request,
+    admin: AdminAccount = Depends(get_current_admin),
+):
     with SessionLocal() as db:
-        departments = db.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all()
+        departments = db.scalars(
+            select(Department)
+            .where(Department.active.is_(True))
+            .order_by(Department.name)
+        ).all()
         employees = db.scalars(select(Employee).order_by(Employee.code)).all()
         return templates.TemplateResponse(
-            request=request, name="employees.html",
-            context={"departments": departments, "employees": employees},
+            request=request,
+            name="employees.html",
+            context={
+                "departments": departments,
+                "employees": employees,
+                "csrf_token": get_csrf_token(request),
+            },
         )
 
 
-@app.post("/employees")
+@app.post("/employees", dependencies=[Depends(csrf_protect)])
 def create_employee(
     request: Request,
     full_name: str = Form(...),
@@ -101,10 +144,8 @@ def create_employee(
     basic_salary: Decimal = Form(...),
     daily_hours: Decimal = Form(...),
     fingerprint_id: str = Form(""),
+    admin: AdminAccount = Depends(get_current_admin),
 ):
-    redirect = require_admin(request)
-    if redirect:
-        return redirect
     if basic_salary < 0 or daily_hours <= 0 or daily_hours > 24:
         return HTMLResponse("بيانات الراتب أو ساعات العمل غير صحيحة.", status_code=400)
     with SessionLocal() as db:
@@ -114,11 +155,17 @@ def create_employee(
         last_code = db.scalar(select(Employee.code).order_by(Employee.id.desc()).limit(1))
         next_number = int(last_code.split("-")[1]) + 1 if last_code and last_code.startswith("MY-") else 1
         employee = Employee(
-            code=f"MY-{next_number:04d}", full_name=full_name.strip(),
-            national_id=national_id.strip() or None, phone=phone.strip() or None,
-            department_id=department_id, position=position.strip(), hire_date=hire_date,
-            basic_salary=basic_salary, daily_hours=daily_hours,
-            fingerprint_id=fingerprint_id.strip() or None, status="active",
+            code=f"MY-{next_number:04d}",
+            full_name=full_name.strip(),
+            national_id=national_id.strip() or None,
+            phone=phone.strip() or None,
+            department_id=department_id,
+            position=position.strip(),
+            hire_date=hire_date,
+            basic_salary=basic_salary,
+            daily_hours=daily_hours,
+            fingerprint_id=fingerprint_id.strip() or None,
+            status="active",
         )
         db.add(employee)
         db.commit()

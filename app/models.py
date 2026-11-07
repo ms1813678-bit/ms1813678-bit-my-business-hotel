@@ -77,3 +77,4 @@ class AdminAccount(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    session_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
