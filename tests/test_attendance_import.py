@@ -114,6 +114,16 @@ def test_corrupt_xlsx_is_reported_as_a_reviewable_import_error():
         )
 
 
+def test_corrupt_legacy_xls_is_reported_as_a_reviewable_import_error():
+    with pytest.raises(ValueError, match="invalid_or_unsupported_legacy_excel_workbook"):
+        parse_attendance_workbook(
+            b"not an OLE/BIFF workbook",
+            "corrupt.xls",
+            "fingerprint",
+            ALIASES,
+        )
+
+
 def test_xlsx_with_lazy_corrupt_worksheet_xml_is_reported_as_reviewable_error():
     valid = workbook_bytes([("Sheet1", [
         ["AC-No.", "Name", "Date", "Clock In", "Clock Out"],
