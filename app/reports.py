@@ -1,5 +1,6 @@
 """Local Excel reports for HR, attendance, leave, advances, staff actions and payroll."""
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
@@ -253,6 +254,70 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
             )
             for run, item, employee in payroll_rows
         ],
+    )
+
+    # Period-level payroll summary makes month-to-month comparison possible
+    # without changing the detailed employee-level Payroll sheet.
+    monthly_totals = {}
+    for run, item, employee in payroll_rows:
+        summary = monthly_totals.setdefault(run.id, {
+            "run": run,
+            "count": 0,
+            "gross": Decimal("0.00"),
+            "deductions": Decimal("0.00"),
+            "net": Decimal("0.00"),
+            "paid": Decimal("0.00"),
+            "fully_paid": 0,
+            "partially_paid": 0,
+            "unpaid": 0,
+        })
+        gross = sum((Decimal(getattr(item, field) or 0) for field in (
+            "base_salary", "attendance_bonus", "performance_bonus",
+            "occupancy_bonus", "overtime_amount", "other_bonus",
+            "staff_reward_amount",
+        )), Decimal("0.00"))
+        deductions = sum((Decimal(getattr(item, field) or 0) for field in (
+            "absence_deduction", "lateness_deduction", "insurance_share",
+            "taxes", "other_deductions", "advance_deduction",
+            "staff_sanction_amount",
+        )), Decimal("0.00"))
+        paid = Decimal(str(payment_sums.get(item.id, 0) or 0))
+        remaining = max(Decimal("0.00"), Decimal(item.net_pay) - paid)
+        summary["count"] += 1
+        summary["gross"] += gross
+        summary["deductions"] += deductions
+        summary["net"] += Decimal(item.net_pay)
+        summary["paid"] += paid
+        if paid <= 0:
+            summary["unpaid"] += 1
+        elif remaining > 0:
+            summary["partially_paid"] += 1
+        else:
+            summary["fully_paid"] += 1
+
+    ordered_summaries = sorted(
+        monthly_totals.values(), key=lambda row: row["run"].period_start
+    )
+    _write_sheet(
+        workbook,
+        "Payroll comparison",
+        ["Month", "Pay date", "Run status", "Employees", "Gross earnings",
+         "Deductions", "Net payroll", "Paid", "Remaining",
+         "Fully paid employees", "Partially paid employees", "Unpaid employees"],
+        [(
+            row["run"].period_start,
+            row["run"].pay_date,
+            row["run"].status,
+            row["count"],
+            float(row["gross"]),
+            float(row["deductions"]),
+            float(row["net"]),
+            float(row["paid"]),
+            float(max(Decimal("0.00"), row["net"] - row["paid"])),
+            row["fully_paid"],
+            row["partially_paid"],
+            row["unpaid"],
+        ) for row in ordered_summaries],
     )
 
     department_rows = db.execute(
