@@ -97,7 +97,7 @@ def test_hr_report_preserves_employee_and_payroll_history():
             db.flush()
             employee = Employee(
                 code="MY-REPORT-0001",
-                full_name="Synthetic Report Employee",
+                full_name='=HYPERLINK("https://example.invalid","Synthetic")',
                 department_id=department.id,
                 position="Receptionist",
                 hire_date=date(2026, 1, 1),
@@ -169,6 +169,7 @@ def test_hr_report_preserves_employee_and_payroll_history():
             workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
             try:
                 assert workbook["Employees"].cell(2, 1).value == "MY-REPORT-0001"
+                assert workbook["Employees"].cell(2, 2).value == '\'=HYPERLINK("https://example.invalid","Synthetic")'
                 assert workbook["Attendance"].cell(2, 2).value == "MY-REPORT-0001"
                 assert workbook["Leave"].cell(2, 3).value == "سنوية"
                 assert workbook["Payroll"].cell(2, 4).value == "MY-REPORT-0001"
