@@ -155,3 +155,10 @@ Commits:
 
 This is a targeted guardrail; CI, Windows 11 execution, and full upload lifecycle/backup acceptance remain outstanding.
 
+
+
+## Employee photo/database transaction consistency — 2026-11-07
+
+Employee photo files are stored on the local filesystem while employee records are committed in the database. The employee-creation route now wraps the full database transaction, including commit, in cleanup handling. If validation after the photo write, a flush, or the transaction commit fails, the newly written photo is removed so the filesystem does not retain an unreferenced employee image. A regression test injects a database before_commit failure and verifies that the image directory is empty afterward.
+
+This is a focused safeguard; it does not replace a full backup/restore test or a periodic orphan-file reconciliation tool.
