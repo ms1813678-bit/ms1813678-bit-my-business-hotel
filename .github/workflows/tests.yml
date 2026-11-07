@@ -14,6 +14,7 @@ on:
       - feature/auth-security
       - work/leave-management-foundation
       - work/rewards-sanctions-v2
+      - work/payroll-foundation
   workflow_dispatch:
 
 permissions:
