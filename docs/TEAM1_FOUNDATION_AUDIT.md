@@ -190,3 +190,19 @@ A fresh source-level pass was completed against the current Team 1 branch after 
 - No Windows 11 installation, PostgreSQL migration execution, or backup restoration has been performed by this source review.
 
 **Decision:** retain PR #16 as Draft. Do not claim test, migration, backup, Windows, or production acceptance until those executions are recorded.
+
+
+## 14. Initial Windows backup/restore implementation (2026-11-07)
+
+Team 1 added a first local recovery implementation:
+- `scripts/backup_database.ps1` creates a PostgreSQL custom-format dump, copies the complete employee-photo directory, and writes a manifest containing the database name and SHA-256 dump checksum.
+- `scripts/restore_database.ps1` validates the manifest and checksum, requires an exact interactive confirmation, refuses a target database containing user relations, stages the employee-photo directory, and invokes `pg_restore` in a single transaction. It attempts to roll back the photo-folder swap if database restore fails.
+- `docs/BACKUP_RESTORE_WINDOWS.md` documents prerequisites, operation, secure off-device storage, and the remaining acceptance tests.
+
+Security/operational decisions:
+- The backup intentionally excludes `.env`, session secrets, and database passwords. Those must be protected separately; do not store them beside an unencrypted employee-data backup.
+- The scripts expect PostgreSQL client tools in PATH and a URL in the existing `.env` format.
+- Stop the application before backup/restore to avoid concurrent writes.
+- Restore is intentionally restricted to a fresh empty database with the same name recorded in the backup.
+
+**Important limitation:** these PowerShell scripts have only received source review. They have not been executed under Windows PowerShell, against PostgreSQL, or on the target Windows 11 PC. In particular, the end-to-end backup/restore and rollback scenarios remain unverified. Do not treat this as approved disaster recovery until the acceptance tests in `docs/BACKUP_RESTORE_WINDOWS.md` pass.
