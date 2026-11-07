@@ -1328,6 +1328,7 @@ def create_advance_request(
 @app.post("/advances/{request_id}/approve", dependencies=[Depends(csrf_protect)])
 def approve_advance_request(
     request_id: int,
+    installment_count: int = Form(1),
     admin: AdminAccount = Depends(get_current_admin),
 ):
     try:
@@ -1339,7 +1340,7 @@ def approve_advance_request(
             )
             if request is None:
                 return RedirectResponse("/advances?error=record", status_code=303)
-            approve_advance(db, request, admin.username)
+            approve_advance(db, request, admin.username, installment_count=installment_count)
     except (ValueError, SQLAlchemyError):
         return RedirectResponse("/advances?error=approve", status_code=303)
     return RedirectResponse("/advances", status_code=303)
