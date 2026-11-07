@@ -1712,3 +1712,38 @@ def test_employee_photo_rejects_excessive_pixel_dimensions(client, monkeypatch, 
     assert response.status_code == 400
     assert list(tmp_path.iterdir()) == []
 
+
+
+def test_employee_photo_is_removed_when_creation_transaction_fails(client, monkeypatch, tmp_path):
+    assert login(client).status_code == 303
+    from app import main as main_module
+
+    photo_dir = tmp_path / "employee_photos"
+    monkeypatch.setattr(main_module, "EMPLOYEE_PHOTO_DIR", photo_dir)
+
+    image_buffer = BytesIO()
+    Image.new("RGB", (2, 2), color="white").save(image_buffer, format="PNG")
+    image_bytes = image_buffer.getvalue()
+
+    def fail_employee_code(_db):
+        raise RuntimeError("simulated employee creation failure")
+
+    monkeypatch.setattr(main_module, "allocate_employee_code", fail_employee_code)
+    token = csrf_from(client.get("/employees"))
+    with pytest.raises(RuntimeError, match="simulated employee creation failure"):
+        client.post(
+            "/employees",
+            data={
+                "csrf_token": token,
+                "full_name": "Photo Rollback Employee",
+                "department_id": str(client.test_department_id),
+                "position": "Test Position",
+                "hire_date": date.today().isoformat(),
+                "basic_salary": "1000.00",
+                "daily_hours": "8",
+            },
+            files={"photo": ("employee.png", image_bytes, "image/png")},
+        )
+
+    assert photo_dir.exists()
+    assert list(photo_dir.iterdir()) == []
