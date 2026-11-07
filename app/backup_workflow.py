@@ -62,9 +62,10 @@ def validate_backup_root(path_value: str, *, require_external: bool = True) -> P
     if require_external:
         if os.name == "nt":
             app_drive = Path(PROJECT_ROOT).resolve().drive.casefold()
+            system_drive = Path(os.environ.get("SystemRoot", "C:\\Windows")).drive.casefold()
             backup_drive = path.resolve().drive.casefold()
-            if not backup_drive or backup_drive == app_drive:
-                raise ValueError("Choose a different drive from the Windows system/application drive.")
+            if not backup_drive or backup_drive in {app_drive, system_drive}:
+                raise ValueError("Choose a drive different from both the Windows system drive and the application drive.")
         else:
             app_device = os.stat(PROJECT_ROOT).st_dev
             backup_device = os.stat(path).st_dev
@@ -422,6 +423,16 @@ def restore_backup(
         try:
             _restore_archive_contents(pre_restore_path, backup_root)
             with SessionLocal.begin() as db:
+                db.add(BackupRun(
+                    backup_type="pre_restore",
+                    status="success",
+                    archive_path=str(pre_restore_path),
+                    sha256=pre_restore_hash,
+                    size_bytes=pre_restore_path.stat().st_size,
+                    created_at=datetime.now(timezone.utc),
+                    verified_at=datetime.now(timezone.utc),
+                    initiated_by=actor,
+                ))
                 db.add(AuditLog(
                     actor=actor,
                     action="backup_restore_rolled_back",
