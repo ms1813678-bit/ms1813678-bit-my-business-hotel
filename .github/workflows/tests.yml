@@ -6,7 +6,8 @@ on:
       - feature/auth-security
       - feature/platform-hardening
       - work/leave-management-foundation
-      - work/rewards-sanctions-v2\n      - work/payroll-cycle-foundation
+      - work/rewards-sanctions-v2
+      - work/payroll-cycle-foundation
   pull_request:
     branches:
       - main
