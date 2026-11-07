@@ -86,7 +86,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 ]
                 date_candidates = [
                     idx for idx, value in enumerate(normalized)
-                    if value in {"date", "day", "التاريخ", "اليوم"}
+                    if value in {"date", "work date", "day", "التاريخ", "تاريخ العمل", "اليوم"}
                 ]
                 if len(date_candidates) != 1:
                     continue
@@ -129,6 +129,12 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 continue
 
             known_header_columns = {date_col, *employee_cols.values()}
+            metadata_headers = {
+                "notes", "note", "remarks", "remark", "comments", "comment",
+                "shift", "shift type", "total", "total hours", "working hours",
+                "department", "employee count", "ملاحظات", "ملاحظة", "الوردية",
+                "نوع الوردية", "إجمالي الساعات", "اجمالي الساعات", "القسم",
+            }
             unknown_headers = [
                 {
                     "row": header_row,
@@ -140,6 +146,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 if value is not None
                 and str(value).strip()
                 and index not in known_header_columns
+                and _norm(value) not in metadata_headers
             ]
             records = []
             issues = list(unknown_headers)
