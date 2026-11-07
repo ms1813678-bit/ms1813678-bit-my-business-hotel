@@ -315,3 +315,114 @@ def test_overlapping_leave_records_for_same_employee_are_rejected(leave_client):
         records = db.scalars(select(LeaveRecord)).all()
         assert len(records) == 1
         assert records[0].start_date == start
+
+
+def valid_advance_date():
+    today = date.today()
+    if today.day >= 16:
+        return date(today.year, today.month, 16)
+    if today.month == 1:
+        return date(today.year - 1, 12, 16)
+    return date(today.year, today.month - 1, 16)
+
+
+def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client):
+    from app.advance_workflow import next_payroll_month
+
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/advances"))
+    requested_on = valid_advance_date()
+
+    first = client.post(
+        "/advances",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "request_date": requested_on.isoformat(),
+            "amount": "1200.00",
+            "reason": "Synthetic advance request",
+        },
+        follow_redirects=False,
+    )
+    assert first.status_code == 303
+    assert first.headers["location"] == "/advances"
+
+    over_limit = client.post(
+        "/advances",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "request_date": requested_on.isoformat(),
+            "amount": "100.00",
+            "reason": "Synthetic request exceeding remaining cap",
+        },
+        follow_redirects=False,
+    )
+    assert over_limit.status_code == 303
+    assert "error=request" in over_limit.headers["location"]
+
+    with client.test_session_factory() as db:
+        request = db.scalar(select(AdvanceRequest))
+        request_id = request.id
+        assert request.status == "pending"
+        assert request.salary_basis == Decimal("5000.00")
+        assert request.payroll_month == next_payroll_month(requested_on)
+
+    approved = client.post(
+        f"/advances/{request_id}/approve",
+        data={"csrf_token": token},
+        follow_redirects=False,
+    )
+    assert approved.status_code == 303
+
+    paid = client.post(
+        f"/advances/{request_id}/paid",
+        data={"csrf_token": token},
+        follow_redirects=False,
+    )
+    assert paid.status_code == 303
+
+    repeated_paid = client.post(
+        f"/advances/{request_id}/paid",
+        data={"csrf_token": token},
+        follow_redirects=False,
+    )
+    assert repeated_paid.status_code == 303
+    assert "error=paid" in repeated_paid.headers["location"]
+
+    with client.test_session_factory() as db:
+        request = db.get(AdvanceRequest, request_id)
+        assert request.status == "paid"
+        assert request.amount == Decimal("1200.00")
+        assert request.deducted_at is None
+        actions = db.scalars(select(AuditLog.action)).all()
+        assert "advance_requested" in actions
+        assert "advance_approved" in actions
+        assert "advance_paid" in actions
+
+
+def test_advance_request_outside_window_and_unauthorized_access_are_rejected(leave_client):
+    client = leave_client
+    assert client.get("/advances").status_code == 401
+    assert client.post("/advances", data={}).status_code == 403
+    login(client)
+    token = csrf(client.get("/advances"))
+    requested_on = valid_advance_date()
+    invalid_date = requested_on.replace(day=14)
+
+    response = client.post(
+        "/advances",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "request_date": invalid_date.isoformat(),
+            "amount": "500.00",
+            "reason": "Synthetic invalid-window request",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "error=request" in response.headers["location"]
+    with client.test_session_factory() as db:
+        assert db.scalars(select(AdvanceRequest)).all() == []
