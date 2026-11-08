@@ -214,3 +214,67 @@ def test_staff_action_mutations_require_csrf(staff_action_client):
     assert client.post("/staff-actions", data={}).status_code == 403
     login(client)
     assert client.post("/staff-actions/1/approve", data={}).status_code == 403
+
+def test_duplicate_active_financial_action_is_rejected(staff_action_client):
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    payload = {
+        "csrf_token": token,
+        "employee_id": client.test_employee_id,
+        "kind": "sanction",
+        "category": "salary_deduction",
+        "title": "Duplicate protection test",
+        "is_financial": "yes",
+        "amount": "125.00",
+        "payroll_month": "2026-12-01",
+        "reason": "Synthetic duplicate prevention",
+    }
+
+    first = client.post("/staff-actions", data=payload, follow_redirects=False)
+    second = client.post("/staff-actions", data=payload, follow_redirects=False)
+
+    assert first.status_code == 303
+    assert second.status_code == 303
+    assert "error=create" in second.headers["location"]
+
+    with client.test_session_factory() as db:
+        actions = db.scalars(select(StaffAction)).all()
+        assert len(actions) == 1
+        assert actions[0].amount == Decimal("125.00")
+
+
+def test_staff_action_approval_rejects_inactive_employee(staff_action_client):
+    from app.staff_actions_workflow import approve_staff_action
+
+    client = staff_action_client
+    login(client)
+    token = csrf(client.get("/staff-actions"))
+    response = client.post(
+        "/staff-actions",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "kind": "reward",
+            "category": "certificate",
+            "title": "Pending certificate",
+            "reason": "Synthetic approval guard",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.scalar(select(StaffAction))
+        item_id = item.id
+        employee = db.get(Employee, client.test_employee_id)
+        employee.status = "archived"
+        db.commit()
+        item = db.get(StaffAction, item_id)
+        with pytest.raises(ValueError, match="employee is not active"):
+            approve_staff_action(db, item, "staff-action-admin")
+        db.rollback()
+
+    with client.test_session_factory() as db:
+        assert db.get(StaffAction, item_id).status == "draft"
+
