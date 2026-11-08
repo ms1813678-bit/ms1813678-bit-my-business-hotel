@@ -16,6 +16,14 @@
 8. Attendance remains evidence-first: source files are retained, daily records require HR approval, and monthly approval requires both source imports and explicit coverage confirmation.
 9. Employee codes are never reused. Rehire preserves the code but creates a new service period.
 
+## Latest integration checkpoint (2026-11-08)
+- Windows setup, README, and Windows installation guide now state that reports are generated manually and saved locally; setup does not register a monthly report task.
+- Project specification reflects the approved advance split: regular monthly advances alone are capped at 25%; installment advances are exempt and support 1–36 installments.
+- Added route-level synthetic acceptance coverage for a 6,000 installment advance over six installments, including request-month accounting, next-month day-5 payment dates, and exact schedule total across a year boundary. The test is committed but has not yet been executed locally or in a trustworthy CI run.
+- The installment migration (0021) creates unique per-request installment number and payroll-month constraints and intentionally preserves financial history on downgrade. Migrations 0022 and 0023 add advance type and overtime approval metadata. These still require execution against a clean PostgreSQL database.
+- The current test workflow targets Python 3.11 on Ubuntu and Windows; the latest job API results still expose no step details/logs. Do not infer the cause of failure or claim tests pass.
+- PR #20 remains Draft and unmerged; main remains unchanged. Team 3 PR #17 must not be merged wholesale because its stated 25% policy conflicts with the approved rule and its branch is divergent.
+
 ## Verification status
 - GitHub Actions has previously reported failures before project steps execute (steps null, no logs), so those runs are not valid evidence of pytest failure.
 - Real Windows 11 + PostgreSQL acceptance has not yet been performed.
