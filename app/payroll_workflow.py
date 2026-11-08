@@ -111,7 +111,11 @@ def _attendance_lateness(
 
 def recompute_payroll_item(item: PayrollItem, run: PayrollRun) -> None:
     overtime_rate = hourly_rate(Decimal(item.salary_basis), Decimal(item.daily_hours))
-    item.overtime_amount = money(overtime_rate * Decimal(item.overtime_hours))
+    item.overtime_amount = (
+        money(overtime_rate * Decimal(item.overtime_hours))
+        if item.overtime_approved
+        else Decimal("0.00")
+    )
     item.absence_deduction = absence_deduction(
         Decimal(item.salary_basis),
         run.period_start.year,
