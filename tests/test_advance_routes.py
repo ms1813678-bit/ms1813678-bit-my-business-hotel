@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base, get_db
 from app.main import app
-from app.models import AdvanceRequest, AdminAccount, AuditLog, Department, Employee, EmployeeCodeCounter
+from app.models import AdvanceInstallment, AdvanceRequest, AdminAccount, AuditLog, Department, Employee, EmployeeCodeCounter
 from app.security import hash_password
 
 
@@ -91,7 +91,7 @@ def login(client):
     assert response.status_code == 303
 
 
-def submit_advance(client, token, amount="1250.00", request_date="2026-11-17"):
+def submit_advance(client, token, amount="1250.00", request_date="2026-11-17", advance_type="regular"):
     return client.post(
         "/advances",
         data={
@@ -99,13 +99,14 @@ def submit_advance(client, token, amount="1250.00", request_date="2026-11-17"):
             "employee_id": client.test_employee_id,
             "request_date": request_date,
             "amount": amount,
+            "advance_type": advance_type,
             "reason": "Synthetic advance test request",
         },
         follow_redirects=False,
     )
 
 
-def test_advance_cap_approval_payment_and_next_payroll_month(advance_client):
+def test_regular_advance_cap_approval_payment_and_request_month(advance_client):
     client = advance_client
     login(client)
     token = csrf(client.get("/advances"))
@@ -122,7 +123,7 @@ def test_advance_cap_approval_payment_and_next_payroll_month(advance_client):
         request = db.scalar(select(AdvanceRequest))
         assert request.status == "pending"
         assert request.request_date == real_date(2026, 11, 17)
-        assert request.payroll_month == real_date(2026, 12, 1)
+        assert request.payroll_month == real_date(2026, 11, 1)
         assert request.salary_basis == Decimal("5000.00")
         request_id = request.id
 
@@ -198,3 +199,42 @@ def test_advance_page_and_mutations_require_admin_and_csrf(advance_client):
     login(client)
     assert client.get("/advances").status_code == 200
     assert client.post("/advances/1/approve", data={}).status_code == 403
+
+
+def test_installment_advance_bypasses_25_percent_cap_and_creates_schedule(advance_client):
+    client = advance_client
+    login(client)
+    token = csrf(client.get("/advances"))
+
+    created = submit_advance(
+        client, token, amount="6000.00", advance_type="installment"
+    )
+    assert created.status_code == 303
+
+    with client.test_session_factory() as db:
+        request = db.scalar(select(AdvanceRequest))
+        assert request.advance_type == "installment"
+        assert request.payroll_month == real_date(2026, 11, 1)
+        request_id = request.id
+
+    approved = client.post(
+        f"/advances/{request_id}/approve",
+        data={"csrf_token": token, "installment_count": "6"},
+        follow_redirects=False,
+    )
+    assert approved.status_code == 303
+
+    with client.test_session_factory() as db:
+        request = db.get(AdvanceRequest, request_id)
+        assert request.status == "approved"
+        rows = db.execute(
+            select(AdvanceInstallment).where(
+                AdvanceInstallment.advance_request_id == request_id
+            ).order_by(AdvanceInstallment.installment_number)
+        ).scalars().all()
+        assert [row.amount for row in rows] == [Decimal("1000.00")] * 6
+        assert [row.payroll_month for row in rows] == [
+            real_date(2026, 11, 1), real_date(2026, 12, 1),
+            real_date(2027, 1, 1), real_date(2027, 2, 1),
+            real_date(2027, 3, 1), real_date(2027, 4, 1),
+        ]
