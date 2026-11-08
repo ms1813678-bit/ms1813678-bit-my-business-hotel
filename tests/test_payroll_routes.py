@@ -324,6 +324,13 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         assert run.status == "closed"
         assert advances[0].status == "deducted"
         assert advances[0].payroll_run_id == run_id
+        installment = db.scalar(
+            select(AdvanceInstallment).where(
+                AdvanceInstallment.advance_request_id == advances[0].id
+            )
+        )
+        assert installment.status == "applied"
+        assert installment.applied_payroll_run_id == run_id
         assert advances[1].status == "paid"
         assert advances[1].payroll_run_id is None
         assert all(action.payroll_run_id == run_id for action in actions[:2])
@@ -383,6 +390,12 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         follow_redirects=False,
     )
     assert reopened.status_code == 303
+
+    with client.test_session_factory() as db:
+        installment = db.scalar(select(AdvanceInstallment).where(AdvanceInstallment.advance_request_id == advances[0].id))
+        assert installment.status == "reversed"
+        assert installment.applied_payroll_run_id is None
+        assert db.get(AdvanceRequest, advances[0].id).status == "paid"
 
     cannot_edit_paid = client.post(
         f"/payroll/items/{item_id}/update",
