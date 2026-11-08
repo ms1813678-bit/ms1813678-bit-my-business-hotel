@@ -26,9 +26,8 @@ Do not use a production database until the complete application, security, backu
 6. The setup writes .env only when it does not already exist. Existing configuration is preserved.
 7. Setup applies database migrations, seeds missing standard departments, and prompts for the first administrator username and password. Password input is hidden and the password must be at least 12 characters.
 8. A desktop shortcut named M.Y. Business Hotel HR is created after successful setup.
-9. Setup registers a Windows Task Scheduler job to create the previous month’s Excel and PDF HR reports on day 1 at 09:00 Cairo local time. The task starts when available if the PC was off at the scheduled time and runs under the current Windows user when logged in.
 
-The scheduled report files are saved under `var/reports` inside the project folder. They remain local; no email is sent. Keep the Windows time zone set to Cairo and log in to the same Windows account for the scheduled task to run.
+Reports are generated only when the administrator requests them, selects a start date, end date, and either all employees or one employee, then chooses Excel or PDF. Files are saved locally. Setup does not register a scheduled report task, and the application does not send reports by email.
 
 The first administrator is created only once. A second administrator is rejected by application logic and database constraints. There is no public signup page. If an administrator already exists, setup does not replace its credentials.
 
@@ -40,7 +39,7 @@ The first administrator is created only once. A second administrator is rejected
 - Press Ctrl+C in that window to stop the application.
 - PostgreSQL must be running before starting the application.
 
-The application binds only to 127.0.0.1. Do not change this to 0.0.0.0, configure router port forwarding, or expose the service publicly. No Windows auto-start task or application service is created. The only scheduled task is the monthly report generator.
+The application binds only to 127.0.0.1. Do not change this to 0.0.0.0, configure router port forwarding, or expose the service publicly. No Windows auto-start task, application service, or scheduled report task is created.
 
 ## Configuration and troubleshooting
 
