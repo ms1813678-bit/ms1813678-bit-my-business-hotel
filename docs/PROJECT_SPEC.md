@@ -115,11 +115,15 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Rewards: financial reward, certificate, commendation, promotion recommendation, and configurable types. Financial amount is manual. Preserve history.
 
 ## Reports and dashboard
-- Daily, weekly, monthly, and custom-range reports with filters.
+- Reports are generated **manually by the administrator from the Reports module**; there is no automatic monthly report job in the initial release.
+- The administrator selects the report type and an explicit start date and end date.
+- The administrator can select **all employees** or **one specific employee**.
+- Employee selection must be applied consistently to every report type where an employee filter is meaningful; department/branch filters may be offered where supported.
+- Available report periods include daily, weekly, monthly, and arbitrary custom ranges through the same manual date-range controls.
 - Excel and PDF exports.
 - Reports: employee, attendance, leave, sanctions/rewards, payroll, advances, and department comparisons.
-- Prepare previous-month report on day 1 at 09:00 Cairo time and save locally.
-- Intended email recipient: mohamedhassanien398@gmail.com. Email requires internet and configured credentials; never claim delivery unless confirmed.
+- Generated reports are saved locally for download/archival.
+- Intended email recipient is not part of the automatic report workflow; if a future email action is added, it must require an explicit administrator action and configured credentials. Never claim delivery unless confirmed.
 - Dashboard shows counts, attendance, incomplete records, leaves, payroll, alerts, department rankings, and previous-month comparisons.
 - Never present unresolved absence as final.
 
