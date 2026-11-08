@@ -450,3 +450,21 @@ def test_advance_request_outside_window_and_unauthorized_access_are_rejected(lea
     assert "error=request" in response.headers["location"]
     with client.test_session_factory() as db:
         assert db.scalars(select(AdvanceRequest)).all() == []
+
+def test_balance_entry_requires_nonblank_reason(leave_client):
+    from app.leave_workflow import add_balance_entry
+
+    client = leave_client
+    with client.test_session_factory() as db:
+        leave_type = db.get(LeaveType, client.test_annual_id)
+        with pytest.raises(ValueError, match="reason is required"):
+            add_balance_entry(
+                db,
+                employee_id=client.test_employee_id,
+                leave_type=leave_type,
+                transaction_type="opening",
+                days_delta=Decimal("5"),
+                reason="   ",
+                actor="leave-admin",
+            )
+
