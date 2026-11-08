@@ -315,11 +315,9 @@ def update_payroll_item(
         raise ValueError("A payroll item with recorded payments cannot be edited; record an adjustment separately.")
     old = {}
     new = {}
-    for key, value in values.items():
+    for key in values:
         if key not in MANUAL_ITEM_FIELDS:
             raise ValueError(f"Field {key} cannot be edited.")
-        if key == "overtime_hours" and Decimal(str(value or 0)) > 0:
-            raise ValueError("Positive overtime requires explicit HR approval after entry.")
         if key == "note":
             normalized = (value or "").strip() or None
         else:
@@ -329,6 +327,10 @@ def update_payroll_item(
         old[key] = str(getattr(item, key))
         new[key] = str(normalized)
         setattr(item, key, normalized)
+    if "overtime_hours" in values:
+        item.overtime_approved = False
+        item.overtime_approved_by = None
+        item.overtime_approved_at = None
     if item.overtime_hours <= 0:
         item.overtime_approved = False
         item.overtime_approved_by = None
