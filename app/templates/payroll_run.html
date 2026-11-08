@@ -77,7 +77,7 @@
           <label>مكافأة حضور<input type="number" name="attendance_bonus" min="0" step="0.01" value="{{ item.attendance_bonus }}"></label>
           <label>مكافأة أداء<input type="number" name="performance_bonus" min="0" step="0.01" value="{{ item.performance_bonus }}"></label>
           <label>مكافأة إشغال<input type="number" name="occupancy_bonus" min="0" step="0.01" value="{{ item.occupancy_bonus }}"></label>
-          <label>ساعات إضافي معتمدة<input type="number" name="overtime_hours" min="0" step="0.25" value="{{ item.overtime_hours }}"></label>
+          <label>ساعات إضافي<input type="number" name="overtime_hours" min="0" step="0.25" value="{{ item.overtime_hours }}"></label>
           <label>مكافآت أخرى<input type="number" name="other_bonus" min="0" step="0.01" value="{{ item.other_bonus }}"></label>
           <label>أيام غياب معتمدة<input type="number" name="absence_days" min="0" max="31" step="0.25" value="{{ item.absence_days }}"></label>
           <label>خصم تأخير/انصراف مبكر<input type="number" name="lateness_deduction" min="0" step="0.01" value="{{ item.lateness_deduction }}"></label>
@@ -87,6 +87,13 @@
           <label>ملاحظات<input name="note" value="{{ item.note or '' }}"></label>
         </div>
         <button type="submit">حفظ ومراجعة الصافي</button>
+        {% if item.overtime_hours > 0 %}
+        {% if item.overtime_approved %}
+        <span class="muted">تم اعتماد الإضافي بواسطة {{ item.overtime_approved_by }} في {{ item.overtime_approved_at.strftime("%d/%m/%Y %H:%M") }}.</span>
+        {% else %}
+        <button type="submit" formaction="/payroll/items/{{ item.id }}/overtime-approve">اعتماد ساعات الإضافي</button>
+        {% endif %}
+        {% endif %}
       </form>
     </td></tr>
     {% endif %}
@@ -109,7 +116,7 @@
   </section>
 
   <section class="notice">
-    <p><strong>ملاحظات الحساب:</strong> الأساسي الشهري ثابت، وساعات العمل لا تخفضه. سعر الساعة = الأساسي ÷ (ساعات اليوم × 30). خصم الغياب = الأساسي ÷ أيام الشهر الفعلية × أيام الغياب. الأوفر تايم بنفس سعر الساعة دون مضاعف، ويُدخل فقط بعد اعتماد ساعات العمل الإضافية المطلوبة من الإدارة. التأمين والضرائب يدويان دون حساب قانوني تلقائي.</p>
+    <p><strong>ملاحظات الحساب:</strong> الأساسي الشهري ثابت، وساعات العمل لا تخفضه. سعر الساعة = الأساسي ÷ (ساعات اليوم × 30). خصم الغياب = الأساسي ÷ أيام الشهر الفعلية × أيام الغياب. الأوفر تايم بنفس سعر الساعة دون مضاعف، ولا يدخل في الصافي إلا بعد اعتماد ساعات الإضافي من الإدارة. التأمين والضرائب يدويان دون حساب قانوني تلقائي.</p>
     <p>خصم السلف والمكافآت والجزاءات المالية يظهر من السجلات المعتمدة للشهر. لا تعتبر السلفة مخصومة إلا بعد إغلاق المسير.</p>
   </section>
 </main>
