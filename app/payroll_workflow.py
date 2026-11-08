@@ -278,6 +278,24 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
     return run
 
 
+def approve_overtime(db: Session, item: PayrollItem, actor: str) -> None:
+    run = db.get(PayrollRun, item.payroll_run_id)
+    if run is None or run.status not in {"draft", "reopened"}:
+        raise ValueError("Overtime can be approved only while payroll is draft or reopened.")
+    hours = Decimal(item.overtime_hours or 0)
+    if hours <= 0:
+        raise ValueError("Positive overtime hours are required before approval.")
+    item.overtime_approved = True
+    item.overtime_approved_by = actor
+    item.overtime_approved_at = datetime.utcnow()
+    recompute_payroll_item(item, run)
+    _audit(
+        db, actor=actor, action="overtime_approved", entity_type="payroll_item",
+        entity_id=str(item.id), old_value="false", new_value="true",
+        reason="HR administrator approved overtime.",
+    )
+
+
 def update_payroll_item(
     db: Session, item: PayrollItem, values: dict, actor: str
 ) -> None:
@@ -296,6 +314,8 @@ def update_payroll_item(
     for key, value in values.items():
         if key not in MANUAL_ITEM_FIELDS:
             raise ValueError(f"Field {key} cannot be edited.")
+        if key == "overtime_hours" and Decimal(str(value or 0)) > 0:
+            raise ValueError("Positive overtime requires explicit HR approval after entry.")
         if key == "note":
             normalized = (value or "").strip() or None
         else:
@@ -305,6 +325,10 @@ def update_payroll_item(
         old[key] = str(getattr(item, key))
         new[key] = str(normalized)
         setattr(item, key, normalized)
+    if item.overtime_hours <= 0:
+        item.overtime_approved = False
+        item.overtime_approved_by = None
+        item.overtime_approved_at = None
     recompute_payroll_item(item, run)
     _audit(
         db, actor=actor, action="payroll_item_updated", entity_type="payroll_item",
