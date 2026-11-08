@@ -441,6 +441,7 @@ def _reverse_advance_installments_for_run(db: Session, run: PayrollRun, actor: s
         if advance is not None and advance.status == "deducted":
             advance.status = "paid"
             advance.deducted_at = None
+            advance.payroll_run_id = None
 
 
 def reopen_payroll_run(db: Session, run: PayrollRun, actor: str, reason: str) -> None:
