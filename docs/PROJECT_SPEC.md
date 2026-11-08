@@ -46,6 +46,14 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Employee requests for personal-data changes are recorded; HR applies changes with old/new history.
 - No employee master Excel file currently exists; initial records are entered manually. Provide an import template later.
 
+## Security roster rules
+- Security coverage is validated by day before attendance can be finalized.
+- Never allow fewer than 2 active guards on a day, never allow a 1-guard day, and never allow an all-off day.
+- With exactly 2 active guards, use 12-hour coverage; with 3 or more active guards, use 8-hour coverage.
+- Shift start/end times remain configurable; the system must not invent times.
+- A day must have continuous coverage with no gaps and no overlapping assignments.
+- Overnight shifts and midnight boundaries must be handled explicitly; ambiguous patterns are sent to HR review rather than guessed.
+
 ## Attendance imports and review
 - Monthly inputs: the attendance program's one-sheet report is the primary source; the ZKTeco LX50 fingerprint export supplements missing days/events and is checked across the full month. Preserve the user's source priority: program report first, fingerprint report second. The program report defines the monthly period; when the fingerprint export contains only dates with punches, align its contained date range to that same program month rather than creating a shorter separate month.
 - Preserve the exact original uploaded workbooks, SHA-256 hashes, raw event values, employee identifiers, sheet names, and row positions; authorized HR users can retrieve the original source file later.
