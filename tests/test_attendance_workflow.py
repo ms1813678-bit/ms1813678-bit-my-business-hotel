@@ -864,3 +864,47 @@ def test_department_history_uses_effective_date_for_each_attendance_day(db_sessi
     assert history[employee.id][date(2026, 11, 2)] == new_department.id
     assert history[employee.id][date(2026, 11, 3)] == new_department.id
     assert history[employee.id][date(2026, 10, 31)] == old_department_id
+
+
+def test_security_roster_requires_two_guards_and_full_coverage(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security", active=True)
+    db_session.add(security)
+    db_session.flush()
+    guards = []
+    for index in range(2):
+        guard = Employee(
+            code=f"SEC-{index+1}", full_name=f"Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(
+            employee_id=guard.id, start_date=date(2026, 1, 1)
+        ))
+    db_session.flush()
+    day = date(2026, 11, 2)
+    p1 = ShiftPattern(department_id=security.id, code="SEC12A", name="12h A",
+                      start_time=time(0,0), end_time=time(12,0),
+                      match_before_minutes=0, match_after_minutes=0, active=True)
+    p2 = ShiftPattern(department_id=security.id, code="SEC12B", name="12h B",
+                      start_time=time(12,0), end_time=time(0,0),
+                      match_before_minutes=0, match_after_minutes=0, active=True)
+    db_session.add_all([p1,p2]); db_session.flush()
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=p1.id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=p2.id),
+    ])
+    db_session.flush()
+    validate_security_roster(db_session, period_start=day, period_end=day)
+
+    db_session.query(SecurityShiftAssignment).delete()
+    db_session.flush()
+    with pytest.raises(ValueError, match="security_roster_shift_count_invalid"):
+        validate_security_roster(db_session, period_start=day, period_end=day)
+
