@@ -518,7 +518,9 @@ def test_installment_advance_exceeds_regular_cap_and_uses_request_month_schedule
         assert request.status == "paid"
         assert len(schedule) == 6
         assert [item.payroll_month for item in schedule] == [
-            date(2026, month, 1) for month in (11, 12, 1, 2, 3, 4)
+            date(2026, 11, 1), date(2026, 12, 1),
+            date(2027, 1, 1), date(2027, 2, 1),
+            date(2027, 3, 1), date(2027, 4, 1),
         ]
         assert [item.scheduled_payment_date for item in schedule] == [
             date(2026, 12, 5), date(2027, 1, 5), date(2027, 2, 5),
