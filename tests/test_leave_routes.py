@@ -331,8 +331,6 @@ def valid_advance_date():
 
 
 def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client):
-    from app.advance_workflow import next_payroll_month
-
     client = leave_client
     login(client)
     token = csrf(client.get("/advances"))
@@ -371,7 +369,7 @@ def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client
         request_id = request.id
         assert request.status == "pending"
         assert request.salary_basis == Decimal("5000.00")
-        assert request.payroll_month == next_payroll_month(requested_on)
+        assert request.payroll_month == date(requested_on.year, requested_on.month, 1)
 
     approved = client.post(
         f"/advances/{request_id}/approve",
