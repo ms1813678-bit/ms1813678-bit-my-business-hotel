@@ -42,5 +42,5 @@ See docs/PROJECT_SPEC.md for the approved product scope and detailed HR rules. P
 - Use synthetic test records only until release approval.
 - Never commit .env, database passwords, session secrets, or real employee data.
 - Payroll must not be approved before the exact month's attendance is reviewed and approved.
-- Reports are read-only. Email delivery is optional and disabled unless SMTP settings and a recipient are explicitly configured in `.env`.
+- Reports are read-only and generated manually by the administrator for a selected date range and employee scope; files are saved locally and are not emailed or scheduled automatically.
 - main remains unchanged until the user explicitly approves integration.
