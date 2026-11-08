@@ -1084,6 +1084,7 @@ def leave_page(request: Request, admin: AdminAccount = Depends(get_current_admin
                 "transactions": transactions,
                 "csrf_token": get_csrf_token(request),
                 "error": request.query_params.get("error"),
+            "employees": employees,
             },
         )
 
@@ -1784,6 +1785,8 @@ def reports_page(
 ):
     today = date.today()
     default_start = date(today.year, today.month, 1)
+    with SessionLocal() as db:
+        employees = db.scalars(select(Employee).where(Employee.status == "active").order_by(Employee.code)).all()
     return templates.TemplateResponse(
         request=request,
         name="reports.html",
@@ -1799,11 +1802,12 @@ def reports_page(
 def export_hr_reports(
     start_date: date,
     end_date: date,
+    employee_id: int | None = None,
     admin: AdminAccount = Depends(get_current_admin),
 ):
     try:
         with SessionLocal() as db:
-            content = build_hr_workbook(db, start_date, end_date)
+            content = build_hr_workbook(db, start_date, end_date, employee_id=employee_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except SQLAlchemyError:
@@ -1822,11 +1826,12 @@ def export_hr_reports(
 def export_hr_reports_pdf(
     start_date: date,
     end_date: date,
+    employee_id: int | None = None,
     admin: AdminAccount = Depends(get_current_admin),
 ):
     try:
         with SessionLocal() as db:
-            content = build_hr_pdf(db, start_date, end_date)
+            content = build_hr_pdf(db, start_date, end_date, employee_id=employee_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
