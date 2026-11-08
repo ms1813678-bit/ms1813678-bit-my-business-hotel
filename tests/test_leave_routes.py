@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base, get_db
 from app.main import app
 from app.models import (
+    AdvanceInstallment,
     AdvanceRequest,
     AdminAccount,
     AuditLog,
@@ -465,4 +466,64 @@ def test_balance_entry_requires_nonblank_reason(leave_client):
                 reason="   ",
                 actor="leave-admin",
             )
+
+def test_installment_advance_exceeds_regular_cap_and_uses_request_month_schedule(leave_client):
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/advances"))
+    requested_on = valid_advance_date()
+
+    created = client.post(
+        "/advances",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "request_date": requested_on.isoformat(),
+            "amount": "6000.00",
+            "advance_type": "installment",
+            "reason": "Synthetic large advance with installments",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    assert created.headers["location"] == "/advances"
+
+    with client.test_session_factory() as db:
+        request = db.scalar(select(AdvanceRequest))
+        request_id = request.id
+        assert request.advance_type == "installment"
+        assert request.payroll_month == date(2026, 11, 1)
+
+    approved = client.post(
+        f"/advances/{request_id}/approve",
+        data={"csrf_token": token, "installment_count": "6"},
+        follow_redirects=False,
+    )
+    assert approved.status_code == 303
+
+    paid = client.post(
+        f"/advances/{request_id}/paid",
+        data={"csrf_token": token},
+        follow_redirects=False,
+    )
+    assert paid.status_code == 303
+
+    with client.test_session_factory() as db:
+        request = db.get(AdvanceRequest, request_id)
+        schedule = db.scalars(
+            select(AdvanceInstallment)
+            .where(AdvanceInstallment.advance_request_id == request_id)
+            .order_by(AdvanceInstallment.installment_number)
+        ).all()
+        assert request.status == "paid"
+        assert len(schedule) == 6
+        assert [item.payroll_month for item in schedule] == [
+            date(2026, month, 1) for month in (11, 12, 1, 2, 3, 4)
+        ]
+        assert [item.scheduled_payment_date for item in schedule] == [
+            date(2026, 12, 5), date(2027, 1, 5), date(2027, 2, 5),
+            date(2027, 3, 5), date(2027, 4, 5), date(2027, 5, 5),
+        ]
+        assert sum((Decimal(item.amount) for item in schedule), Decimal("0.00")) == Decimal("6000.00")
+        assert all(Decimal(item.amount) == Decimal("1000.00") for item in schedule)
 
