@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base, get_db
 from app.main import app
 from app.models import (
+    AdvanceInstallment,
     AdvanceRequest,
     AdminAccount,
     AttendanceDailyRecord,
@@ -128,6 +129,17 @@ def payroll_client(monkeypatch):
             created_by="payroll-admin",
             paid_by="payroll-admin",
             paid_at=datetime.utcnow(),
+        ))
+        db.flush()
+        advance = db.scalar(select(AdvanceRequest).where(AdvanceRequest.employee_id == employee_id))
+        db.add(AdvanceInstallment(
+            advance_request_id=advance.id,
+            installment_number=1,
+            amount=Decimal("500.00"),
+            payroll_month=period_start,
+            scheduled_payment_date=date(2026, 11, 5),
+            status="scheduled",
+            created_at=datetime.utcnow(),
         ))
         db.add_all([
             StaffAction(
