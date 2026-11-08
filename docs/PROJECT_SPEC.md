@@ -110,11 +110,12 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - No transport or meal allowances.
 
 ## Advances
-- Requests accepted from the 15th through the 22nd of each month.
-- Maximum outstanding advances after a new advance: 25% of basic salary.
-- New advance is allowed only if total outstanding after it remains within the 25% limit.
-- Entire advance is deducted from the following month's salary, not installments.
-- Show latest advance, date, total, deducted, outstanding, and available limit.
+- Requests are accepted from the 15th through the 22nd of the current month; future-dated and prior-month requests are rejected.
+- Regular monthly advances alone are subject to the 25% of basic salary cap for the relevant accounting month. Pending, approved, and paid regular advances for that same accounting month reserve the cap until deductions are applied.
+- Installment/large advances are a separate type and are not subject to the regular monthly 25% cap. The administrator approves a repayment schedule of 1–36 installments; installment amounts are distributed to cents and sum exactly to the original advance.
+- The first installment belongs to the request month. Each installment is deducted in its accounting payroll month and paid on the 5th of the following month. Example: a request on 19 October for 6,000 over 6 installments is accounted for October–March and paid on 5 November–5 April.
+- Payroll consumes only the installment due for its payroll month, not the full original installment advance. Reopening payroll reverses the installment application without losing its schedule.
+- Show latest advance, date, type, original amount, deducted, outstanding, and regular-advance available limit separately.
 
 ## Sanctions and rewards
 - Sanctions: verbal notice, first warning, final warning, salary deduction, suspension.
