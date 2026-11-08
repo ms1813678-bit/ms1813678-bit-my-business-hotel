@@ -36,6 +36,8 @@ def add_balance_entry(
 ) -> LeaveBalanceTransaction:
     if not leave_type.tracks_balance:
         raise ValueError("This leave type does not use a balance.")
+    if not reason or not reason.strip():
+        raise ValueError("A reason is required for every balance transaction.")
     if days_delta == 0:
         raise ValueError("The balance change must be greater than zero or less than zero.")
     if transaction_type == "opening":
