@@ -27,7 +27,11 @@ Do not use a production database until the complete application, security, backu
 7. Setup applies database migrations, seeds missing standard departments, and prompts for the first administrator username and password. Password input is hidden and the password must be at least 12 characters.
 8. A desktop shortcut named M.Y. Business Hotel HR is created after successful setup.
 
-Reports are generated only when the administrator requests them, selects a start date, end date, and either all employees or one employee, then chooses Excel or PDF. Files are saved locally. Setup does not register a scheduled report task, and the application does not send reports by email.
+## Reports
+
+Reports are generated manually by the administrator. Select the report type, start date, end date, and either all employees or one employee, then generate Excel or PDF. Report files are saved locally. Setup does not register a scheduled report task, and the application does not email reports.
+
+## First administrator
 
 The first administrator is created only once. A second administrator is rejected by application logic and database constraints. There is no public signup page. If an administrator already exists, setup does not replace its credentials.
 
