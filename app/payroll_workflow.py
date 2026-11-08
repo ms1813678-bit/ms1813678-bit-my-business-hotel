@@ -401,6 +401,7 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
         if remaining == 0:
             advance.status = "deducted"
             advance.deducted_at = now
+            advance.payroll_run_id = run.id
     for action in db.scalars(
         select(StaffAction).where(
             StaffAction.employee_id.in_(employee_ids or {-1}),
