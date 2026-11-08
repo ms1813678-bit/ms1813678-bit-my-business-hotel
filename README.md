@@ -15,7 +15,7 @@ A local-first HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. 
 - Salary advances with the 15th–22nd request window, separate regular/installment rules, a 25% cap only for regular advances, and an auditable installment ledger consumed by payroll.
 - Sanctions and rewards with manual financial amounts and payroll-month assignment.
 - Monthly payroll runs, employee snapshots, approval/close/reopen workflow, manual insurance/tax entries, and cash/bank payment ledger.
-- Multi-sheet Excel reports, Arabic-capable PDF reports, live HR dashboard metrics, and a Windows scheduled task for the previous month's reports on day 1 at 09:00 Cairo time; optional SMTP delivery leaves local files intact if email fails.
+- Multi-sheet Excel reports, Arabic-capable PDF reports, and live HR dashboard metrics. Reports are requested manually by the administrator with an explicit date range and either all employees or one selected employee.
 
 These modules are still being reviewed and tested on separate pull requests. Their presence on feature branches does not mean they have been merged into main.
 
@@ -25,6 +25,7 @@ These modules are still being reviewed and tested on separate pull requests. The
 - Complete Arabic/English language selection and consistent RTL/LTR coverage.
 - Verified backup and restore system, including external-drive retention and restore testing.
 - Optional local/offline AI assistant remains to be integrated; it must never be required for core operations.
+- Reports specification is manual: the administrator chooses report type, start/end dates, and all employees or one employee.
 - Full Windows 11 installation, upgrade, backup/restore, and end-to-end acceptance on the target computer.
 - Final review of unresolved payroll policy wording before approving live payroll calculations.
 
