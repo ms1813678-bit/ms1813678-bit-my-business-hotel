@@ -24,6 +24,15 @@
 - The current test workflow targets Python 3.11 on Ubuntu and Windows; the latest job API results still expose no step details/logs. Do not infer the cause of failure or claim tests pass.
 - PR #20 remains Draft and unmerged; main remains unchanged. Team 3 PR #17 must not be merged wholesale because its stated 25% policy conflicts with the approved rule and its branch is divergent.
 
+## Payroll and attendance review (2026-11-08)
+- Reviewed `app/payroll_workflow.py`, `app/payroll_math.py`, `app/attendance_workflow.py`, `tests/test_payroll_routes.py`, and `tests/test_attendance_workflow.py`.
+- Existing payroll route coverage includes attendance approval gating, 30-day hourly-rate/lateness calculation, actual-calendar-day new-hire proration, explicit overtime approval, advance installment snapshot/close/reopen behavior, financial staff-action snapshot behavior, partial payments, and overpayment rejection.
+- Existing attendance workflow coverage includes raw event persistence, duplicate file rejection, unresolved import review, non-approved daily proposals, historical rehire periods, and Security OFF-day handling.
+- Code review confirms overtime amount is zero until explicitly approved; editing overtime clears approval metadata. Payroll close compares the installment snapshot amount with currently due ledger rows before applying them, and reopening reverses applied installments.
+- No code change was made in this review because the remaining concerns need executable verification rather than speculative edits. Specifically verify in runtime tests: zero/negative daily hours protection at employee creation/update; multiple service periods and rehire proration; attendance clock fallback precedence; race/concurrent payroll creation and installment application on PostgreSQL.
+- CI remains unverified: latest run #42502769848 (PR #20) reports Ubuntu pytest and Windows compatibility jobs failed, but both job records have `steps=null` and no logs. Release CI run #42502763769 likewise has no step details. Do not infer the failure cause.
+- Current workflow config uses `pip install -e ".[dev]"`; local Windows setup previously exposed packaging/dependency/configuration issues. Recheck installation on Windows and investigate the GitHub Actions job initialization/log access before interpreting CI status.
+
 ## Verification status
 - GitHub Actions has previously reported failures before project steps execute (steps null, no logs), so those runs are not valid evidence of pytest failure.
 - Real Windows 11 + PostgreSQL acceptance has not yet been performed.
