@@ -34,6 +34,7 @@ from app.payroll_workflow import (
     approve_payroll_run,
     close_payroll_run,
     create_payroll_run,
+    approve_overtime,
     payment_totals,
     reopen_payroll_run,
     update_payroll_item,
@@ -1721,6 +1722,26 @@ def update_payroll_item_route(
             )
     except (ValueError, SQLAlchemyError):
         return RedirectResponse(f"/payroll/runs/{run_id}?error=item", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
+@app.post("/payroll/items/{item_id}/overtime-approve", dependencies=[Depends(csrf_protect)])
+def approve_overtime_route(
+    item_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    run_id = None
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(PayrollItem).where(PayrollItem.id == item_id).with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/payroll?error=item", status_code=303)
+            run_id = item.payroll_run_id
+            approve_overtime(db, item, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=overtime", status_code=303)
     return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
 
 
