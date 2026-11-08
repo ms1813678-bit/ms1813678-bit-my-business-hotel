@@ -282,6 +282,9 @@ def validate_security_roster(db, *, period_start: date, period_end: date) -> Non
                 department_id = int(change.new_value)
             except (TypeError, ValueError):
                 raise ValueError("employee_department_history_is_inconsistent")
+            # Changes are ordered newest-first; the first effective change is
+            # authoritative for this work date.
+            break
         return department_id
 
     patterns = {
