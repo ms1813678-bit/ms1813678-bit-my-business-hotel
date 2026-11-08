@@ -10,6 +10,13 @@ class Settings(BaseSettings):
     database_url: str
     session_secret: str
 
+    report_email_to: str = ""
+    report_smtp_host: str = ""
+    report_smtp_port: int = 587
+    report_smtp_username: str = ""
+    report_smtp_password: str = ""
+    report_smtp_starttls: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @model_validator(mode="after")
