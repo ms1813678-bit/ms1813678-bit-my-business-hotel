@@ -1,11 +1,17 @@
 """Generate the previous month's HR reports locally on the first day of each month."""
 import argparse
+import logging
+import smtplib
 from datetime import date, datetime
+from email.message import EmailMessage
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.db import SessionLocal
 from app.reports import build_hr_pdf, build_hr_workbook
+from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 CAIRO = ZoneInfo("Africa/Cairo")
@@ -19,9 +25,42 @@ def previous_month_period(today: date) -> tuple[date, date]:
     return start, end
 
 
+def _email_reports(paths: tuple[Path, Path]) -> None:
+    if not settings.report_email_to:
+        logger.warning("Monthly reports saved locally; REPORT_EMAIL_TO is not configured.")
+        return
+    if not settings.report_smtp_host:
+        logger.warning("Monthly reports saved locally; REPORT_SMTP_HOST is not configured.")
+        return
+
+    message = EmailMessage()
+    message["Subject"] = "M.Y. Business Hotel HR - Monthly Report"
+    message["From"] = settings.report_smtp_username or settings.report_email_to
+    message["To"] = settings.report_email_to
+    message.set_content(
+        "The previous month's M.Y. Business Hotel HR reports are attached."
+    )
+    for path in paths:
+        message.add_attachment(
+            path.read_bytes(),
+            maintype="application",
+            subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet" if path.suffix == ".xlsx" else "pdf",
+            filename=path.name,
+        )
+
+    with smtplib.SMTP(settings.report_smtp_host, settings.report_smtp_port, timeout=30) as smtp:
+        smtp.ehlo()
+        if settings.report_smtp_starttls:
+            smtp.starttls()
+            smtp.ehlo()
+        if settings.report_smtp_username:
+            smtp.login(settings.report_smtp_username, settings.report_smtp_password)
+        smtp.send_message(message)
+
+
 def generate_previous_month_reports(now: datetime | None = None, force: bool = False) -> tuple[Path, Path] | None:
     local_now = (now or datetime.now(CAIRO)).astimezone(CAIRO)
-    if local_now.day != 1 and not force:
+    if not force and (local_now.day != 1 or local_now.hour < 9):
         return None
 
     start_date, end_date = previous_month_period(local_now.date())
@@ -40,6 +79,13 @@ def generate_previous_month_reports(now: datetime | None = None, force: bool = F
     pdf_temp.write_bytes(pdf)
     xlsx_temp.replace(xlsx_path)
     pdf_temp.replace(pdf_path)
+
+    try:
+        _email_reports((xlsx_path, pdf_path))
+    except Exception as exc:
+        # Never remove or invalidate local reports because email delivery failed.
+        logger.exception("Monthly report email failed: %s", exc)
+
     return xlsx_path, pdf_path
 
 
