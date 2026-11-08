@@ -47,14 +47,24 @@ def _write_sheet(workbook: Workbook, title: str, headers: list[str], rows: list[
             cell.alignment = Alignment(vertical="top", wrap_text=True)
 
 
-def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
+def build_hr_workbook(
+    db: Session,
+    start_date: date,
+    end_date: date,
+    employee_id: int | None = None,
+) -> bytes:
     if end_date < start_date:
         raise ValueError("End date must not precede start date.")
 
     workbook = Workbook()
     workbook.remove(workbook.active)
 
-    employees = db.scalars(select(Employee).order_by(Employee.code)).all()
+    employee_query = select(Employee).order_by(Employee.code)
+    if employee_id is not None:
+        employee_query = employee_query.where(Employee.id == employee_id)
+    employees = db.scalars(employee_query).all()
+    if employee_id is not None and not employees:
+        raise ValueError("Selected employee was not found.")
     _write_sheet(
         workbook,
         "Employees",
@@ -78,6 +88,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
     attendance = db.scalars(
         select(AttendanceDailyRecord)
         .where(*_filtered_date(AttendanceDailyRecord.work_date, start_date, end_date))
+        .where(AttendanceDailyRecord.employee_id == employee_id if employee_id is not None else True)
         .order_by(AttendanceDailyRecord.work_date, AttendanceDailyRecord.employee_id)
     ).all()
     employee_map = {employee.id: employee for employee in employees}
@@ -105,6 +116,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
     leave_records = db.scalars(
         select(LeaveRecord)
         .where(LeaveRecord.start_date <= end_date, LeaveRecord.end_date >= start_date)
+        .where(LeaveRecord.employee_id == employee_id if employee_id is not None else True)
         .order_by(LeaveRecord.start_date, LeaveRecord.employee_id)
     ).all()
     leave_types = {
@@ -134,6 +146,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
     balance_transactions = db.scalars(
         select(LeaveBalanceTransaction)
         .where(LeaveBalanceTransaction.created_at >= datetime.combine(start_date, time.min), LeaveBalanceTransaction.created_at < datetime.combine(end_date + timedelta(days=1), time.min))
+        .where(LeaveBalanceTransaction.employee_id == employee_id if employee_id is not None else True)
         .order_by(LeaveBalanceTransaction.created_at, LeaveBalanceTransaction.id)
     ).all()
     _write_sheet(
@@ -158,6 +171,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
     actions = db.scalars(
         select(StaffAction)
         .where(StaffAction.created_at >= datetime.combine(start_date, time.min), StaffAction.created_at < datetime.combine(end_date + timedelta(days=1), time.min))
+        .where(StaffAction.employee_id == employee_id if employee_id is not None else True)
         .order_by(StaffAction.created_at, StaffAction.id)
     ).all()
     _write_sheet(
@@ -185,6 +199,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
     advances = db.scalars(
         select(AdvanceRequest)
         .where(*_filtered_date(AdvanceRequest.request_date, start_date, end_date))
+        .where(AdvanceRequest.employee_id == employee_id if employee_id is not None else True)
         .order_by(AdvanceRequest.request_date, AdvanceRequest.employee_id)
     ).all()
     _write_sheet(
@@ -213,6 +228,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
         .join(PayrollItem, PayrollItem.payroll_run_id == PayrollRun.id)
         .join(Employee, Employee.id == PayrollItem.employee_id)
         .where(PayrollRun.period_start <= end_date, PayrollRun.period_end >= start_date)
+        .where(PayrollItem.employee_id == employee_id if employee_id is not None else True)
         .order_by(PayrollRun.period_start, Employee.code)
     ).all()
     payment_sums = dict(
@@ -316,7 +332,12 @@ def _pdf_cell(value, *, reshape_arabic: bool = True) -> str:
     return escape(text).replace("\n", "<br/>")
 
 
-def build_hr_pdf(db: Session, start_date: date, end_date: date) -> bytes:
+def build_hr_pdf(
+    db: Session,
+    start_date: date,
+    end_date: date,
+    employee_id: int | None = None,
+) -> bytes:
     """Build a printable, Arabic-capable PDF companion to the complete Excel workbook."""
     if end_date < start_date:
         raise ValueError("End date must not precede start date.")
@@ -329,7 +350,7 @@ def build_hr_pdf(db: Session, start_date: date, end_date: date) -> bytes:
     from reportlab.platypus import LongTable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, TableStyle
 
     font_name = _pdf_font_name()
-    workbook = load_workbook(BytesIO(build_hr_workbook(db, start_date, end_date)), read_only=True, data_only=True)
+    workbook = load_workbook(BytesIO(build_hr_workbook(db, start_date, end_date, employee_id=employee_id)), read_only=True, data_only=True)
     output = BytesIO()
     page_size = landscape(A3)
     document = SimpleDocTemplate(
