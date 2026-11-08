@@ -212,6 +212,43 @@ def login(client):
     assert response.status_code == 303
 
 
+
+def test_overtime_requires_explicit_approval(payroll_client):
+    client = payroll_client
+    login(client)
+    run_id = create_test_payroll_run(client)
+    with client.test_session_factory() as db:
+        item = db.scalar(select(PayrollItem).where(PayrollItem.payroll_run_id == run_id))
+        assert item is not None
+        item.overtime_hours = Decimal("4.00")
+        item.overtime_approved = False
+        db.commit()
+
+    response = client.post(
+        f"/payroll/items/{item.id}/update",
+        data={"csrf_token": csrf(client.get(f"/payroll/runs/{run_id}")),
+              "overtime_hours": "4.00"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.get(PayrollItem, item.id)
+        assert item.overtime_approved is False
+        assert item.overtime_amount == Decimal("0.00")
+
+    response = client.post(
+        f"/payroll/items/{item.id}/overtime-approve",
+        data={"csrf_token": csrf(client.get(f"/payroll/runs/{run_id}"))},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.get(PayrollItem, item.id)
+        assert item.overtime_approved is True
+        assert item.overtime_amount > Decimal("0.00")
+
 def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payroll_client):
     client = payroll_client
     assert client.get("/payroll").status_code == 401
