@@ -362,6 +362,26 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
         )
         .with_for_update()
     ).all()
+
+    # Payroll items are the approved snapshot. A late payment/status change
+    # after draft creation must never silently alter the amount consumed at close.
+    scheduled_by_employee: dict[int, Decimal] = {}
+    for installment in run_installments:
+        advance = db.get(AdvanceRequest, installment.advance_request_id)
+        if advance is not None:
+            scheduled_by_employee[advance.employee_id] = (
+                scheduled_by_employee.get(advance.employee_id, Decimal("0.00"))
+                + Decimal(installment.amount)
+            )
+    item_by_employee = {item.employee_id: item for item in items}
+    for employee_id, item in item_by_employee.items():
+        expected = money(Decimal(item.advance_deduction))
+        actual = money(scheduled_by_employee.get(employee_id, Decimal("0.00")))
+        if expected != actual:
+            raise ValueError(
+                f"Advance deductions changed after payroll draft for employee #{employee_id}; reopen/recreate payroll before closing."
+            )
+
     for installment in run_installments:
         installment.status = "applied"
         installment.applied_payroll_run_id = run.id
