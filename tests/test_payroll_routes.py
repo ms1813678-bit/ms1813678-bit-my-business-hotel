@@ -212,6 +212,18 @@ def login(client):
     assert response.status_code == 303
 
 
+def create_test_payroll_run(client):
+    """Create the approved-attendance payroll fixture used by route tests."""
+    token = csrf(client.get("/payroll"))
+    response = client.post(
+        "/payroll",
+        data={"csrf_token": token, "year": "2026", "month": "10"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    return int(response.headers["location"].rsplit("/", 1)[1])
+
+
 
 def test_overtime_requires_explicit_approval(payroll_client):
     client = payroll_client
