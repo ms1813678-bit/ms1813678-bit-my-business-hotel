@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base, get_db
 from app.main import app
 from app.models import (
+    AdvanceInstallment,
     AdvanceRequest,
     AdminAccount,
     AuditLog,
@@ -331,8 +332,6 @@ def valid_advance_date():
 
 
 def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client):
-    from app.advance_workflow import next_payroll_month
-
     client = leave_client
     login(client)
     token = csrf(client.get("/advances"))
@@ -371,7 +370,7 @@ def test_advance_window_cap_approval_payment_and_next_payroll_month(leave_client
         request_id = request.id
         assert request.status == "pending"
         assert request.salary_basis == Decimal("5000.00")
-        assert request.payroll_month == next_payroll_month(requested_on)
+        assert request.payroll_month == date(requested_on.year, requested_on.month, 1)
 
     approved = client.post(
         f"/advances/{request_id}/approve",
@@ -450,3 +449,83 @@ def test_advance_request_outside_window_and_unauthorized_access_are_rejected(lea
     assert "error=request" in response.headers["location"]
     with client.test_session_factory() as db:
         assert db.scalars(select(AdvanceRequest)).all() == []
+
+def test_balance_entry_requires_nonblank_reason(leave_client):
+    from app.leave_workflow import add_balance_entry
+
+    client = leave_client
+    with client.test_session_factory() as db:
+        leave_type = db.get(LeaveType, client.test_annual_id)
+        with pytest.raises(ValueError, match="reason is required"):
+            add_balance_entry(
+                db,
+                employee_id=client.test_employee_id,
+                leave_type=leave_type,
+                transaction_type="opening",
+                days_delta=Decimal("5"),
+                reason="   ",
+                actor="leave-admin",
+            )
+
+def test_installment_advance_exceeds_regular_cap_and_uses_request_month_schedule(leave_client):
+    client = leave_client
+    login(client)
+    token = csrf(client.get("/advances"))
+    requested_on = valid_advance_date()
+
+    created = client.post(
+        "/advances",
+        data={
+            "csrf_token": token,
+            "employee_id": client.test_employee_id,
+            "request_date": requested_on.isoformat(),
+            "amount": "6000.00",
+            "advance_type": "installment",
+            "reason": "Synthetic large advance with installments",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+    assert created.headers["location"] == "/advances"
+
+    with client.test_session_factory() as db:
+        request = db.scalar(select(AdvanceRequest))
+        request_id = request.id
+        assert request.advance_type == "installment"
+        assert request.payroll_month == date(2026, 11, 1)
+
+    approved = client.post(
+        f"/advances/{request_id}/approve",
+        data={"csrf_token": token, "installment_count": "6"},
+        follow_redirects=False,
+    )
+    assert approved.status_code == 303
+
+    paid = client.post(
+        f"/advances/{request_id}/paid",
+        data={"csrf_token": token},
+        follow_redirects=False,
+    )
+    assert paid.status_code == 303
+
+    with client.test_session_factory() as db:
+        request = db.get(AdvanceRequest, request_id)
+        schedule = db.scalars(
+            select(AdvanceInstallment)
+            .where(AdvanceInstallment.advance_request_id == request_id)
+            .order_by(AdvanceInstallment.installment_number)
+        ).all()
+        assert request.status == "paid"
+        assert len(schedule) == 6
+        assert [item.payroll_month for item in schedule] == [
+            date(2026, 11, 1), date(2026, 12, 1),
+            date(2027, 1, 1), date(2027, 2, 1),
+            date(2027, 3, 1), date(2027, 4, 1),
+        ]
+        assert [item.scheduled_payment_date for item in schedule] == [
+            date(2026, 12, 5), date(2027, 1, 5), date(2027, 2, 5),
+            date(2027, 3, 5), date(2027, 4, 5), date(2027, 5, 5),
+        ]
+        assert sum((Decimal(item.amount) for item in schedule), Decimal("0.00")) == Decimal("6000.00")
+        assert all(Decimal(item.amount) == Decimal("1000.00") for item in schedule)
+

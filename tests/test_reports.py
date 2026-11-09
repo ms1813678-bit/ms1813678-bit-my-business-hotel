@@ -56,6 +56,34 @@ def test_hr_report_contains_all_expected_sheets():
         engine.dispose()
 
 
+def test_hr_report_can_filter_to_one_employee():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine) as db:
+            department = Department(name="Synthetic Filter Department", active=True)
+            db.add(department)
+            db.flush()
+            first = Employee(code="MY-FILTER-0001", full_name="First Report Employee",
+                department_id=department.id, position="Reception", hire_date=date(2026, 1, 1),
+                status="active", basic_salary=Decimal("7000.00"), daily_hours=Decimal("8"))
+            second = Employee(code="MY-FILTER-0002", full_name="Second Report Employee",
+                department_id=department.id, position="Reception", hire_date=date(2026, 1, 1),
+                status="active", basic_salary=Decimal("8000.00"), daily_hours=Decimal("8"))
+            db.add_all([first, second])
+            db.commit()
+            content = build_hr_workbook(db, date(2026, 10, 1), date(2026, 10, 31), employee_id=first.id)
+            workbook = load_workbook(BytesIO(content), read_only=False, data_only=True)
+            try:
+                assert workbook["Employees"].max_row == 2
+                assert workbook["Employees"].cell(2, 1).value == "MY-FILTER-0001"
+            finally:
+                workbook.close()
+    finally:
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
 def test_hr_report_rejects_reversed_date_range():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)

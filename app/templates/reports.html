@@ -15,12 +15,20 @@
   </header>
   <section class="notice">
     <h2>تصدير تقرير Excel شامل / Export workbook</h2>
-    <p>اختر الفترة المطلوبة. سيحتوي الملف على أوراق منفصلة للموظفين، والحضور، والإجازات، وحركات الأرصدة، والجزاءات والمكافآت، والسلف، والرواتب، ومقارنة الأقسام.</p>
+    <p>اختر الفترة والموظف المطلوب يدويًا. سيحتوي الملف على أوراق منفصلة للموظفين، والحضور، والإجازات، وحركات الأرصدة، والجزاءات والمكافآت، والسلف، والرواتب، ومقارنة الأقسام.</p>
     {% if error %}<p class="error">تعذر إنشاء التقرير. راجع التاريخين وحاول مرة أخرى.</p>{% endif %}
     <form method="get" action="/reports/export.xlsx">
       <div class="form-grid">
         <label>من تاريخ / Start date<input type="date" name="start_date" value="{{ start_date }}" required></label>
         <label>إلى تاريخ / End date<input type="date" name="end_date" value="{{ end_date }}" required></label>
+        <label>الموظف / Employee
+          <select name="employee_id">
+            <option value="">كل الموظفين / All employees</option>
+            {% for employee in employees %}
+            <option value="{{ employee.id }}" {% if request.query_params.get("employee_id") == (employee.id|string) %}selected{% endif %}>{{ employee.code }} — {{ employee.full_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
       </div>
       <button type="submit">تنزيل ملف Excel / Download Excel</button>
       <button type="submit" formaction="/reports/export.pdf">تنزيل تقرير PDF / Download PDF</button>
@@ -47,7 +55,7 @@
       <li>مسيرات الرواتب وحالة الصرف والمبالغ المدفوعة والمتبقية.</li>
       <li>عدد الموظفين النشطين وإجمالي رواتبهم الأساسية حسب القسم.</li>
     </ul>
-    <p class="muted">التقرير قراءة فقط ولا يغيّر أي بيانات داخل النظام. التقرير بصيغة Excel يحتوي جميع الحقول، ونسخة PDF مناسبة للطباعة. التقارير الدورية التلقائية ما زالت ضمن الأعمال المتبقية.</p>
+    <p class="muted">التقرير قراءة فقط ولا يغيّر أي بيانات داخل النظام. التقرير بصيغة Excel يحتوي جميع الحقول، ونسخة PDF مناسبة للطباعة. التقرير يُنشأ يدويًا حسب الفترة والموظف المحددين ولا يتم تشغيله تلقائيًا.</p>
   </section>
 </main>
 </body>

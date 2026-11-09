@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base, get_db
 from app.main import app
 from app.models import (
+    AdvanceInstallment,
     AdvanceRequest,
     AdminAccount,
     AttendanceDailyRecord,
@@ -129,6 +130,17 @@ def payroll_client(monkeypatch):
             paid_by="payroll-admin",
             paid_at=datetime.utcnow(),
         ))
+        db.flush()
+        advance = db.scalar(select(AdvanceRequest).where(AdvanceRequest.employee_id == employee_id))
+        db.add(AdvanceInstallment(
+            advance_request_id=advance.id,
+            installment_number=1,
+            amount=Decimal("500.00"),
+            payroll_month=period_start,
+            scheduled_payment_date=date(2026, 11, 5),
+            status="scheduled",
+            created_at=datetime.utcnow(),
+        ))
         db.add_all([
             StaffAction(
                 employee_id=employee_id,
@@ -199,6 +211,56 @@ def login(client):
     )
     assert response.status_code == 303
 
+
+def create_test_payroll_run(client):
+    """Create the approved-attendance payroll fixture used by route tests."""
+    token = csrf(client.get("/payroll"))
+    response = client.post(
+        "/payroll",
+        data={"csrf_token": token, "year": "2026", "month": "10"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    return int(response.headers["location"].rsplit("/", 1)[1])
+
+
+
+def test_overtime_requires_explicit_approval(payroll_client):
+    client = payroll_client
+    login(client)
+    run_id = create_test_payroll_run(client)
+    with client.test_session_factory() as db:
+        item = db.scalar(select(PayrollItem).where(PayrollItem.payroll_run_id == run_id))
+        assert item is not None
+        item_id = item.id
+        item.overtime_hours = Decimal("4.00")
+        item.overtime_approved = False
+        db.commit()
+
+    response = client.post(
+        f"/payroll/items/{item_id}/update",
+        data={"csrf_token": csrf(client.get(f"/payroll/runs/{run_id}")),
+              "overtime_hours": "4.00"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.get(PayrollItem, item_id)
+        assert item.overtime_approved is False
+        assert item.overtime_amount == Decimal("0.00")
+
+    response = client.post(
+        f"/payroll/items/{item_id}/overtime-approve",
+        data={"csrf_token": csrf(client.get(f"/payroll/runs/{run_id}"))},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.get(PayrollItem, item_id)
+        assert item.overtime_approved is True
+        assert item.overtime_amount > Decimal("0.00")
 
 def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payroll_client):
     client = payroll_client
@@ -288,8 +350,21 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
 
     with client.test_session_factory() as db:
         item = db.get(PayrollItem, item_id)
-        assert item.overtime_amount == Decimal("75.00")
+        assert item.overtime_amount == Decimal("0.00")
         assert item.absence_deduction == Decimal("290.32")
+        assert item.net_pay == Decimal("8365.30")
+
+    approved_overtime = client.post(
+        f"/payroll/items/{item_id}/overtime-approve",
+        data={"csrf_token": token},
+        follow_redirects=False,
+    )
+    assert approved_overtime.status_code == 303
+
+    with client.test_session_factory() as db:
+        item = db.get(PayrollItem, item_id)
+        assert item.overtime_approved is True
+        assert item.overtime_amount == Decimal("75.00")
         assert item.net_pay == Decimal("8440.30")
 
     approved = client.post(
@@ -312,6 +387,13 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         assert run.status == "closed"
         assert advances[0].status == "deducted"
         assert advances[0].payroll_run_id == run_id
+        installment = db.scalar(
+            select(AdvanceInstallment).where(
+                AdvanceInstallment.advance_request_id == advances[0].id
+            )
+        )
+        assert installment.status == "applied"
+        assert installment.applied_payroll_run_id == run_id
         assert advances[1].status == "paid"
         assert advances[1].payroll_run_id is None
         assert all(action.payroll_run_id == run_id for action in actions[:2])
@@ -371,6 +453,12 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         follow_redirects=False,
     )
     assert reopened.status_code == 303
+
+    with client.test_session_factory() as db:
+        installment = db.scalar(select(AdvanceInstallment).where(AdvanceInstallment.advance_request_id == advances[0].id))
+        assert installment.status == "reversed"
+        assert installment.applied_payroll_run_id is None
+        assert db.get(AdvanceRequest, advances[0].id).status == "paid"
 
     cannot_edit_paid = client.post(
         f"/payroll/items/{item_id}/update",

@@ -105,8 +105,8 @@ def test_restore_requires_explicit_phrase_and_reason(backup_client):
         data={
             "csrf_token": token,
             "backup_id": "1",
-            "confirm_text": "yes",
-            "reason": "",
+            "confirm_text": "WRONG",
+            "reason": "Synthetic restore validation",
         },
         follow_redirects=False,
     )

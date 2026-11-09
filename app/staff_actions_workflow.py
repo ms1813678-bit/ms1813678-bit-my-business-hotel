@@ -48,10 +48,30 @@ def create_staff_action(
     if category == "financial_reward" and not is_financial:
         raise ValueError("A financial reward must have a financial amount.")
     if is_financial:
-        if amount is None or amount <= 0 or payroll_month is None:
+        if amount is None or payroll_month is None:
             raise ValueError("Financial actions need a positive amount and payroll month.")
+        amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+        if amount <= 0:
+            raise ValueError("Financial action amount must be positive.")
         if payroll_month.day != 1:
             raise ValueError("Payroll month must be entered as the first day of the month.")
+        duplicate = db.scalar(
+            select(StaffAction.id).where(
+                StaffAction.employee_id == employee_id,
+                StaffAction.kind == kind,
+                StaffAction.category == category,
+                StaffAction.title == title.strip(),
+                StaffAction.is_financial.is_(True),
+                StaffAction.amount == amount,
+                StaffAction.payroll_month == payroll_month,
+                StaffAction.reason == reason.strip(),
+                StaffAction.status.in_(("draft", "approved")),
+            ).limit(1)
+        )
+        if duplicate is not None:
+            raise ValueError(
+                "An identical active financial action already exists for this employee and payroll month."
+            )
     elif amount is not None or payroll_month is not None:
         raise ValueError("Non-financial actions must not include an amount or payroll month.")
 
@@ -84,6 +104,28 @@ def create_staff_action(
 def approve_staff_action(db: Session, item: StaffAction, actor: str) -> None:
     if item.status != "draft":
         raise ValueError("Only draft actions can be approved.")
+    employee = db.scalar(
+        select(Employee).where(Employee.id == item.employee_id).with_for_update()
+    )
+    if employee is None or employee.status != "active":
+        raise ValueError("The employee is not active.")
+    if item.is_financial:
+        duplicate = db.scalar(
+            select(StaffAction.id).where(
+                StaffAction.id != item.id,
+                StaffAction.employee_id == item.employee_id,
+                StaffAction.kind == item.kind,
+                StaffAction.category == item.category,
+                StaffAction.title == item.title,
+                StaffAction.is_financial.is_(True),
+                StaffAction.amount == item.amount,
+                StaffAction.payroll_month == item.payroll_month,
+                StaffAction.reason == item.reason,
+                StaffAction.status.in_(("draft", "approved")),
+            ).limit(1)
+        )
+        if duplicate is not None:
+            raise ValueError("An identical active financial action already exists.")
     item.status = "approved"
     item.approved_by = actor
     item.approved_at = datetime.utcnow()

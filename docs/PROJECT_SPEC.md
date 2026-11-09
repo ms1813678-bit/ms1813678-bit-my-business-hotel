@@ -46,6 +46,14 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Employee requests for personal-data changes are recorded; HR applies changes with old/new history.
 - No employee master Excel file currently exists; initial records are entered manually. Provide an import template later.
 
+## Security roster rules
+- Security coverage is validated by day before attendance can be finalized.
+- Never allow fewer than 2 active guards on a day, never allow a 1-guard day, and never allow an all-off day.
+- With exactly 2 active guards, use 12-hour coverage; with 3 or more active guards, use 8-hour coverage.
+- Shift start/end times remain configurable; the system must not invent times.
+- A day must have continuous coverage with no gaps and no overlapping assignments.
+- Overnight shifts and midnight boundaries must be handled explicitly; ambiguous patterns are sent to HR review rather than guessed.
+
 ## Attendance imports and review
 - Monthly inputs: the attendance program's one-sheet report is the primary source; the ZKTeco LX50 fingerprint export supplements missing days/events and is checked across the full month. Preserve the user's source priority: program report first, fingerprint report second. The program report defines the monthly period; when the fingerprint export contains only dates with punches, align its contained date range to that same program month rather than creating a shorter separate month.
 - Preserve the exact original uploaded workbooks, SHA-256 hashes, raw event values, employee identifiers, sheet names, and row positions; authorized HR users can retrieve the original source file later.
@@ -102,11 +110,12 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - No transport or meal allowances.
 
 ## Advances
-- Requests accepted from the 15th through the 22nd of each month.
-- Maximum outstanding advances after a new advance: 25% of basic salary.
-- New advance is allowed only if total outstanding after it remains within the 25% limit.
-- Entire advance is deducted from the following month's salary, not installments.
-- Show latest advance, date, total, deducted, outstanding, and available limit.
+- Requests are accepted from the 15th through the 22nd of the current month; future-dated and prior-month requests are rejected.
+- Regular monthly advances alone are subject to the 25% of basic salary cap for the relevant accounting month. Pending, approved, and paid regular advances for that same accounting month reserve the cap until deductions are applied.
+- Installment/large advances are a separate type and are not subject to the regular monthly 25% cap. The administrator approves a repayment schedule of 1–36 installments; installment amounts are distributed to cents and sum exactly to the original advance.
+- The first installment belongs to the request month. Each installment is deducted in its accounting payroll month and paid on the 5th of the following month. Example: a request on 19 October for 6,000 over 6 installments is accounted for October–March and paid on 5 November–5 April.
+- Payroll consumes only the installment due for its payroll month, not the full original installment advance. Reopening payroll reverses the installment application without losing its schedule.
+- Show latest advance, date, type, original amount, deducted, outstanding, and regular-advance available limit separately.
 
 ## Sanctions and rewards
 - Sanctions: verbal notice, first warning, final warning, salary deduction, suspension.
@@ -115,11 +124,15 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Rewards: financial reward, certificate, commendation, promotion recommendation, and configurable types. Financial amount is manual. Preserve history.
 
 ## Reports and dashboard
-- Daily, weekly, monthly, and custom-range reports with filters.
+- Reports are generated **manually by the administrator from the Reports module**; there is no automatic monthly report job in the initial release.
+- The administrator selects the report type and an explicit start date and end date.
+- The administrator can select **all employees** or **one specific employee**.
+- Employee selection must be applied consistently to every report type where an employee filter is meaningful; department/branch filters may be offered where supported.
+- Available report periods include daily, weekly, monthly, and arbitrary custom ranges through the same manual date-range controls.
 - Excel and PDF exports.
 - Reports: employee, attendance, leave, sanctions/rewards, payroll, advances, and department comparisons.
-- Prepare previous-month report on day 1 at 09:00 Cairo time and save locally.
-- Intended email recipient: mohamedhassanien398@gmail.com. Email requires internet and configured credentials; never claim delivery unless confirmed.
+- Generated reports are saved locally for download/archival.
+- Intended email recipient is not part of the automatic report workflow; if a future email action is added, it must require an explicit administrator action and configured credentials. Never claim delivery unless confirmed.
 - Dashboard shows counts, attendance, incomplete records, leaves, payroll, alerts, department rankings, and previous-month comparisons.
 - Never present unresolved absence as final.
 

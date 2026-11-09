@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
+    AdvanceInstallment,
     AdvanceRequest,
     AttendanceDailyRecord,
     AttendanceMonth,
@@ -110,7 +111,11 @@ def _attendance_lateness(
 
 def recompute_payroll_item(item: PayrollItem, run: PayrollRun) -> None:
     overtime_rate = hourly_rate(Decimal(item.salary_basis), Decimal(item.daily_hours))
-    item.overtime_amount = money(overtime_rate * Decimal(item.overtime_hours))
+    item.overtime_amount = (
+        money(overtime_rate * Decimal(item.overtime_hours))
+        if item.overtime_approved
+        else Decimal("0.00")
+    )
     item.absence_deduction = absence_deduction(
         Decimal(item.salary_basis),
         run.period_start.year,
@@ -184,17 +189,21 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
     db.add(run)
     db.flush()
 
-    advances = db.scalars(
-        select(AdvanceRequest).where(
-            AdvanceRequest.payroll_month == start,
+    installments = db.execute(
+        select(AdvanceInstallment, AdvanceRequest)
+        .join(AdvanceRequest, AdvanceRequest.id == AdvanceInstallment.advance_request_id)
+        .where(
+            AdvanceInstallment.payroll_month == start,
+            AdvanceInstallment.status.in_(("scheduled", "reversed")),
+            AdvanceInstallment.applied_payroll_run_id.is_(None),
             AdvanceRequest.status == "paid",
-            AdvanceRequest.payroll_run_id.is_(None),
         )
+        .with_for_update()
     ).all()
     advances_by_employee: dict[int, Decimal] = {}
-    for item in advances:
-        advances_by_employee[item.employee_id] = (
-            advances_by_employee.get(item.employee_id, Decimal("0.00")) + Decimal(item.amount)
+    for installment, advance in installments:
+        advances_by_employee[advance.employee_id] = (
+            advances_by_employee.get(advance.employee_id, Decimal("0.00")) + Decimal(installment.amount)
         )
 
     staff_actions = db.scalars(
@@ -259,9 +268,8 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
     # Reserve only the source records actually included in this run snapshot.
     # A later-paid advance or later-approved staff action must not be consumed
     # when this payroll is closed if it was absent from the payroll item.
-    for advance in advances:
-        if advance.employee_id in included_employee_ids:
-            advance.payroll_run_id = run.id
+    # Installments are not marked applied while a payroll run is still draft.
+    # Finalization owns the idempotent application boundary.
     for action in staff_actions:
         if action.employee_id in included_employee_ids:
             action.payroll_run_id = run.id
@@ -272,6 +280,24 @@ def create_payroll_run(db: Session, *, year: int, month: int, actor: str) -> Pay
         reason="Created after approved attendance for the exact month.",
     )
     return run
+
+
+def approve_overtime(db: Session, item: PayrollItem, actor: str) -> None:
+    run = db.get(PayrollRun, item.payroll_run_id)
+    if run is None or run.status not in {"draft", "reopened"}:
+        raise ValueError("Overtime can be approved only while payroll is draft or reopened.")
+    hours = Decimal(item.overtime_hours or 0)
+    if hours <= 0:
+        raise ValueError("Positive overtime hours are required before approval.")
+    item.overtime_approved = True
+    item.overtime_approved_by = actor
+    item.overtime_approved_at = datetime.utcnow()
+    recompute_payroll_item(item, run)
+    _audit(
+        db, actor=actor, action="overtime_approved", entity_type="payroll_item",
+        entity_id=str(item.id), old_value="false", new_value="true",
+        reason="HR administrator approved overtime.",
+    )
 
 
 def update_payroll_item(
@@ -301,6 +327,14 @@ def update_payroll_item(
         old[key] = str(getattr(item, key))
         new[key] = str(normalized)
         setattr(item, key, normalized)
+    if "overtime_hours" in values:
+        item.overtime_approved = False
+        item.overtime_approved_by = None
+        item.overtime_approved_at = None
+    if item.overtime_hours <= 0:
+        item.overtime_approved = False
+        item.overtime_approved_by = None
+        item.overtime_approved_at = None
     recompute_payroll_item(item, run)
     _audit(
         db, actor=actor, action="payroll_item_updated", entity_type="payroll_item",
@@ -346,16 +380,63 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
     ).all()
     employee_ids = {item.employee_id for item in items}
     now = datetime.utcnow()
-    for advance in db.scalars(
-        select(AdvanceRequest).where(
-            AdvanceRequest.employee_id.in_(employee_ids or {-1}),
-            AdvanceRequest.payroll_month == run.period_start,
+    run_installments = db.scalars(
+        select(AdvanceInstallment)
+        .join(AdvanceRequest, AdvanceRequest.id == AdvanceInstallment.advance_request_id)
+        .where(
+            AdvanceInstallment.payroll_month == run.period_start,
+            AdvanceInstallment.status.in_(("scheduled", "reversed")),
+            AdvanceInstallment.applied_payroll_run_id.is_(None),
             AdvanceRequest.status == "paid",
-            AdvanceRequest.payroll_run_id == run.id,
+            AdvanceRequest.employee_id.in_(employee_ids or {-1}),
         )
+        .with_for_update()
+    ).all()
+
+    # Payroll items are the approved snapshot. A late payment/status change
+    # after draft creation must never silently alter the amount consumed at close.
+    scheduled_by_employee: dict[int, Decimal] = {}
+    for installment in run_installments:
+        advance = db.get(AdvanceRequest, installment.advance_request_id)
+        if advance is not None:
+            scheduled_by_employee[advance.employee_id] = (
+                scheduled_by_employee.get(advance.employee_id, Decimal("0.00"))
+                + Decimal(installment.amount)
+            )
+    item_by_employee = {item.employee_id: item for item in items}
+    for employee_id, item in item_by_employee.items():
+        expected = money(Decimal(item.advance_deduction))
+        actual = money(scheduled_by_employee.get(employee_id, Decimal("0.00")))
+        if expected != actual:
+            raise ValueError(
+                f"Advance deductions changed after payroll draft for employee #{employee_id}; reopen/recreate payroll before closing."
+            )
+
+    for installment in run_installments:
+        installment.status = "applied"
+        installment.applied_payroll_run_id = run.id
+        installment.applied_at = now
+        installment.reversal_reference = None
+
+    # Some test/runtime sessions intentionally disable autoflush. Flush the
+    # installment status changes before counting remaining scheduled rows so
+    # a single-installment advance can transition from paid to deducted.
+    db.flush()
+
+    advance_ids = {item.advance_request_id for item in run_installments}
+    for advance in db.scalars(
+        select(AdvanceRequest).where(AdvanceRequest.id.in_(advance_ids or {-1}))
     ).all():
-        advance.status = "deducted"
-        advance.deducted_at = now
+        remaining = db.scalar(
+            select(func.count(AdvanceInstallment.id)).where(
+                AdvanceInstallment.advance_request_id == advance.id,
+                AdvanceInstallment.status == "scheduled",
+            )
+        ) or 0
+        if remaining == 0:
+            advance.status = "deducted"
+            advance.deducted_at = now
+            advance.payroll_run_id = run.id
     for action in db.scalars(
         select(StaffAction).where(
             StaffAction.employee_id.in_(employee_ids or {-1}),
@@ -377,11 +458,33 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
     )
 
 
+def _reverse_advance_installments_for_run(db: Session, run: PayrollRun, actor: str) -> None:
+    now = datetime.utcnow()
+    applied = db.scalars(
+        select(AdvanceInstallment)
+        .where(AdvanceInstallment.applied_payroll_run_id == run.id, AdvanceInstallment.status == "applied")
+        .with_for_update()
+    ).all()
+    for installment in applied:
+        installment.status = "reversed"
+        installment.reversal_reference = f"payroll-run:{run.id}:reopened-by:{actor}"
+        installment.reversed_at = now
+        installment.applied_payroll_run_id = None
+        installment.applied_at = None
+    for advance_id in {item.advance_request_id for item in applied}:
+        advance = db.get(AdvanceRequest, advance_id)
+        if advance is not None and advance.status == "deducted":
+            advance.status = "paid"
+            advance.deducted_at = None
+            advance.payroll_run_id = None
+
+
 def reopen_payroll_run(db: Session, run: PayrollRun, actor: str, reason: str) -> None:
     if run.status != "closed":
         raise ValueError("Only a closed payroll run can be reopened.")
     if not reason.strip():
         raise ValueError("A reason is required to reopen payroll.")
+    _reverse_advance_installments_for_run(db, run, actor)
     run.status = "reopened"
     run.reopened_by = actor
     run.reopened_at = datetime.utcnow()

@@ -25,6 +25,7 @@ from app.dependencies import get_current_admin
 from app.employee_codes import allocate_employee_code
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave, leave_balance
 from app.advance_workflow import approve_advance, create_advance, mark_advance_paid, reject_advance
+from app.models import AdvanceInstallment
 from app.staff_actions_workflow import approve_staff_action, cancel_staff_action, create_staff_action, record_employee_acknowledgement
 from app.reports import build_hr_pdf, build_hr_workbook
 from app.backup_workflow import create_backup, get_backup_root, restore_backup, save_backup_root
@@ -33,6 +34,7 @@ from app.payroll_workflow import (
     approve_payroll_run,
     close_payroll_run,
     create_payroll_run,
+    approve_overtime,
     payment_totals,
     reopen_payroll_run,
     update_payroll_item,
@@ -1082,6 +1084,7 @@ def leave_page(request: Request, admin: AdminAccount = Depends(get_current_admin
                 "transactions": transactions,
                 "csrf_token": get_csrf_token(request),
                 "error": request.query_params.get("error"),
+            "employees": employees,
             },
         )
 
@@ -1266,15 +1269,25 @@ def advances_page(request: Request, admin: AdminAccount = Depends(get_current_ad
         advance_summary = {}
         for employee in employees:
             employee_requests = [item for item in requests if item.employee_id == employee.id]
-            outstanding = sum(
-                (Decimal(item.amount) for item in employee_requests
-                 if item.status in {"pending", "approved", "paid"}),
-                Decimal("0.00"),
-            )
-            deducted = sum(
-                (Decimal(item.amount) for item in employee_requests if item.status == "deducted"),
-                Decimal("0.00"),
-            )
+            regular_outstanding = Decimal("0.00")
+            installment_outstanding = Decimal("0.00")
+            deducted = Decimal("0.00")
+            for item in employee_requests:
+                applied = db.scalar(
+                    select(func.coalesce(func.sum(AdvanceInstallment.amount), 0)).where(
+                        AdvanceInstallment.advance_request_id == item.id,
+                        AdvanceInstallment.status == "applied",
+                    )
+                ) or Decimal("0.00")
+                if item.status in {"pending", "approved", "paid"}:
+                    remaining = Decimal(item.amount) - Decimal(applied)
+                else:
+                    remaining = Decimal("0.00")
+                if item.advance_type == "regular":
+                    regular_outstanding += max(Decimal("0.00"), remaining)
+                else:
+                    installment_outstanding += max(Decimal("0.00"), remaining)
+                deducted += Decimal(applied)
             total = sum(
                 (Decimal(item.amount) for item in employee_requests),
                 Decimal("0.00"),
@@ -1284,9 +1297,11 @@ def advances_page(request: Request, admin: AdminAccount = Depends(get_current_ad
                 "latest": employee_requests[0] if employee_requests else None,
                 "total": total,
                 "deducted": deducted,
-                "outstanding": outstanding,
+                "outstanding": regular_outstanding + installment_outstanding,
+                "regular_outstanding": regular_outstanding,
+                "installment_outstanding": installment_outstanding,
                 "limit": cap,
-                "available": max(Decimal("0.00"), cap - outstanding),
+                "available": max(Decimal("0.00"), cap - regular_outstanding),
             }
         return templates.TemplateResponse(
             request=request,
@@ -1309,6 +1324,7 @@ def create_advance_request(
     employee_id: int = Form(...),
     request_date: date = Form(...),
     amount: Decimal = Form(...),
+    advance_type: str = Form("regular"),
     reason: str = Form(...),
     admin: AdminAccount = Depends(get_current_admin),
 ):
@@ -1320,6 +1336,7 @@ def create_advance_request(
                 request_date=request_date,
                 amount=amount,
                 reason=reason,
+                advance_type=advance_type,
                 actor=admin.username,
             )
     except (ValueError, SQLAlchemyError):
@@ -1330,6 +1347,7 @@ def create_advance_request(
 @app.post("/advances/{request_id}/approve", dependencies=[Depends(csrf_protect)])
 def approve_advance_request(
     request_id: int,
+    installment_count: int = Form(1),
     admin: AdminAccount = Depends(get_current_admin),
 ):
     try:
@@ -1341,7 +1359,7 @@ def approve_advance_request(
             )
             if request is None:
                 return RedirectResponse("/advances?error=record", status_code=303)
-            approve_advance(db, request, admin.username)
+            approve_advance(db, request, admin.username, installment_count=installment_count)
     except (ValueError, SQLAlchemyError):
         return RedirectResponse("/advances?error=approve", status_code=303)
     return RedirectResponse("/advances", status_code=303)
@@ -1708,6 +1726,26 @@ def update_payroll_item_route(
     return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
 
 
+@app.post("/payroll/items/{item_id}/overtime-approve", dependencies=[Depends(csrf_protect)])
+def approve_overtime_route(
+    item_id: int,
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    run_id = None
+    try:
+        with SessionLocal.begin() as db:
+            item = db.scalar(
+                select(PayrollItem).where(PayrollItem.id == item_id).with_for_update()
+            )
+            if item is None:
+                return RedirectResponse("/payroll?error=item", status_code=303)
+            run_id = item.payroll_run_id
+            approve_overtime(db, item, admin.username)
+    except (ValueError, SQLAlchemyError):
+        return RedirectResponse(f"/payroll/runs/{run_id}?error=overtime", status_code=303)
+    return RedirectResponse(f"/payroll/runs/{run_id}", status_code=303)
+
+
 @app.post("/payroll/items/{item_id}/payments", dependencies=[Depends(csrf_protect)])
 def add_payroll_payment_route(
     item_id: int,
@@ -1747,6 +1785,8 @@ def reports_page(
 ):
     today = date.today()
     default_start = date(today.year, today.month, 1)
+    with SessionLocal() as db:
+        employees = db.scalars(select(Employee).where(Employee.status == "active").order_by(Employee.code)).all()
     return templates.TemplateResponse(
         request=request,
         name="reports.html",
@@ -1762,11 +1802,12 @@ def reports_page(
 def export_hr_reports(
     start_date: date,
     end_date: date,
+    employee_id: int | None = None,
     admin: AdminAccount = Depends(get_current_admin),
 ):
     try:
         with SessionLocal() as db:
-            content = build_hr_workbook(db, start_date, end_date)
+            content = build_hr_workbook(db, start_date, end_date, employee_id=employee_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except SQLAlchemyError:
@@ -1785,11 +1826,12 @@ def export_hr_reports(
 def export_hr_reports_pdf(
     start_date: date,
     end_date: date,
+    employee_id: int | None = None,
     admin: AdminAccount = Depends(get_current_admin),
 ):
     try:
         with SessionLocal() as db:
-            content = build_hr_pdf(db, start_date, end_date)
+            content = build_hr_pdf(db, start_date, end_date, employee_id=employee_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:

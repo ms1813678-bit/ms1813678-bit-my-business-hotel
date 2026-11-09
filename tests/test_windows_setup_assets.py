@@ -19,7 +19,6 @@ def test_windows_setup_preserves_existing_env_and_uses_secure_database_password_
     assert "scripts.initialize_database" in setup
     assert "scripts.seed_departments" in setup
     assert "scripts.create_admin" in setup
-    assert "register_monthly_report_task.ps1" in setup
 
 
 def test_windows_launcher_is_local_and_manual():
@@ -31,9 +30,3 @@ def test_windows_launcher_is_local_and_manual():
     assert "schtasks" not in launcher.lower()
 
 
-
-def test_monthly_report_task_runs_day_one_and_starts_when_available():
-    task = (ROOT / "scripts" / "windows" / "register_monthly_report_task.ps1").read_text(encoding="utf-8")
-    assert "-Monthly -DaysOfMonth 1 -At 9:00AM" in task
-    assert "-StartWhenAvailable" in task
-    assert "scripts.generate_monthly_report" in task

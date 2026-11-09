@@ -243,6 +243,133 @@ def persist_daily_attendance_proposal(
 
 
 
+def validate_security_roster(db, *, period_start: date, period_end: date) -> None:
+    """Validate daily Security coverage before attendance reconciliation."""
+    security_department = db.scalar(
+        select(Department).where(
+            Department.name == "Security",
+            Department.active.is_(True),
+        )
+    )
+    if security_department is None:
+        raise ValueError("security_department_not_configured")
+
+    employees = db.scalars(select(Employee).order_by(Employee.id)).all()
+    service_rows = db.scalars(
+        select(EmployeeServicePeriod).order_by(
+            EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date
+        )
+    ).all()
+    service_by_employee = {}
+    for row in service_rows:
+        service_by_employee.setdefault(row.employee_id, []).append(row)
+
+    changes = db.scalars(
+        select(EmployeeChange).where(
+            EmployeeChange.field_name == "department_id"
+        ).order_by(EmployeeChange.effective_date.desc(), EmployeeChange.id.desc())
+    ).all()
+    changes_by_employee = {}
+    for row in changes:
+        changes_by_employee.setdefault(row.employee_id, []).append(row)
+
+    def department_on(employee, work_date):
+        department_id = employee.department_id
+        for change in changes_by_employee.get(employee.id, []):
+            if change.effective_date > work_date:
+                continue
+            try:
+                department_id = int(change.new_value)
+            except (TypeError, ValueError):
+                raise ValueError("employee_department_history_is_inconsistent")
+            # Changes are ordered newest-first; the first effective change is
+            # authoritative for this work date.
+            break
+        return department_id
+
+    patterns = {
+        item.id: item
+        for item in db.scalars(select(ShiftPattern).where(ShiftPattern.active.is_(True))).all()
+    }
+    assignments = db.scalars(
+        select(SecurityShiftAssignment).where(
+            SecurityShiftAssignment.work_date >= period_start,
+            SecurityShiftAssignment.work_date <= period_end,
+        )
+    ).all()
+    by_day = {}
+    for assignment in assignments:
+        by_day.setdefault(assignment.work_date, []).append(assignment)
+
+    current = period_start
+    while current <= period_end:
+        active_guards = [
+            employee for employee in employees
+            if department_on(employee, current) == security_department.id
+            and any(
+                period.start_date <= current
+                and (period.end_date is None or period.end_date >= current)
+                for period in service_by_employee.get(employee.id, [])
+            )
+        ]
+        if len(active_guards) < 2:
+            raise ValueError(f"security_roster_requires_at_least_two_guards:{current.isoformat()}")
+
+        rows = by_day.get(current, [])
+        active_ids = {employee.id for employee in active_guards}
+        if len({row.employee_id for row in rows}) != len(rows):
+            raise ValueError(f"security_roster_duplicate_employee:{current.isoformat()}")
+        if any(row.employee_id not in active_ids for row in rows):
+            raise ValueError(f"security_roster_employee_not_active:{current.isoformat()}")
+
+        required_shifts = 2 if len(active_guards) == 2 else 3
+        expected_hours = 12 if len(active_guards) == 2 else 8
+        if len(rows) != required_shifts:
+            raise ValueError(
+                f"security_roster_shift_count_invalid:{current.isoformat()}:"
+                f"expected={required_shifts}:actual={len(rows)}"
+            )
+
+        intervals = []
+        for row in rows:
+            pattern = patterns.get(row.shift_pattern_id)
+            if pattern is None:
+                raise ValueError(f"security_roster_shift_pattern_missing:{current.isoformat()}")
+            start = pattern.start_time.hour * 60 + pattern.start_time.minute
+            end = pattern.end_time.hour * 60 + pattern.end_time.minute
+            duration = (end - start) % 1440
+            if duration == 0:
+                duration = 1440
+            if duration != expected_hours * 60:
+                raise ValueError(
+                    f"security_roster_shift_duration_invalid:{current.isoformat()}:"
+                    f"expected_hours={expected_hours}"
+                )
+            finish = start + duration
+            intervals.append((start, finish))
+        intervals.sort()
+        # Normalize coverage to a 24-hour circle. A valid set of shifts must
+        # cover every minute exactly once, including the midnight boundary.
+        expanded = []
+        for start, finish in intervals:
+            if finish <= 1440:
+                expanded.append((start, finish))
+            else:
+                expanded.append((start, 1440))
+                expanded.append((0, finish - 1440))
+        expanded.sort()
+        cursor = 0
+        for start, finish in expanded:
+            if start != cursor:
+                raise ValueError(f"security_roster_coverage_gap_or_overlap:{current.isoformat()}")
+            if finish <= start:
+                raise ValueError(f"security_roster_invalid_interval:{current.isoformat()}")
+            cursor = finish
+        if cursor != 1440:
+            raise ValueError(f"security_roster_coverage_gap_or_overlap:{current.isoformat()}")
+        current += timedelta(days=1)
+
+
 def prepare_and_persist_monthly_reconciliation(
     db,
     *,
@@ -257,6 +384,7 @@ def prepare_and_persist_monthly_reconciliation(
 
     if period_end < period_start:
         raise ValueError("attendance_period_is_invalid")
+
     program_batch = db.get(AttendanceImportBatch, program_batch_id)
     fingerprint_batch = db.get(AttendanceImportBatch, fingerprint_batch_id)
     if program_batch is None or program_batch.source_type != "program_report":
@@ -282,6 +410,12 @@ def prepare_and_persist_monthly_reconciliation(
     )
     if existing is not None:
         raise ValueError("attendance_period_already_has_reconciliation_records")
+
+    # Validate the security roster only after the requested source/period checks
+    # above, so HR receives the most specific blocking reason first.
+    validate_security_roster(
+        db, period_start=period_start, period_end=period_end
+    )
 
     month = db.scalar(
         select(AttendanceMonth).where(

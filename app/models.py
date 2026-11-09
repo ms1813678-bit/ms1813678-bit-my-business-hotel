@@ -432,6 +432,7 @@ class LeaveBalanceTransaction(Base):
 class AdvanceRequest(Base):
     __tablename__ = "advance_requests"
     __table_args__ = (
+        CheckConstraint("advance_type IN ('regular', 'installment')", name="ck_advance_requests_type"),
         CheckConstraint("amount > 0", name="ck_advance_requests_amount_positive"),
         CheckConstraint("salary_basis > 0", name="ck_advance_requests_salary_positive"),
         CheckConstraint(
@@ -446,6 +447,7 @@ class AdvanceRequest(Base):
     request_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     payroll_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    advance_type: Mapped[str] = mapped_column(String(20), default="regular", nullable=False)
     salary_basis: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
@@ -460,6 +462,30 @@ class AdvanceRequest(Base):
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deducted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     payroll_run_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_runs.id", ondelete="RESTRICT"))
+
+class AdvanceInstallment(Base):
+    """Immutable repayment schedule entry consumed by exactly one payroll run at a time."""
+    __tablename__ = "advance_installments"
+    __table_args__ = (
+        UniqueConstraint("advance_request_id", "installment_number", name="uq_advance_installments_number"),
+        UniqueConstraint("advance_request_id", "payroll_month", name="uq_advance_installments_payroll_month"),
+        CheckConstraint("installment_number >= 1", name="ck_advance_installments_number"),
+        CheckConstraint("amount > 0", name="ck_advance_installments_amount"),
+        CheckConstraint("status IN ('scheduled', 'applied', 'reversed', 'cancelled')", name="ck_advance_installments_status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    advance_request_id: Mapped[int] = mapped_column(ForeignKey("advance_requests.id", ondelete="RESTRICT"), nullable=False, index=True)
+    installment_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payroll_month: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    scheduled_payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="scheduled", nullable=False)
+    applied_payroll_run_id: Mapped[int | None] = mapped_column(ForeignKey("payroll_runs.id", ondelete="RESTRICT"), index=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reversal_reference: Mapped[str | None] = mapped_column(String(200))
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True,))
 
 class StaffAction(Base):
     __tablename__ = "staff_actions"
@@ -572,6 +598,9 @@ class PayrollItem(Base):
     performance_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     occupancy_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     overtime_hours: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=0, nullable=False)
+    overtime_approved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    overtime_approved_by: Mapped[str | None] = mapped_column(String(80))
+    overtime_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     overtime_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     other_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
     absence_days: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=0, nullable=False)
