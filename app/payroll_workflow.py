@@ -315,7 +315,7 @@ def update_payroll_item(
         raise ValueError("A payroll item with recorded payments cannot be edited; record an adjustment separately.")
     old = {}
     new = {}
-    for key in values:
+    for key, value in values.items():
         if key not in MANUAL_ITEM_FIELDS:
             raise ValueError(f"Field {key} cannot be edited.")
         if key == "note":
