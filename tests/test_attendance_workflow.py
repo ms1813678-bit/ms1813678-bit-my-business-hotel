@@ -187,7 +187,7 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
         db_session.add(EmployeeServicePeriod(
             employee_id=employee.id,
             start_date=date(2024, 1, 1),
-            end_date=None,
+            end_date=(date(2026, 10, 31) if name == "Security C" else None),
             start_reason="Synthetic security service period",
         ))
         security_employees.append(employee)
