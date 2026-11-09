@@ -28,7 +28,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql+psycopg://hotel_test:test-only-password@localhost:5432/hotel_test
-      SESSION_SECRET: ci-test-only-session-secret
+      SESSION_SECRET: ci-test-only-session-secret-not-for-production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
