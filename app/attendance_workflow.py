@@ -385,9 +385,6 @@ def prepare_and_persist_monthly_reconciliation(
     if period_end < period_start:
         raise ValueError("attendance_period_is_invalid")
 
-    validate_security_roster(
-        db, period_start=period_start, period_end=period_end
-    )
     program_batch = db.get(AttendanceImportBatch, program_batch_id)
     fingerprint_batch = db.get(AttendanceImportBatch, fingerprint_batch_id)
     if program_batch is None or program_batch.source_type != "program_report":
@@ -413,6 +410,12 @@ def prepare_and_persist_monthly_reconciliation(
     )
     if existing is not None:
         raise ValueError("attendance_period_already_has_reconciliation_records")
+
+    # Validate the security roster only after the requested source/period checks
+    # above, so HR receives the most specific blocking reason first.
+    validate_security_roster(
+        db, period_start=period_start, period_end=period_end
+    )
 
     month = db.scalar(
         select(AttendanceMonth).where(
