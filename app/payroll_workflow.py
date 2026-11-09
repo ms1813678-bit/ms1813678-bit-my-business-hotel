@@ -418,6 +418,11 @@ def close_payroll_run(db: Session, run: PayrollRun, actor: str) -> None:
         installment.applied_at = now
         installment.reversal_reference = None
 
+    # Some test/runtime sessions intentionally disable autoflush. Flush the
+    # installment status changes before counting remaining scheduled rows so
+    # a single-installment advance can transition from paid to deducted.
+    db.flush()
+
     advance_ids = {item.advance_request_id for item in run_installments}
     for advance in db.scalars(
         select(AdvanceRequest).where(AdvanceRequest.id.in_(advance_ids or {-1}))
