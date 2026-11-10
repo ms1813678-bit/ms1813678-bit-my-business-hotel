@@ -23,6 +23,9 @@ from app.models import (
     AttendanceDailyRecord,
     AttendanceMonth,
     Department,
+    Branch,
+    EmployeeChange,
+    EmployeeServicePeriod,
     Employee,
     LeaveRecord,
     LeaveType,
@@ -43,6 +46,11 @@ COMMAND_WORDS = (
 )
 
 ALLOWED_ACTIONS = {
+    "create_employee",
+    "edit_employee",
+    "transfer_employee",
+    "archive_employee",
+    "rehire_employee",
     "create_leave",
     "confirm_leave",
     "cancel_leave",
@@ -159,6 +167,112 @@ def execute_plan(plan: dict[str, Any], actor: str) -> str:
         raise ValueError("الأمر غير مسموح.")
 
     with SessionLocal.begin() as db:
+        if action == "create_employee":
+            full_name = str(plan.get("full_name") or "").strip()
+            position = str(plan.get("position") or "").strip()
+            department_id = int(plan["department_id"])
+            branch_id = int(plan["branch_id"]) if plan.get("branch_id") is not None else None
+            hire_date = _parse_date(plan.get("hire_date") or date.today().isoformat(), "التعيين")
+            basic_salary = _decimal(plan.get("basic_salary"), "الراتب")
+            daily_hours = _decimal(plan.get("daily_hours") or 8, "ساعات العمل")
+            if not full_name or not position or basic_salary < 0 or not (0 < daily_hours <= 24):
+                raise ValueError("بيانات الموظف الأساسية غير صحيحة.")
+            department = db.get(Department, department_id)
+            if department is None or not department.active:
+                raise ValueError("القسم غير متاح.")
+            branch = db.get(Branch, branch_id) if branch_id is not None else None
+            if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
+                raise ValueError("الفرع غير تابع للقسم.")
+            national_id = str(plan.get("national_id") or "").strip() or None
+            fingerprint_id = str(plan.get("fingerprint_id") or "").strip() or None
+            for field, value in (("national_id", national_id), ("fingerprint_id", fingerprint_id)):
+                if value and db.scalar(select(Employee.id).where(getattr(Employee, field) == value).limit(1)):
+                    raise ValueError(f"{field} مستخدم بالفعل.")
+            from app.main import allocate_employee_code
+            employee = Employee(code=allocate_employee_code(db), full_name=full_name,
+                national_id=national_id, phone=str(plan.get("phone") or "").strip() or None,
+                address=str(plan.get("address") or "").strip() or None,
+                department_id=department_id, branch_id=branch_id, position=position,
+                hire_date=hire_date, basic_salary=basic_salary, daily_hours=daily_hours,
+                fingerprint_id=fingerprint_id, status="active")
+            db.add(employee); db.flush()
+            db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=hire_date, start_reason=reason))
+            db.add(AuditLog(actor=actor, action="employee_created_by_ai", entity_type="employee",
+                entity_id=str(employee.id), new_value=f"code={employee.code}; name={employee.full_name}", reason=reason))
+            return f"تم إنشاء الموظف {employee.full_name} برقم {employee.id} وكود {employee.code}."
+
+        if action == "edit_employee":
+            employee = db.get(Employee, int(plan["employee_id"]))
+            if employee is None: raise ValueError("الموظف غير موجود.")
+            fields = ("full_name", "position", "department_id", "branch_id", "basic_salary", "daily_hours",
+                      "phone", "address", "national_id", "fingerprint_id")
+            for field in fields:
+                if field in plan and plan[field] is not None:
+                    new_value = plan[field]
+                    if field in {"department_id", "branch_id"}:
+                        new_value = int(new_value)
+                    if field in {"basic_salary", "daily_hours"}:
+                        new_value = _decimal(new_value, field)
+                    old_value = getattr(employee, field)
+                    if old_value != new_value:
+                        setattr(employee, field, new_value)
+                        db.add(EmployeeChange(employee_id=employee.id, field_name=field,
+                            old_value=str(old_value) if old_value is not None else None,
+                            new_value=str(new_value) if new_value is not None else None,
+                            effective_date=_parse_date(plan.get("effective_date") or date.today().isoformat(), "السريان"),
+                            reason=reason))
+            db.add(AuditLog(actor=actor, action="employee_updated_by_ai", entity_type="employee",
+                entity_id=str(employee.id), reason=reason))
+            return f"تم تعديل بيانات الموظف {employee.full_name}."
+
+        if action == "transfer_employee":
+            employee = db.get(Employee, int(plan["employee_id"]))
+            if employee is None or employee.status != "active": raise ValueError("الموظف غير موجود أو غير نشط.")
+            department_id = int(plan["department_id"])
+            branch_id = int(plan["branch_id"]) if plan.get("branch_id") is not None else None
+            department = db.get(Department, department_id)
+            branch = db.get(Branch, branch_id) if branch_id is not None else None
+            if department is None or not department.active: raise ValueError("القسم الجديد غير متاح.")
+            if branch_id is not None and (branch is None or not branch.active or branch.department_id != department_id):
+                raise ValueError("الفرع الجديد غير صالح.")
+            effective = _parse_date(plan.get("effective_date") or date.today().isoformat(), "السريان")
+            old_department, old_branch = employee.department_id, employee.branch_id
+            employee.department_id, employee.branch_id = department_id, branch_id
+            for field, old_value, new_value in (("department_id", old_department, department_id), ("branch_id", old_branch, branch_id)):
+                if old_value != new_value:
+                    db.add(EmployeeChange(employee_id=employee.id, field_name=field,
+                        old_value=str(old_value) if old_value is not None else None,
+                        new_value=str(new_value) if new_value is not None else None,
+                        effective_date=effective, reason=reason))
+            db.add(AuditLog(actor=actor, action="employee_transferred_by_ai", entity_type="employee",
+                entity_id=str(employee.id), reason=reason))
+            return f"تم نقل الموظف {employee.full_name}."
+
+        if action == "archive_employee":
+            employee = db.get(Employee, int(plan["employee_id"]))
+            if employee is None or employee.status != "active": raise ValueError("الموظف غير موجود أو غير نشط.")
+            period = db.scalar(select(EmployeeServicePeriod).where(
+                EmployeeServicePeriod.employee_id == employee.id, EmployeeServicePeriod.end_date.is_(None)))
+            if period is None: raise ValueError("لا توجد فترة خدمة مفتوحة.")
+            period.end_date = date.today(); period.end_reason = reason; employee.status = "archived"
+            db.add(AuditLog(actor=actor, action="employee_archived_by_ai", entity_type="employee",
+                entity_id=str(employee.id), old_value="active", new_value="archived", reason=reason))
+            return f"تمت أرشفة الموظف {employee.full_name}."
+
+        if action == "rehire_employee":
+            employee = db.get(Employee, int(plan["employee_id"]))
+            if employee is None or employee.status != "archived": raise ValueError("الموظف غير مؤرشف.")
+            new_hire = _parse_date(plan.get("hire_date") or date.today().isoformat(), "إعادة التعيين")
+            previous = db.scalar(select(EmployeeServicePeriod).where(
+                EmployeeServicePeriod.employee_id == employee.id).order_by(EmployeeServicePeriod.id.desc()).limit(1))
+            if previous is None or previous.end_date is None or new_hire <= previous.end_date:
+                raise ValueError("تاريخ إعادة التعيين غير صالح.")
+            employee.status = "active"; employee.hire_date = new_hire
+            db.add(EmployeeServicePeriod(employee_id=employee.id, start_date=new_hire, start_reason=reason))
+            db.add(AuditLog(actor=actor, action="employee_rehired_by_ai", entity_type="employee",
+                entity_id=str(employee.id), old_value="archived", new_value="active", reason=reason))
+            return f"تمت إعادة تعيين الموظف {employee.full_name}."
+
         if action == "create_leave":
             employee = db.get(Employee, int(plan["employee_id"]))
             leave_type = db.get(LeaveType, int(plan["leave_type_id"]))
