@@ -45,6 +45,7 @@ from app.attendance_import import parse_attendance_workbook, normalize as normal
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 from app.ai_assistant import ask_local_model, local_fallback_answer, local_model_status
+from app.ai_agent import run_ai_command, is_command_request
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
 SECURITY_ROSTER_STAGING_DIR = Path("var") / "security_roster_staging"
@@ -275,36 +276,43 @@ def ai_ask(
 ):
     question = question.strip()
     if not question or len(question) > 2000:
-        raise HTTPException(status_code=400, detail="اكتب سؤالًا من 1 إلى 2000 حرف.")
-    with SessionLocal() as db:
-        context = {
-            "metrics": {
-                "active_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status == "active")) or 0,
-                "former_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status != "active")) or 0,
-                "attendance_review": db.scalar(
-                    select(func.count(AttendanceDailyRecord.id)).where(
+        raise HTTPException(status_code=400, detail="اكتب أمرًا أو سؤالًا من 1 إلى 2000 حرف.")
+    if is_command_request(question):
+        try:
+            result = run_ai_command(question, admin.username)
+            answer = result["message"]
+        except (RuntimeError, ValueError, SQLAlchemyError) as exc:
+            answer = f"لم يتم تنفيذ الأمر: {exc}"
+    else:
+        with SessionLocal() as db:
+            context = {
+                "metrics": {
+                    "active_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status == "active")) or 0,
+                    "former_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status != "active")) or 0,
+                    "attendance_review": db.scalar(select(func.count(AttendanceDailyRecord.id)).where(
                         AttendanceDailyRecord.status.in_(["needs_review", "ready_for_review"])
-                    )
-                ) or 0,
-                "leave_drafts": db.scalar(select(func.count(LeaveRecord.id)).where(LeaveRecord.status == "draft")) or 0,
-                "advance_pending": db.scalar(
-                    select(func.count(AdvanceRequest.id)).where(AdvanceRequest.status.in_(["pending", "approved"]))
-                ) or 0,
-                "payroll_drafts": db.scalar(select(func.count(PayrollRun.id)).where(PayrollRun.status.in_(["draft", "reopened"]))) or 0,
+                    )) or 0,
+                    "leave_drafts": db.scalar(select(func.count(LeaveRecord.id)).where(LeaveRecord.status == "draft")) or 0,
+                    "advance_pending": db.scalar(select(func.count(AdvanceRequest.id)).where(
+                        AdvanceRequest.status.in_(["pending", "approved"])
+                    )) or 0,
+                    "payroll_drafts": db.scalar(select(func.count(PayrollRun.id)).where(
+                        PayrollRun.status.in_(["draft", "reopened"])
+                    )) or 0,
+                }
             }
-        }
-    status = local_model_status()
-    try:
-        answer = ask_local_model(question, context)
-    except RuntimeError:
-        answer = local_fallback_answer(question, context)
+        status = local_model_status()
+        try:
+            answer = ask_local_model(question, context)
+        except RuntimeError:
+            answer = local_fallback_answer(question, context)
     return templates.TemplateResponse(
         request=request,
         name="ai.html",
         context={
             "admin": admin.username,
             "csrf_token": get_csrf_token(request),
-            "status": status,
+            "status": local_model_status(),
             "question": question,
             "answer": answer,
         },
