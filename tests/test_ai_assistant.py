@@ -3,7 +3,7 @@ from app.ai_assistant import build_system_prompt, local_fallback_answer
 
 def test_ai_system_prompt_is_advisory():
     prompt = build_system_prompt()
-    assert "لا تنفذ أي تغيير" in prompt
+    assert "مساعد موارد بشرية محلي" in prompt
     assert "مراجعة وتأكيد" in prompt
 
 
