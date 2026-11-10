@@ -21,3 +21,17 @@ def test_ai_fallback_keeps_core_system_usable_when_model_is_unavailable():
         {"metrics": {}},
     )
     assert "غير متاح حاليًا" in answer
+
+
+def test_ai_command_requires_explicit_execute_prefix():
+    from app.ai_agent import is_command_request, wants_execution
+    assert is_command_request("اعتمد مسير الرواتب رقم 1")
+    assert not wants_execution("اعتمد مسير الرواتب رقم 1")
+    assert wants_execution("نفذ: اعتمد مسير الرواتب رقم 1")
+
+
+def test_ai_command_allowlist_does_not_include_arbitrary_operations():
+    from app.ai_agent import ALLOWED_ACTIONS
+    assert "approve_payroll_run" in ALLOWED_ACTIONS
+    assert "run_sql" not in ALLOWED_ACTIONS
+    assert "shell" not in ALLOWED_ACTIONS
