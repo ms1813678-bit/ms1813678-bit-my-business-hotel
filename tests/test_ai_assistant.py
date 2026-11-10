@@ -35,3 +35,16 @@ def test_ai_command_allowlist_does_not_include_arbitrary_operations():
     assert "approve_payroll_run" in ALLOWED_ACTIONS
     assert "run_sql" not in ALLOWED_ACTIONS
     assert "shell" not in ALLOWED_ACTIONS
+
+
+def test_employee_management_actions_are_allowlisted():
+    from app.ai_agent import ALLOWED_ACTIONS
+    for action in ("create_employee", "edit_employee", "transfer_employee", "archive_employee", "rehire_employee"):
+        assert action in ALLOWED_ACTIONS
+
+
+def test_ai_network_policy_accepts_only_loopback():
+    from app.ai_agent import _loopback_only
+    assert _loopback_only("http://127.0.0.1:11434")
+    assert _loopback_only("http://localhost:11434")
+    assert not _loopback_only("https://example.com:11434")
