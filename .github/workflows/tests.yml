@@ -10,6 +10,7 @@ on:
       - work/payroll-foundation
       - work/backup-recovery-v2
       - integration/release-hardening-v2
+      - feature/dashboard-ai-v1
   pull_request:
     branches:
       - main
