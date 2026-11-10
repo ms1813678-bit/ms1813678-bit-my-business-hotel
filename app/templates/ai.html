@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>مساعد AI المحلي</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar dashboard-header">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>مساعد AI المحلي</h1>
+        <p class="muted">مساعد تحليلي للمسؤول فقط — لا ينفذ أي تغيير على البيانات.</p>
+      </div>
+      <a class="button-link" href="/">العودة للوحة التحكم</a>
+    </header>
+
+    <section class="ai-status {{ 'ai-ready' if status.available else 'ai-offline' }}">
+      <div>
+        <strong>{{ status.message }}</strong>
+        <p class="muted">النموذج: {{ status.model }} — الاتصال مسموح فقط على الجهاز المحلي.</p>
+      </div>
+      <span class="status">{{ 'جاهز' if status.available else 'غير متاح' }}</span>
+    </section>
+
+    <section class="notice">
+      <h2>اسأل المساعد</h2>
+      <p class="muted">أمثلة: «كم موظف نشط عندي؟» أو «ما الذي يحتاج مراجعة الآن؟»</p>
+      <form method="post" action="/ai">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>السؤال
+          <textarea name="question" rows="5" maxlength="2000" required placeholder="اكتب سؤالك هنا...">{{ question }}</textarea>
+        </label>
+        <button class="button-link primary-link" type="submit">تحليل السؤال</button>
+      </form>
+      {% if answer %}
+      <div class="ai-answer">
+        <strong>إجابة المساعد</strong>
+        <p>{{ answer }}</p>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="ai-callout">
+      <div>
+        <span class="section-kicker">ضوابط الأمان</span>
+        <h2>المساعد استشاري فقط</h2>
+        <p class="muted">لا يعتمد الرواتب أو الإجازات أو الحضور أو السلف، ولا يحفظ تغييرات من تلقاء نفسه. أي إجراء مؤثر يحتاج مراجعة وتأكيد مسؤول الموارد البشرية.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
