@@ -104,10 +104,26 @@ def _plan_context(db) -> dict[str, Any]:
     employees = db.scalars(select(Employee).order_by(Employee.code)).all()
     departments = db.scalars(select(Department).where(Department.active.is_(True)).order_by(Department.name)).all()
     leave_types = db.scalars(select(LeaveType).where(LeaveType.active.is_(True)).order_by(LeaveType.id)).all()
+    advances = db.scalars(select(AdvanceRequest).order_by(AdvanceRequest.id.desc()).limit(100)).all()
+    staff_actions = db.scalars(select(StaffAction).order_by(StaffAction.id.desc()).limit(100)).all()
+    attendance_months = db.scalars(select(AttendanceMonth).order_by(AttendanceMonth.id.desc()).limit(36)).all()
+    attendance_records = db.scalars(select(AttendanceDailyRecord).order_by(AttendanceDailyRecord.id.desc()).limit(100)).all()
+    payroll_runs = db.scalars(select(PayrollRun).order_by(PayrollRun.id.desc()).limit(36)).all()
     return {
-        "employees": [{"id": e.id, "code": e.code, "name": e.full_name, "status": e.status} for e in employees],
+        "employees": [{"id": e.id, "code": e.code, "name": e.full_name, "status": e.status,
+                       "department_id": e.department_id, "branch_id": e.branch_id} for e in employees],
         "departments": [{"id": d.id, "name": d.name} for d in departments],
         "leave_types": [{"id": t.id, "code": t.code, "name": t.name_ar} for t in leave_types],
+        "advances": [{"id": x.id, "employee_id": x.employee_id, "amount": str(x.amount),
+                      "status": x.status, "advance_type": x.advance_type,
+                      "request_date": x.request_date.isoformat(), "payroll_month": x.payroll_month.isoformat()} for x in advances],
+        "staff_actions": [{"id": x.id, "employee_id": x.employee_id, "kind": x.kind,
+                           "category": x.category, "status": x.status, "is_financial": x.is_financial} for x in staff_actions],
+        "attendance_months": [{"id": x.id, "period_start": x.period_start.isoformat(),
+                               "period_end": x.period_end.isoformat(), "status": x.status} for x in attendance_months],
+        "attendance_records": [{"id": x.id, "employee_id": x.employee_id, "status": x.status} for x in attendance_records],
+        "payroll_runs": [{"id": x.id, "period_start": x.period_start.isoformat(),
+                          "period_end": x.period_end.isoformat(), "status": x.status} for x in payroll_runs],
     }
 
 
@@ -124,7 +140,7 @@ def _json_plan(question: str, context: dict[str, Any]) -> dict[str, Any]:
         "installment_count, staff_action_id, kind, category, title, is_financial, payroll_month, "
         "attendance_record_id, clock_in, clock_out, month_id, payroll_run_id, reason, "
         "start_date, end_date, charged_days, full_name, national_id, phone, address, position, "
-        "department_id, branch_id, hire_date, basic_salary, daily_hours, fingerprint_id, effective_date. "
+        "department_id, branch_id, hire_date, basic_salary, daily_hours, fingerprint_id, effective_date, request_date, payroll_month, coverage_confirmed. "
         "أعد أيضًا summary بالعربية قصيرة. "
         f"الأمر: {question}\nالبيانات المحلية: {json.dumps(context, ensure_ascii=False)}"
     )
