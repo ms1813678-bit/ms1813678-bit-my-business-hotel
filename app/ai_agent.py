@@ -122,7 +122,8 @@ def _json_plan(question: str, context: dict[str, Any]) -> dict[str, Any]:
         "record_id, balance_days, transaction_type, advance_id, amount, advance_type, "
         "installment_count, staff_action_id, kind, category, title, is_financial, payroll_month, "
         "attendance_record_id, clock_in, clock_out, month_id, payroll_run_id, reason, "
-        "start_date, end_date, charged_days. "
+        "start_date, end_date, charged_days, full_name, national_id, phone, address, position, "
+        "department_id, branch_id, hire_date, basic_salary, daily_hours, fingerprint_id, effective_date. "
         "أعد أيضًا summary بالعربية قصيرة. "
         f"الأمر: {question}\nالبيانات المحلية: {json.dumps(context, ensure_ascii=False)}"
     )
@@ -206,6 +207,10 @@ def execute_plan(plan: dict[str, Any], actor: str) -> str:
             if employee is None: raise ValueError("الموظف غير موجود.")
             fields = ("full_name", "position", "department_id", "branch_id", "basic_salary", "daily_hours",
                       "phone", "address", "national_id", "fingerprint_id")
+            if "full_name" in plan and not str(plan["full_name"]).strip():
+                raise ValueError("اسم الموظف لا يمكن أن يكون فارغًا.")
+            if "position" in plan and not str(plan["position"]).strip():
+                raise ValueError("المسمى الوظيفي لا يمكن أن يكون فارغًا.")
             for field in fields:
                 if field in plan and plan[field] is not None:
                     new_value = plan[field]
