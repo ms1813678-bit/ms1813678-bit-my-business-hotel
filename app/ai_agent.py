@@ -211,6 +211,16 @@ def execute_plan(plan: dict[str, Any], actor: str) -> str:
                 raise ValueError("اسم الموظف لا يمكن أن يكون فارغًا.")
             if "position" in plan and not str(plan["position"]).strip():
                 raise ValueError("المسمى الوظيفي لا يمكن أن يكون فارغًا.")
+            if "department_id" in plan or "branch_id" in plan:
+                department_id = int(plan.get("department_id", employee.department_id))
+                branch_id = int(plan["branch_id"]) if plan.get("branch_id") is not None else employee.branch_id
+                department = db.get(Department, department_id)
+                if department is None or not department.active:
+                    raise ValueError("القسم المحدد غير متاح.")
+                if branch_id is not None:
+                    branch = db.get(Branch, branch_id)
+                    if branch is None or not branch.active or branch.department_id != department_id:
+                        raise ValueError("الفرع المحدد غير تابع للقسم.")
             for field in fields:
                 if field in plan and plan[field] is not None:
                     new_value = plan[field]
@@ -218,6 +228,10 @@ def execute_plan(plan: dict[str, Any], actor: str) -> str:
                         new_value = int(new_value)
                     if field in {"basic_salary", "daily_hours"}:
                         new_value = _decimal(new_value, field)
+                    if field in {"basic_salary", "daily_hours"} and (
+                        new_value < 0 or (field == "daily_hours" and not (0 < new_value <= 24))
+                    ):
+                        raise ValueError("بيانات الراتب أو ساعات العمل غير صحيحة.")
                     old_value = getattr(employee, field)
                     if old_value != new_value:
                         setattr(employee, field, new_value)
