@@ -44,6 +44,7 @@ from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
+from app.ai_assistant import ask_local_model, local_fallback_answer, local_model_status
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
 SECURITY_ROSTER_STAGING_DIR = Path("var") / "security_roster_staging"
@@ -232,6 +233,82 @@ def dashboard(request: Request, admin: AdminAccount = Depends(get_current_admin)
                 "metrics": metrics,
             },
         )
+
+
+@app.get("/ai", response_class=HTMLResponse)
+def ai_page(request: Request, admin: AdminAccount = Depends(get_current_admin)):
+    with SessionLocal() as db:
+        metrics = {
+            "active_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status == "active")) or 0,
+            "former_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status != "active")) or 0,
+            "attendance_review": db.scalar(
+                select(func.count(AttendanceDailyRecord.id)).where(
+                    AttendanceDailyRecord.status.in_(["needs_review", "ready_for_review"])
+                )
+            ) or 0,
+            "leave_drafts": db.scalar(select(func.count(LeaveRecord.id)).where(LeaveRecord.status == "draft")) or 0,
+            "advance_pending": db.scalar(
+                select(func.count(AdvanceRequest.id)).where(AdvanceRequest.status.in_(["pending", "approved"]))
+            ) or 0,
+            "payroll_drafts": db.scalar(
+                select(func.count(PayrollRun.id)).where(PayrollRun.status.in_(["draft", "reopened"]))
+            ) or 0,
+        }
+    return templates.TemplateResponse(
+        request=request,
+        name="ai.html",
+        context={
+            "admin": admin.username,
+            "csrf_token": get_csrf_token(request),
+            "status": local_model_status(),
+            "question": "",
+            "answer": None,
+        },
+    )
+
+
+@app.post("/ai", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def ai_ask(
+    request: Request,
+    question: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    question = question.strip()
+    if not question or len(question) > 2000:
+        raise HTTPException(status_code=400, detail="اكتب سؤالًا من 1 إلى 2000 حرف.")
+    with SessionLocal() as db:
+        context = {
+            "metrics": {
+                "active_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status == "active")) or 0,
+                "former_employees": db.scalar(select(func.count(Employee.id)).where(Employee.status != "active")) or 0,
+                "attendance_review": db.scalar(
+                    select(func.count(AttendanceDailyRecord.id)).where(
+                        AttendanceDailyRecord.status.in_(["needs_review", "ready_for_review"])
+                    )
+                ) or 0,
+                "leave_drafts": db.scalar(select(func.count(LeaveRecord.id)).where(LeaveRecord.status == "draft")) or 0,
+                "advance_pending": db.scalar(
+                    select(func.count(AdvanceRequest.id)).where(AdvanceRequest.status.in_(["pending", "approved"]))
+                ) or 0,
+                "payroll_drafts": db.scalar(select(func.count(PayrollRun.id)).where(PayrollRun.status.in_(["draft", "reopened"]))) or 0,
+            }
+        }
+    status = local_model_status()
+    try:
+        answer = ask_local_model(question, context)
+    except RuntimeError:
+        answer = local_fallback_answer(question, context)
+    return templates.TemplateResponse(
+        request=request,
+        name="ai.html",
+        context={
+            "admin": admin.username,
+            "csrf_token": get_csrf_token(request),
+            "status": status,
+            "question": question,
+            "answer": answer,
+        },
+    )
 
 
 @app.get("/security-roster", response_class=HTMLResponse)
