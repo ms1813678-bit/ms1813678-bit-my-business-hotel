@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from sqlalchemy import select
 
 from app.ai_assistant import ask_local_model_json, local_model_status
+from app.employee_codes import allocate_employee_code
 from app.advance_workflow import approve_advance, create_advance, mark_advance_paid, reject_advance
 from app.db import SessionLocal
 from app.leave_workflow import add_balance_entry, cancel_leave, confirm_leave
@@ -189,7 +190,6 @@ def execute_plan(plan: dict[str, Any], actor: str) -> str:
             for field, value in (("national_id", national_id), ("fingerprint_id", fingerprint_id)):
                 if value and db.scalar(select(Employee.id).where(getattr(Employee, field) == value).limit(1)):
                     raise ValueError(f"{field} مستخدم بالفعل.")
-            from app.main import allocate_employee_code
             employee = Employee(code=allocate_employee_code(db), full_name=full_name,
                 national_id=national_id, phone=str(plan.get("phone") or "").strip() or None,
                 address=str(plan.get("address") or "").strip() or None,
