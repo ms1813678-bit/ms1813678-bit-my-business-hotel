@@ -8,15 +8,23 @@ from __future__ import annotations
 
 import json
 import os
+from urllib.parse import urlparse
 from typing import Any
 from urllib import error, request
 
 OLLAMA_BASE_URL = os.getenv("LOCAL_AI_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("LOCAL_AI_MODEL", "qwen2.5:3b")
+
+def _ensure_loopback() -> None:
+    host = urlparse(OLLAMA_BASE_URL).hostname
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise RuntimeError("الاتصال بالنموذج مسموح فقط على الجهاز المحلي.")
+
 TIMEOUT_SECONDS = 1.5
 
 
 def _post_json(path: str, payload: dict[str, Any], timeout: float = TIMEOUT_SECONDS) -> dict[str, Any]:
+    _ensure_loopback()
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = request.Request(
         f"{OLLAMA_BASE_URL}{path}",
@@ -29,6 +37,10 @@ def _post_json(path: str, payload: dict[str, Any], timeout: float = TIMEOUT_SECO
 
 
 def local_model_status() -> dict[str, Any]:
+    try:
+        _ensure_loopback()
+    except RuntimeError as exc:
+        return {"available": False, "server": False, "model": OLLAMA_MODEL, "message": str(exc)}
     """Return availability without ever contacting a remote service."""
     req = request.Request(f"{OLLAMA_BASE_URL}/api/tags", method="GET")
     try:
@@ -105,3 +117,23 @@ def local_fallback_answer(question: str, context: dict[str, Any]) -> str:
         "يمكنك استخدام النظام كاملًا بشكل طبيعي. بعد تشغيل النموذج المحلي سأتمكن من تحليل السؤال "
         "باستخدام بيانات النظام المعروضة للمساعد، دون حفظ أي تغيير تلقائي."
     )
+
+
+def ask_local_model_json(system_prompt: str, user_prompt: str) -> dict[str, Any]:
+    status = local_model_status()
+    if not status["available"]:
+        raise RuntimeError(status["message"])
+    response = _post_json(
+        "/api/chat",
+        {"model": OLLAMA_MODEL, "stream": False, "format": "json",
+         "messages": [{"role": "system", "content": system_prompt},
+                      {"role": "user", "content": user_prompt}]},
+        timeout=30,
+    )
+    raw = str(response.get("message", {}).get("content", "")).strip()
+    if not raw:
+        raise RuntimeError("لم يُرجع النموذج المحلي خطة أمر.")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("النموذج المحلي لم يُرجع JSON صالحًا.") from exc
