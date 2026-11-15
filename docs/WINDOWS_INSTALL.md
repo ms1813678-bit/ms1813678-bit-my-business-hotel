@@ -1,10 +1,10 @@
-# Windows 11 installation and first administrator
+# Windows 10 / Windows 11 installation and first administrator
 
 This is the initial setup path for the local M.Y. Business Hotel HR application. It does not install a Windows service or configure auto-start.
 
 ## Prerequisites
 
-1. Windows 11.
+1. **Windows 10 or Windows 11**.
 2. Python 3.11 or newer, installed with the Python Launcher for Windows (py).
 3. PostgreSQL 16 (or a compatible supported release), installed and running locally.
 4. A dedicated PostgreSQL database and database user created in pgAdmin or PostgreSQL tools, with schema permissions for that database.
