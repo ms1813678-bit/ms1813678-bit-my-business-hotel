@@ -241,6 +241,12 @@ def _report_route_client(monkeypatch):
             hire_date=date(2026, 1, 1), status="active",
             basic_salary=Decimal("7000"), daily_hours=Decimal("8"),
         ))
+        db.add(Employee(
+            code="MY-ROUTE-0002", full_name="Other Route Employee",
+            department_id=department.id, position="Reception",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("7200"), daily_hours=Decimal("8"),
+        ))
     app.dependency_overrides[get_current_admin] = lambda: AdminAccount(
         username="report-test-admin", active=True
     )
