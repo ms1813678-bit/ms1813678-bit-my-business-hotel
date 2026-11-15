@@ -233,3 +233,15 @@ def test_xlsx_attendance_import_still_works_with_csv_support():
     parsed = parse_attendance_workbook(raw, "legacy-report.xlsx", "program_report", ALIASES)
     assert len(parsed["events"]) == 2
     assert parsed["events"][0]["punch_at"] == datetime(2026, 11, 1, 8, 2)
+
+
+def test_csv_supports_windows_1256_arabic_encoding():
+    raw = (
+        "رقم الموظف;اسم الموظف;التاريخ;وقت الحضور;وقت الانصراف\\n"
+        "SEC-01;فايز;2026-11-01;08:00;16:00\\n"
+    ).encode("cp1256")
+    parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", {
+        "SEC-01": 1, "فايز": 1,
+    })
+    assert len(parsed["events"]) == 2
+    assert parsed["events"][0]["employee_id"] == 1
