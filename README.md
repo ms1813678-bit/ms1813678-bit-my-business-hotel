@@ -1,6 +1,6 @@
 # M.Y. Business Hotel — HR & Payroll System
 
-A local-first HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. The target is a Windows 11 computer running a local FastAPI application and PostgreSQL database. The only application user is the HR Manager / System Administrator.
+A local-first HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. The target is a **Windows 10 or Windows 11** computer running a local FastAPI application and PostgreSQL database. The only application user is the HR Manager / System Administrator.
 
 ## Delivery status
 
@@ -16,6 +16,8 @@ A local-first HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. 
 - Sanctions and rewards with manual financial amounts and payroll-month assignment.
 - Monthly payroll runs, employee snapshots, approval/close/reopen workflow, manual insurance/tax entries, and cash/bank payment ledger.
 - Multi-sheet Excel reports, Arabic-capable PDF reports, and live HR dashboard metrics. Reports are requested manually by the administrator with an explicit date range and either all employees or one selected employee.
+- Optional local AI assistant (read-only by default; explicit command prefix required for writes).
+- Modern RTL admin UI shell with sidebar navigation and metric cards.
 
 These modules are still being reviewed and tested on separate pull requests. Their presence on feature branches does not mean they have been merged into main.
 
@@ -24,14 +26,14 @@ These modules are still being reviewed and tested on separate pull requests. The
 - Final integration and migration review across all feature branches.
 - Complete Arabic/English language selection and consistent RTL/LTR coverage.
 - Verified backup and restore system, including external-drive retention and restore testing.
-- Optional local/offline AI assistant remains to be integrated; it must never be required for core operations.
+- Optional local/offline AI assistant remains optional; it must never be required for core operations.
 - Reports specification is manual: the administrator chooses report type, start/end dates, and all employees or one employee.
-- Full Windows 11 installation, upgrade, backup/restore, and end-to-end acceptance on the target computer.
+- Full **Windows 10 or Windows 11** installation, upgrade, backup/restore, and end-to-end acceptance on the target computer.
 - Final review of unresolved payroll policy wording before approving live payroll calculations.
 
 ## Local Windows setup
 
-See docs/WINDOWS_INSTALL.md for the current installation path. The application binds to 127.0.0.1 only and must not be exposed to the public internet.
+See docs/WINDOWS_INSTALL.md for the current installation path (Windows 10 and Windows 11). The application binds to 127.0.0.1 only and must not be exposed to the public internet.
 
 ## Business rules and scope
 

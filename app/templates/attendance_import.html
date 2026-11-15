@@ -1,14 +1,8 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>استيراد الحضور والانصراف</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-  <main class="shell">
-    <header class="topbar">
+{% extends "base.html" %}
+{% set active_nav = "attendance" %}
+{% block title %}استيراد الحضور والانصراف{% endblock %}
+{% block content %}
+<header class="topbar">
       <div>
         <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
         <h1>استيراد الحضور والانصراف</h1>
@@ -68,7 +62,4 @@
       </ul>
     </section>
     {% endif %}
-    <footer>لا تستخدم هذه البيانات في حساب الرواتب قبل إكمال المطابقة ومراجعة واعتماد الموارد البشرية.</footer>
-  </main>
-</body>
-</html>
+{% endblock %}

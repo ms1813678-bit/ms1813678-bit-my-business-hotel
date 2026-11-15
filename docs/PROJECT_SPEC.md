@@ -4,7 +4,7 @@
 A local-first Arabic/English HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. The system is operated by one authorized administrator: the HR Manager. It is not a public website and must not expose its local service to the public internet.
 
 ## Runtime and architecture
-- Target: Windows 11 laptop, 16 GB RAM, approximately 500 GB storage.
+- Target: Windows 10 or Windows 11 laptop, 16 GB RAM recommended, approximately 500 GB storage.
 - Local web application with PostgreSQL as the database and local file storage.
 - Manual launch from a desktop shortcut; do not auto-start with Windows.
 - Arabic is the default language; support English, RTL/LTR, Africa/Cairo timezone, DD/MM/YYYY, 24-hour time, and EGP.
@@ -137,7 +137,7 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Never present unresolved absence as final.
 
 ## Optional AI assistant
-- Administrator only. Free local model preferred; evaluate compatibility/performance on 16 GB Windows laptop.
+- Administrator only. Free local model preferred; evaluate compatibility/performance on a 16 GB Windows 10 or Windows 11 laptop.
 - Model download may require internet once; offline operation afterward.
 - System must remain fully usable when AI is disabled or unavailable.
 - Natural-language assistance for employee search/analysis, Excel parsing/mapping, leave, payroll preview, advances, sanctions/rewards, and reports.
@@ -156,7 +156,7 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Do not claim a feature is complete until code and tests support that claim.
 - Preserve source imports and historical records; use database migrations for schema changes.
 - Add automated tests for payroll calculations, date boundaries, duplicate imports, permissions, and backup/restore before production use.
-- No production deployment or real employee data until local installation, security, backup, and restore have been tested on the target laptop.
+- No production deployment or real employee data until local installation, security, backup, and restore have been tested on the target Windows 10 or Windows 11 laptop.
 
 
 ## Database migration rollback policy

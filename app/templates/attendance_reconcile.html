@@ -1,14 +1,8 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>مطابقة الحضور الشهرية</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-  <main class="shell">
-    <header class="topbar">
+{% extends "base.html" %}
+{% set active_nav = "attendance" %}
+{% block title %}مطابقة الحضور الشهرية{% endblock %}
+{% block content %}
+<header class="topbar">
       <div>
         <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
         <h1>مطابقة الحضور الشهرية</h1>
@@ -61,7 +55,4 @@
       <p><a href="/attendance/review">فتح قائمة مراجعة الحضور</a></p>
     </section>
     {% endif %}
-    <footer>لا تُعتمد النتائج تلقائيًا. يجب على الموارد البشرية مراجعة كل حالة واعتمادها صراحة.</footer>
-  </main>
-</body>
-</html>
+{% endblock %}

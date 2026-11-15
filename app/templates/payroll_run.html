@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>مسير الرواتب | M.Y. Business Hotel</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<main class="shell">
+{% extends "base.html" %}
+{% set active_nav = "payroll" %}
+{% block title %}مسير الرواتب | M.Y. Business Hotel{% endblock %}
+{% block content %}
   <header class="topbar">
     <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>مسير رواتب {{ run.period_start.strftime("%m/%Y") }}</h1>
       <p class="muted">موعد الصرف المخطط: {{ run.pay_date.strftime("%d/%m/%Y") }} · الحالة: {{ run.status }}</p></div>
@@ -98,7 +92,7 @@
     </td></tr>
     {% endif %}
     {% if run.status == "closed" and p[1] > 0 %}
-    <tr><td colspan="16">
+    <tr><td colspan="9">
       <form method="post" action="/payroll/items/{{ item.id }}/payments">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-grid">
@@ -111,7 +105,7 @@
       </form>
     </td></tr>
     {% endif %}
-    {% else %}<tr><td colspan="16">لا توجد بنود رواتب في هذا المسير.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="9">لا توجد بنود رواتب في هذا المسير.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 
@@ -119,6 +113,4 @@
     <p><strong>ملاحظات الحساب:</strong> الأساسي الشهري ثابت، وساعات العمل لا تخفضه. سعر الساعة = الأساسي ÷ (ساعات اليوم × 30). خصم الغياب = الأساسي ÷ أيام الشهر الفعلية × أيام الغياب. الأوفر تايم بنفس سعر الساعة دون مضاعف، ولا يدخل في الصافي إلا بعد اعتماد ساعات الإضافي من الإدارة. التأمين والضرائب يدويان دون حساب قانوني تلقائي.</p>
     <p>خصم السلف والمكافآت والجزاءات المالية يظهر من السجلات المعتمدة للشهر. لا تعتبر السلفة مخصومة إلا بعد إغلاق المسير.</p>
   </section>
-</main>
-</body>
-</html>
+{% endblock %}
