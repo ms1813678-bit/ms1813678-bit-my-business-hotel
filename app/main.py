@@ -51,6 +51,32 @@ SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
 SECURITY_ROSTER_STAGING_DIR = Path("var") / "security_roster_staging"
 SECURITY_ROSTER_STAGING_TTL_SECONDS = 60 * 60
 SECURITY_ROSTER_CLEANUP_INTERVAL_SECONDS = 5 * 60
+REPORTS_DIR = Path("var") / "reports"
+
+
+def _save_report_copy(content: bytes, extension: str, start_date: date, end_date: date, employee_id: int | None = None) -> Path:
+    """Save a user-requested report locally without replacing an earlier export."""
+    if extension not in {"xlsx", "pdf"} or not isinstance(content, bytes) or not content:
+        raise ValueError("invalid_report_export")
+    try:
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            REPORTS_DIR.chmod(0o700)
+        except OSError:
+            pass
+        employee_part = f"employee-{employee_id}" if employee_id is not None else "all-employees"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}_{employee_part}_{stamp}_{uuid4().hex[:8]}.{extension}"
+        destination = REPORTS_DIR / filename
+        with destination.open("xb") as report_file:
+            report_file.write(content)
+        try:
+            destination.chmod(0o600)
+        except OSError:
+            pass
+        return destination
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="تعذر حفظ نسخة التقرير محليًا. تحقق من صلاحيات ومساحة مجلد التقارير.") from exc
 
 
 def _cleanup_expired_security_roster_files(now: float | None = None) -> int:
@@ -1878,6 +1904,7 @@ def reports_page(
         context={
             "start_date": request.query_params.get("start_date", default_start.isoformat()),
             "end_date": request.query_params.get("end_date", today.isoformat()),
+            "employees": employees,
             "error": request.query_params.get("error"),
         },
     )
@@ -1897,6 +1924,7 @@ def export_hr_reports(
         raise HTTPException(status_code=400, detail=str(exc))
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="تعذر إنشاء التقرير بسبب خطأ في قاعدة البيانات.")
+    _save_report_copy(content, "xlsx", start_date, end_date, employee_id)
     filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}.xlsx"
     from urllib.parse import quote
     return Response(
@@ -1923,6 +1951,7 @@ def export_hr_reports_pdf(
         raise HTTPException(status_code=503, detail=str(exc))
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="تعذر إنشاء التقرير بسبب خطأ في قاعدة البيانات.")
+    _save_report_copy(content, "pdf", start_date, end_date, employee_id)
     filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}.pdf"
     from urllib.parse import quote
     return Response(
