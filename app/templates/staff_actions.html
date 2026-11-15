@@ -1,13 +1,7 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>الجزاءات والمكافآت | M.Y. Business Hotel</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<main class="shell">
+{% extends "base.html" %}
+{% set active_nav = "staff_actions" %}
+{% block title %}الجزاءات والمكافآت | M.Y. Business Hotel{% endblock %}
+{% block content %}
   <header class="topbar">
     <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>الجزاءات والمكافآت</h1>
       <p class="muted">Sanctions & rewards · HR administrator only</p></div>
@@ -117,6 +111,4 @@
   <section class="notice">
     <p><strong>مهم:</strong> تسجيل «تم إطلاع الموظف» هو توثيق إداري بواسطة مسؤول الموارد البشرية بعد إطلاع الموظف أو توقيعه على المستند الورقي. هذا الإجراء ليس توقيعًا إلكترونيًا من الموظف؛ لا توجد حسابات دخول للموظفين في النظام الحالي. القيم المالية المعتمدة ستُربط بالرواتب عند اكتمال وحدة الرواتب.</p>
   </section>
-</main>
-</body>
-</html>
+{% endblock %}
