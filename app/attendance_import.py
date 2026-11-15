@@ -6,24 +6,26 @@ or infers employee identities by fuzzy matching.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+import csv
 from io import BytesIO
 from pathlib import Path
 import re
 import unicodedata
 
 
-DATE_HEADERS = {"date", "work date", "日期", "التاريخ", "اليوم"}
-CODE_HEADERS = {"ac-no", "ac-no.", "ac no", "ac no.", "employee id", "user id", "pin", "employee code", "id", "رقم الموظف", "كود الموظف"}
-NAME_HEADERS = {"name", "employee name", "الاسم", "اسم الموظف"}
-IN_HEADERS = {"clock in", "check in", "in time", "وقت الحضور", "دخول"}
-OUT_HEADERS = {"clock out", "check out", "out time", "وقت الانصراف", "خروج"}
-EVENT_HEADERS = {"check time", "punch time", "attendance time", "att. time", "time", "وقت البصمة", "وقت"}
+DATE_HEADERS = {"date", "work date", "日期", "التاريخ", "اليوم", "تاريخ"}
+CODE_HEADERS = {"ac-no", "ac-no.", "ac no", "ac no.", "employee id", "user id", "pin", "employee code", "id", "رقم الموظف", "كود الموظف", "رقم", "كود"}
+NAME_HEADERS = {"name", "employee name", "الاسم", "اسم الموظف", "اسم"}
+IN_HEADERS = {"clock in", "check in", "in time", "وقت الحضور", "دخول", "وقت الدخول"}
+OUT_HEADERS = {"clock out", "check out", "out time", "وقت الانصراف", "خروج", "وقت الخروج"}
+EVENT_HEADERS = {"check time", "punch time", "attendance time", "att. time", "time", "وقت البصمة", "وقت", "توقيت البصمة"}
 EVENT_TYPE_HEADERS = {"state", "status", "event type", "type", "الحالة", "نوع الحركة"}
 TIME_TOKEN = re.compile(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?(?!\d)")
 
 
 def normalize(value) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+    text = text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
     return re.sub(r"\s+", " ", text)
 
 
@@ -39,7 +41,7 @@ def _date_value(value, datemode=0):
         except Exception:
             return None
     if isinstance(value, str):
-        raw = value.strip()
+        raw = value.strip().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
         for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y"):
             try:
                 return datetime.strptime(raw, fmt).date()
@@ -84,6 +86,33 @@ def _load_rows(file_bytes: bytes, filename: str):
             ]
         finally:
             workbook.close()
+    if suffix == ".csv":
+        decoded = None
+        for encoding in ("utf-8-sig", "utf-8", "cp1256", "cp1252"):
+            try:
+                decoded = file_bytes.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if decoded is None:
+            raise ValueError("csv_encoding_not_supported")
+        try:
+            sample = decoded[:8192]
+            try:
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t|")
+            except csv.Error:
+                counts = {delimiter: sample.count(delimiter) for delimiter in (",", ";", "\\t", "|")}
+                delimiter = max(counts, key=counts.get)
+                if counts[delimiter] == 0:
+                    raise ValueError("csv_delimiter_not_detected")
+                dialect = csv.excel
+                dialect.delimiter = delimiter
+            rows = [tuple(row) for row in csv.reader(decoded.splitlines(), dialect)]
+        except (csv.Error, UnicodeError) as exc:
+            raise ValueError("invalid_csv_file") from exc
+        if not rows or not any(any(str(cell).strip() for cell in row) for row in rows):
+            raise ValueError("empty_attendance_file")
+        return [("CSV", rows, 0)]
     if suffix == ".xls":
         try:
             import xlrd
@@ -386,6 +415,21 @@ def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str
                     event_index += 1
     if not events and not issues:
         raise ValueError("attendance_headers_not_found")
+    seen_events = set()
+    unique_events = []
+    for event in events:
+        identity = (event.get("employee_id"), event["punch_at"], event.get("event_type"))
+        if identity in seen_events:
+            issues.append({
+                "sheet": event.get("source_sheet"),
+                "row": event.get("source_row"),
+                "reason": "duplicate_punch",
+                "value": event.get("raw_timestamp", ""),
+            })
+            continue
+        seen_events.add(identity)
+        unique_events.append(event)
+    events = unique_events
     return {
         "source_type": source_type,
         "events": events,
