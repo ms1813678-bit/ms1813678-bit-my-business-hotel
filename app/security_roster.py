@@ -54,20 +54,20 @@ def build_security_day_proposal(roster, shift_patterns):
     if issues:
         return {"status": "needs_review", "assignments": [], "issues": issues}
 
-    expected_working = 2 if len(roster) == 2 else 3
-    if len(working) != expected_working:
-        return {
-            "status": "needs_review",
-            "assignments": [],
-            "issues": ["daily_security_working_count_must_cover_full_day"],
-        }
-
     starts = [start for _, start in working]
     if len(set(starts)) != len(starts):
         return {
             "status": "needs_review",
             "assignments": [],
             "issues": ["duplicate_security_shift_start_times"],
+        }
+
+    expected_working = 2 if len(roster) == 2 else 3
+    if len(working) != expected_working:
+        return {
+            "status": "needs_review",
+            "assignments": [],
+            "issues": ["daily_security_working_count_must_cover_full_day"],
         }
 
     duration = 12 if len(roster) == 2 else 8
