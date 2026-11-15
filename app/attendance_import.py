@@ -88,7 +88,7 @@ def _load_rows(file_bytes: bytes, filename: str):
             workbook.close()
     if suffix == ".csv":
         decoded = None
-        for encoding in ("utf-8-sig", "utf-8", "cp1256", "cp1252"):
+        for encoding in ("utf-8-sig", "utf-8", "cp1256"):
             try:
                 decoded = file_bytes.decode(encoding)
                 break
@@ -99,7 +99,7 @@ def _load_rows(file_bytes: bytes, filename: str):
         try:
             sample = decoded[:8192]
             try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t|")
+                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
             except csv.Error:
                 counts = {delimiter: sample.count(delimiter) for delimiter in (",", ";", "\\t", "|")}
                 delimiter = max(counts, key=counts.get)
