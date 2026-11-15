@@ -185,3 +185,13 @@ def test_explicit_header_only_sheet_is_not_silently_replaced():
     assert parsed["status"] == "needs_review"
     assert parsed["records"] == []
     assert parsed["issues"][0]["reason"] == "no_valid_roster_rows"
+
+
+def test_roster_import_accepts_two_active_security_employees():
+    data = _workbook_bytes([
+        ["Date", "Fayez", "Yasser"],
+        [date(2026, 11, 1), time(0, 0), time(12, 0)],
+    ])
+    result = parse_security_roster_xlsx(data, {"Fayez": 11, "Yasser": 12})
+    assert result["status"] == "parsed_for_review"
+    assert result["records"][0]["roster"] == {11: time(0, 0), 12: time(12, 0)}
