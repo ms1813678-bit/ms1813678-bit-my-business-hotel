@@ -99,3 +99,11 @@ def test_team_with_one_working_person_is_rejected():
     )
     assert result["status"] == "needs_review"
     assert result["issues"] == ["daily_security_working_count_must_cover_full_day"]
+
+
+def test_all_active_security_employees_cannot_be_off_on_the_same_day():
+    result = build_security_day_proposal(
+        {"one": "OFF", "two": "OFF", "three": "OFF"}, PATTERNS
+    )
+    assert result["status"] == "needs_review"
+    assert result["assignments"] == []
