@@ -27,10 +27,10 @@ def _pattern_time(value):
 def build_security_day_proposal(roster, shift_patterns):
     """Return a reviewable proposal for one date.
 
-    roster maps exactly three employee IDs to an HH:MM start time or "OFF".
-    Two working employees receive 12-hour shifts; three receive 8-hour shifts.
-    A proposal is ready only when every derived start/end resolves to exactly
-    one configured Security ShiftPattern and all starts are distinct.
+    roster maps every active employee ID to an HH:MM start time or "OFF".
+    A two-person active team receives two 12-hour shifts; larger teams use
+    three 8-hour shifts per day. Every shift must resolve to one configured
+    Security ShiftPattern and the day must be covered without gaps or overlaps.
     """
     if not isinstance(roster, dict) or len(roster) < 2:
         return {
