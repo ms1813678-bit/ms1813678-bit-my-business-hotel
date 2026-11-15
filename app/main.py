@@ -58,6 +58,7 @@ def _save_report_copy(content: bytes, extension: str, start_date: date, end_date
     """Save a user-requested report locally without replacing an earlier export."""
     if extension not in {"xlsx", "pdf"} or not isinstance(content, bytes) or not content:
         raise ValueError("invalid_report_export")
+    destination = None
     try:
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         try:
@@ -76,6 +77,11 @@ def _save_report_copy(content: bytes, extension: str, start_date: date, end_date
             pass
         return destination
     except OSError as exc:
+        if destination is not None:
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError:
+                pass
         raise HTTPException(status_code=503, detail="تعذر حفظ نسخة التقرير محليًا. تحقق من صلاحيات ومساحة مجلد التقارير.") from exc
 
 
