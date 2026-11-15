@@ -218,9 +218,10 @@ def test_malformed_or_unrecognized_csv_is_rejected():
         parse_attendance_workbook(
             b"one;two;three\n1;2;3\n", "bad.csv", "program_report", ALIASES
         )
-    with pytest.raises(ValueError, match="csv_encoding_not_supported"):
+    with pytest.raises(ValueError, match="invalid_csv_file"):
         parse_attendance_workbook(
-            b"\xff\xfe\x80", "bad.csv", "program_report", ALIASES
+            b'Employee ID,Date,Clock In,Clock Out\\n"SEC-01,2026-11-01,08:00,16:00\\n',
+            "bad.csv", "program_report", ALIASES
         )
 
 
