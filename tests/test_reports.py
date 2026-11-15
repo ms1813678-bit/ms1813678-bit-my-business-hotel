@@ -220,3 +220,86 @@ def test_dashboard_displays_live_hr_workflow_metrics(monkeypatch):
         app.dependency_overrides.clear()
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+
+def _report_route_client(monkeypatch):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with factory.begin() as db:
+        department = Department(name="Synthetic Route Reports", active=True)
+        db.add(department)
+        db.flush()
+        db.add(Employee(
+            code="MY-ROUTE-0001", full_name="Route Report Employee",
+            department_id=department.id, position="Reception",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("7000"), daily_hours=Decimal("8"),
+        ))
+    app.dependency_overrides[get_current_admin] = lambda: AdminAccount(
+        username="report-test-admin", active=True
+    )
+    monkeypatch.setattr("app.main.SessionLocal", factory)
+    return engine
+
+
+def test_reports_page_passes_employee_list_to_template(monkeypatch):
+    engine = _report_route_client(monkeypatch)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/reports")
+        assert response.status_code == 200
+        assert "MY-ROUTE-0001" in response.text
+        assert "Route Report Employee" in response.text
+        assert 'name="employee_id"' in response.text
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_excel_and_pdf_exports_are_saved_locally_without_overwriting(monkeypatch, tmp_path):
+    engine = _report_route_client(monkeypatch)
+    monkeypatch.setattr("app.main.REPORTS_DIR", tmp_path / "reports")
+    params = {"start_date": "2026-10-01", "end_date": "2026-10-31", "employee_id": "1"}
+    try:
+        with TestClient(app) as client:
+            excel = client.get("/reports/export.xlsx", params=params)
+            pdf = client.get("/reports/export.pdf", params=params)
+        assert excel.status_code == 200
+        assert pdf.status_code == 200
+        assert excel.content.startswith(b"PK")
+        assert pdf.content.startswith(b"%PDF-")
+        saved = sorted((tmp_path / "reports").iterdir())
+        assert len(saved) == 2
+        assert {item.suffix for item in saved} == {".xlsx", ".pdf"}
+        assert all(item.stat().st_size > 0 for item in saved)
+        assert len({item.name for item in saved}) == 2
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
+
+
+def test_local_report_save_failure_returns_clear_service_error(monkeypatch, tmp_path):
+    engine = _report_route_client(monkeypatch)
+    reports_path = tmp_path / "not-a-directory"
+    reports_path.write_text("block directory creation", encoding="utf-8")
+    monkeypatch.setattr("app.main.REPORTS_DIR", reports_path)
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/reports/export.xlsx",
+                params={"start_date": "2026-10-01", "end_date": "2026-10-31"},
+            )
+        assert response.status_code == 503
+        assert "تعذر حفظ نسخة التقرير محليًا" in response.text
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)
+        engine.dispose()
