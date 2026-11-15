@@ -15,7 +15,7 @@ PATTERNS = [
 
 def test_two_working_security_employees_receive_12_hour_shifts():
     result = build_security_day_proposal(
-        {"fayez": "OFF", "yasser": "20:00", "walid": "08:00"},
+        {"yasser": "20:00", "walid": "08:00"},
         PATTERNS,
     )
     assert result["status"] == "ready_for_admin_review"
@@ -37,7 +37,7 @@ def test_three_working_security_employees_receive_8_hour_shifts():
 
 def test_midnight_is_a_shift_start_not_a_rest_day():
     result = build_security_day_proposal(
-        {"fayez": "00:00", "yasser": "OFF", "walid": "08:00"},
+        {"fayez": "00:00", "walid": "08:00"},
         PATTERNS,
     )
     assert result["status"] == "ready_for_admin_review"
@@ -57,7 +57,7 @@ def test_invalid_working_count_requires_review():
 
 def test_missing_pattern_is_not_guessed():
     result = build_security_day_proposal(
-        {"fayez": "OFF", "yasser": "19:00", "walid": "07:00"},
+        {"yasser": "19:00", "walid": "07:00"},
         PATTERNS,
     )
     assert result["status"] == "needs_review"
