@@ -1,14 +1,8 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>السلف | M.Y. Business Hotel</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<main class="shell">
-  <header class="topbar">
+{% extends "base.html" %}
+{% set active_nav = "advances" %}
+{% block title %}السلف | M.Y. Business Hotel{% endblock %}
+{% block content %}
+<header class="topbar">
     <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة السلف</h1>
       <p class="muted">Salary advances · HR administrator only</p></div>
     <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a> · <a href="/leave">الإجازات</a></nav>
@@ -105,6 +99,4 @@
   <section class="notice">
     <p><strong>ملاحظة:</strong> ملخص السلف يفصل بين الرصيد العادي والرصيد المقسط. الـ25% يطبق على السلفة الشهرية العادية فقط. السلفة المقسطة لا تخضع له، ويمكن أن تتجاوز الراتب، وخصمها يتم حسب جدول الأقساط. هذه الوحدة تسجل السلفة واعتمادها وصرفها وجدول الأقساط والشهر المستحق لكل خصم. الخصم الفعلي لا يُسجل كمخصوم إلا عند إغلاق دورة الرواتب، ويمكن عكسه عند إعادة فتح الدورة.</p>
   </section>
-</main>
-</body>
-</html>
+{% endblock %}
