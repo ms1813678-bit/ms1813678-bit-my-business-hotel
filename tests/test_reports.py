@@ -262,6 +262,7 @@ def test_reports_page_passes_employee_list_to_template(monkeypatch):
         assert response.status_code == 200
         assert "MY-ROUTE-0001" in response.text
         assert "Route Report Employee" in response.text
+        assert "Other Route Employee" in response.text
         assert 'name="employee_id"' in response.text
     finally:
         app.dependency_overrides.clear()
@@ -280,6 +281,12 @@ def test_excel_and_pdf_exports_are_saved_locally_without_overwriting(monkeypatch
         assert excel.status_code == 200
         assert pdf.status_code == 200
         assert excel.content.startswith(b"PK")
+        workbook = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
+        try:
+            assert workbook["Employees"].max_row == 2
+            assert workbook["Employees"].cell(2, 1).value == "MY-ROUTE-0001"
+        finally:
+            workbook.close()
         assert pdf.content.startswith(b"%PDF-")
         saved = sorted((tmp_path / "reports").iterdir())
         assert len(saved) == 2
