@@ -52,7 +52,7 @@ def test_invalid_working_count_requires_review():
         PATTERNS,
     )
     assert result["status"] == "needs_review"
-    assert result["issues"] == ["daily_security_working_count_must_be_two_or_three"]
+    assert result["issues"] == ["daily_security_working_count_must_cover_full_day"]
 
 
 def test_missing_pattern_is_not_guessed():
