@@ -10,6 +10,7 @@ PATTERNS = [
     {"id": 4, "start_time": time(8, 0), "end_time": time(16, 0)},
     {"id": 5, "start_time": time(16, 0), "end_time": time(0, 0)},
     {"id": 6, "start_time": time(0, 0), "end_time": time(12, 0)},
+    {"id": 7, "start_time": time(12, 0), "end_time": time(0, 0)},
 ]
 
 
@@ -37,7 +38,7 @@ def test_three_working_security_employees_receive_8_hour_shifts():
 
 def test_midnight_is_a_shift_start_not_a_rest_day():
     result = build_security_day_proposal(
-        {"fayez": "00:00", "walid": "08:00"},
+        {"fayez": "00:00", "walid": "12:00"},
         PATTERNS,
     )
     assert result["status"] == "ready_for_admin_review"
