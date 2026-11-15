@@ -474,8 +474,8 @@ def _attendance_employee_aliases(db):
 
 def _read_attendance_upload(upload: UploadFile) -> bytes:
     filename = (upload.filename or "").strip()
-    if Path(filename).suffix.casefold() not in {".xls", ".xlsx"}:
-        raise HTTPException(status_code=400, detail="يرجى رفع ملف Excel بصيغة .xls أو .xlsx.")
+    if Path(filename).suffix.casefold() not in {".xls", ".xlsx", ".csv"}:
+        raise HTTPException(status_code=400, detail="يرجى رفع ملف حضور بصيغة CSV أو XLS أو XLSX.")
     raw = upload.file.read(SECURITY_ROSTER_MAX_BYTES + 1)
     if not raw:
         raise HTTPException(status_code=400, detail="الملف فارغ.")
@@ -501,7 +501,8 @@ def attendance_import_download(
             )
         suffix = Path(batch.original_filename).suffix.casefold()
         media_type = (
-            "application/vnd.ms-excel" if suffix == ".xls"
+            "text/csv; charset=utf-8" if suffix == ".csv"
+            else "application/vnd.ms-excel" if suffix == ".xls"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         from urllib.parse import quote
@@ -558,7 +559,16 @@ def attendance_import_upload(
                 "issues": parsed["issues"],
             })
     except (ValueError, KeyError) as exc:
-        context["error"] = str(exc)
+        messages = {
+            "empty_attendance_file": "الملف فارغ.",
+            "unsupported_attendance_file_extension": "صيغة الملف غير مدعومة. استخدم CSV أو XLS أو XLSX.",
+            "csv_encoding_not_supported": "تعذر قراءة ترميز ملف CSV. احفظه بترميز UTF-8 أو UTF-8 مع BOM أو Windows-1256.",
+            "csv_delimiter_not_detected": "تعذر تحديد الفاصل بين أعمدة CSV.",
+            "invalid_csv_file": "ملف CSV غير سليم أو يحتوي على علامات اقتباس غير مكتملة.",
+            "attendance_headers_not_found": "لم يتم العثور على عناوين أعمدة الحضور المطلوبة.",
+            "attendance_import_has_no_valid_dated_events": "لا يحتوي الملف على أحداث حضور بتاريخ صالح.",
+        }
+        context["error"] = messages.get(str(exc), str(exc))
         return templates.TemplateResponse(
             request=request, name="attendance_import.html", context=context, status_code=400
         )
