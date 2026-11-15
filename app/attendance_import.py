@@ -101,7 +101,7 @@ def _load_rows(file_bytes: bytes, filename: str):
             try:
                 dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
             except csv.Error:
-                counts = {delimiter: sample.count(delimiter) for delimiter in (",", ";", "\\t", "|")}
+                counts = {delimiter: sample.count(delimiter) for delimiter in (",", ";", "\t", "|")}
                 delimiter = max(counts, key=counts.get)
                 if counts[delimiter] == 0:
                     raise ValueError("csv_delimiter_not_detected")
