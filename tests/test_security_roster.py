@@ -71,3 +71,30 @@ def test_duplicate_start_times_require_review():
     )
     assert result["status"] == "needs_review"
     assert result["issues"] == ["duplicate_security_shift_start_times"]
+
+
+
+def test_four_active_team_members_use_three_contiguous_eight_hour_shifts():
+    roster = {"one": "00:00", "two": "08:00", "three": "16:00", "four": "OFF"}
+    result = build_security_day_proposal(roster, PATTERNS)
+    assert result["status"] == "ready_for_admin_review"
+    assert len(result["assignments"]) == 3
+    assert {item["duration_hours"] for item in result["assignments"]} == {8}
+
+
+def test_team_of_three_cannot_create_overlapping_or_gapped_shifts():
+    result = build_security_day_proposal(
+        {"one": "00:00", "two": "09:00", "three": "16:00"}, PATTERNS
+    )
+    assert result["status"] == "needs_review"
+    assert result["issues"] == [
+        "security_shifts_must_cover_24_hours_without_gaps_or_overlaps"
+    ]
+
+
+def test_team_with_one_working_person_is_rejected():
+    result = build_security_day_proposal(
+        {"one": "OFF", "two": "OFF", "three": "08:00"}, PATTERNS
+    )
+    assert result["status"] == "needs_review"
+    assert result["issues"] == ["daily_security_working_count_must_cover_full_day"]
