@@ -100,7 +100,7 @@ def test_rejects_unknown_extension_and_empty_file():
     with pytest.raises(ValueError, match="empty_attendance_file"):
         parse_attendance_workbook(b"", "x.xlsx", "fingerprint", ALIASES)
     with pytest.raises(ValueError, match="unsupported_attendance_file_extension"):
-        parse_attendance_workbook(b"abc", "x.csv", "fingerprint", ALIASES)
+        parse_attendance_workbook(b"abc", "x.txt", "fingerprint", ALIASES)
 
 
 
@@ -164,24 +164,25 @@ def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens()
     assert parsed["sheet_count"] == 4
     assert parsed["period_start"] == date(2026, 10, 1)
     assert parsed["period_end"] == date(2026, 10, 31)
-    assert len(parsed["events"]) == 10
+    assert len(parsed["events"]) == 8
     assert [event["punch_at"].time() for event in parsed["events"][:5]] == [
         time(0, 25), time(7, 50), time(16, 9), time(15, 48), time(23, 54)
     ]
     assert [event["punch_at"] for event in parsed["events"][3:5]] == [
         datetime(2026, 10, 2, 15, 48), datetime(2026, 10, 2, 23, 54)
     ]
-    assert [event["punch_at"].time() for event in parsed["events"][5:9]] == [
-        time(8, 2), time(8, 2), time(16, 58), time(16, 58)
+    assert [event["punch_at"].time() for event in parsed["events"][5:7]] == [
+        time(8, 2), time(16, 58)
     ]
-    assert [event["punch_at"].time() for event in parsed["events"][9:]] == [time(8, 0)]
+    assert [event["punch_at"].time() for event in parsed["events"][7:]] == [time(8, 0)]
     assert [event["employee_id"] for event in parsed["events"]] == [
-        101, 101, 101, 101, 101, 105, 105, 105, 105, None
+        101, 101, 101, 101, 101, 105, 105, None
     ]
     assert parsed["events"][0]["source_sheet"] == "Att.log report"
     assert parsed["events"][0]["source_row"] == 6
     assert parsed["events"][0]["raw_timestamp"] == "00:2507:5016:09"
-    assert [issue["reason"] for issue in parsed["issues"]] == ["unknown_employee"]
+    assert [issue["reason"] for issue in parsed["issues"]].count("unknown_employee") == 1
+    assert [issue["reason"] for issue in parsed["issues"]].count("duplicate_punch") == 2
 
 
 
