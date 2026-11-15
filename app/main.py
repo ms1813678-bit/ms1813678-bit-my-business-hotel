@@ -51,6 +51,38 @@ SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
 SECURITY_ROSTER_STAGING_DIR = Path("var") / "security_roster_staging"
 SECURITY_ROSTER_STAGING_TTL_SECONDS = 60 * 60
 SECURITY_ROSTER_CLEANUP_INTERVAL_SECONDS = 5 * 60
+REPORTS_DIR = Path("var") / "reports"
+
+
+def _save_report_copy(content: bytes, extension: str, start_date: date, end_date: date, employee_id: int | None = None) -> Path:
+    """Save a user-requested report locally without replacing an earlier export."""
+    if extension not in {"xlsx", "pdf"} or not isinstance(content, bytes) or not content:
+        raise ValueError("invalid_report_export")
+    destination = None
+    try:
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            REPORTS_DIR.chmod(0o700)
+        except OSError:
+            pass
+        employee_part = f"employee-{employee_id}" if employee_id is not None else "all-employees"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}_{employee_part}_{stamp}_{uuid4().hex[:8]}.{extension}"
+        destination = REPORTS_DIR / filename
+        with destination.open("xb") as report_file:
+            report_file.write(content)
+        try:
+            destination.chmod(0o600)
+        except OSError:
+            pass
+        return destination
+    except OSError as exc:
+        if destination is not None:
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise HTTPException(status_code=503, detail="تعذر حفظ نسخة التقرير محليًا. تحقق من صلاحيات ومساحة مجلد التقارير.") from exc
 
 
 def _cleanup_expired_security_roster_files(now: float | None = None) -> int:
@@ -408,8 +440,8 @@ def _security_roster_aliases(db):
         Employee.department_id == department.id,
         Employee.status == "active",
     ).order_by(Employee.id)).all()
-    if len(employees) != 3:
-        raise ValueError("security_department_must_have_exactly_three_active_employees")
+    if len(employees) < 2:
+        raise ValueError("security_department_must_have_at_least_two_active_employees")
     aliases = {}
     normalized_owners = {}
     for employee in employees:
@@ -422,8 +454,8 @@ def _security_roster_aliases(db):
                 raise ValueError("security_employee_identifiers_are_ambiguous_for_excel_mapping")
             normalized_owners[key] = employee.id
             aliases[str(value)] = employee.id
-    if len({value for value in aliases.values()}) != 3:
-        raise ValueError("security_employee_identifiers_must_resolve_to_three_employees")
+    if len({value for value in aliases.values()}) < 2:
+        raise ValueError("security_employee_identifiers_must_resolve_to_at_least_two_employees")
     return aliases
 
 
@@ -448,8 +480,8 @@ def _attendance_employee_aliases(db):
 
 def _read_attendance_upload(upload: UploadFile) -> bytes:
     filename = (upload.filename or "").strip()
-    if Path(filename).suffix.casefold() not in {".xls", ".xlsx"}:
-        raise HTTPException(status_code=400, detail="يرجى رفع ملف Excel بصيغة .xls أو .xlsx.")
+    if Path(filename).suffix.casefold() not in {".xls", ".xlsx", ".csv"}:
+        raise HTTPException(status_code=400, detail="يرجى رفع ملف حضور بصيغة CSV أو XLS أو XLSX.")
     raw = upload.file.read(SECURITY_ROSTER_MAX_BYTES + 1)
     if not raw:
         raise HTTPException(status_code=400, detail="الملف فارغ.")
@@ -475,7 +507,8 @@ def attendance_import_download(
             )
         suffix = Path(batch.original_filename).suffix.casefold()
         media_type = (
-            "application/vnd.ms-excel" if suffix == ".xls"
+            "text/csv; charset=utf-8" if suffix == ".csv"
+            else "application/vnd.ms-excel" if suffix == ".xls"
             else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         from urllib.parse import quote
@@ -510,6 +543,15 @@ def attendance_import_upload(
     context = {
         "admin": admin.username, "csrf_token": get_csrf_token(request),
         "error": None, "batch": None, "issues": [],
+        "issue_labels": {
+            "unknown_employee": "رقم أو اسم الموظف غير معروف",
+            "invalid_or_missing_date": "تاريخ مفقود أو غير صالح",
+            "invalid_time_value": "وقت بصمة غير صالح",
+            "duplicate_punch": "بصمة مكررة تم استبعادها",
+            "invalid_row_column_count": "عدد أعمدة الصف لا يطابق عناوين الملف",
+            "duplicate_date": "تاريخ مكرر",
+            "missing_day_columns": "أعمدة الأيام لا تغطي الفترة المطلوبة",
+        },
     }
     try:
         if source_type not in {"program_report", "fingerprint"}:
@@ -532,7 +574,16 @@ def attendance_import_upload(
                 "issues": parsed["issues"],
             })
     except (ValueError, KeyError) as exc:
-        context["error"] = str(exc)
+        messages = {
+            "empty_attendance_file": "الملف فارغ.",
+            "unsupported_attendance_file_extension": "صيغة الملف غير مدعومة. استخدم CSV أو XLS أو XLSX.",
+            "csv_encoding_not_supported": "تعذر قراءة ترميز ملف CSV. احفظه بترميز UTF-8 أو UTF-8 مع BOM أو Windows-1256.",
+            "csv_delimiter_not_detected": "تعذر تحديد الفاصل بين أعمدة CSV.",
+            "invalid_csv_file": "ملف CSV غير سليم أو يحتوي على علامات اقتباس غير مكتملة.",
+            "attendance_headers_not_found": "لم يتم العثور على عناوين أعمدة الحضور المطلوبة.",
+            "attendance_import_has_no_valid_dated_events": "لا يحتوي الملف على أحداث حضور بتاريخ صالح.",
+        }
+        context["error"] = messages.get(str(exc), str(exc))
         return templates.TemplateResponse(
             request=request, name="attendance_import.html", context=context, status_code=400
         )
@@ -1878,6 +1929,7 @@ def reports_page(
         context={
             "start_date": request.query_params.get("start_date", default_start.isoformat()),
             "end_date": request.query_params.get("end_date", today.isoformat()),
+            "employees": employees,
             "error": request.query_params.get("error"),
         },
     )
@@ -1897,6 +1949,7 @@ def export_hr_reports(
         raise HTTPException(status_code=400, detail=str(exc))
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="تعذر إنشاء التقرير بسبب خطأ في قاعدة البيانات.")
+    _save_report_copy(content, "xlsx", start_date, end_date, employee_id)
     filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}.xlsx"
     from urllib.parse import quote
     return Response(
@@ -1923,6 +1976,7 @@ def export_hr_reports_pdf(
         raise HTTPException(status_code=503, detail=str(exc))
     except SQLAlchemyError:
         raise HTTPException(status_code=503, detail="تعذر إنشاء التقرير بسبب خطأ في قاعدة البيانات.")
+    _save_report_copy(content, "pdf", start_date, end_date, employee_id)
     filename = f"MY_HR_Report_{start_date.isoformat()}_{end_date.isoformat()}.pdf"
     from urllib.parse import quote
     return Response(

@@ -1,4 +1,4 @@
-"""Parse the monthly three-person Security roster from an Excel workbook."""
+"""Parse the monthly Security roster from an Excel workbook."""
 from datetime import date, datetime, time
 from io import BytesIO
 import re
@@ -53,16 +53,16 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
     """Return normalized daily roster rows; never writes or approves assignments.
 
     employee_aliases maps known spreadsheet employee names to stable employee IDs.
-    The sheet must contain a header row with one date/day column and exactly the
-    three configured employee names. Dates without a year are rejected.
+    The sheet must contain a date/day column and every active security employee
+    exactly once. At least two active employees are required.
     """
     if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
         raise ValueError("empty_excel_file")
     aliases = {_norm(name): employee_id for name, employee_id in employee_aliases.items()}
     if len(aliases) != len(employee_aliases):
         raise ValueError("employee_aliases_contain_normalization_collisions")
-    if len(set(aliases.values())) != 3:
-        raise ValueError("aliases_must_resolve_to_exactly_three_unique_security_employees")
+    if len(set(aliases.values())) < 2:
+        raise ValueError("aliases_must_resolve_to_at_least_two_unique_security_employees")
 
     try:
         workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
@@ -89,6 +89,28 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 ]
                 if len(date_candidates) != 1:
                     continue
+                date_column = date_candidates[0]
+                recognized_columns = {idx for idx, _alias in employee_positions}
+                unknown_columns = [
+                    idx for idx, value in enumerate(row)
+                    if idx != date_column and value is not None and str(value).strip()
+                    and idx not in recognized_columns
+                ]
+                if unknown_columns:
+                    return {
+                        "sheet_name": sheet.title,
+                        "employee_headers": {},
+                        "records": [],
+                        "issues": [
+                            {
+                                "row": row_idx, "column": idx + 1,
+                                "employee_header": str(row[idx]).strip(),
+                                "reason": "unknown_security_employee_header",
+                            }
+                            for idx in unknown_columns
+                        ],
+                        "status": "needs_review",
+                    }
 
                 # Do not collapse repeated employee headers into a dict: doing so
                 # silently discards one of the columns and can misassign shifts.
@@ -113,7 +135,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                     }
 
                 found = {employee_id: indexes[0] for employee_id, indexes in positions_by_employee.items()}
-                if len(found) == 3:
+                if len(found) == len(set(aliases.values())):
                     header = row
                     employee_cols = {
                         employee_id: idx for employee_id, idx in found.items()
@@ -157,7 +179,7 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                                        "reason": "missing_or_invalid_shift_value"})
                     else:
                         roster[employee_id] = shift
-                if len(roster) == 3:
+                if len(roster) == len(employee_cols):
                     records.append({"work_date": work_date, "roster": roster})
             if not records and not issues:
                 empty_header_result = {

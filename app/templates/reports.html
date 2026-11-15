@@ -35,6 +35,14 @@
       <div class="form-grid">
         <label>من تاريخ / Start date<input type="date" name="start_date" value="{{ start_date }}" required></label>
         <label>إلى تاريخ / End date<input type="date" name="end_date" value="{{ end_date }}" required></label>
+        <label>الموظف / Employee
+          <select name="employee_id">
+            <option value="">كل الموظفين / All employees</option>
+            {% for employee in employees %}
+            <option value="{{ employee.id }}" {% if request.query_params.get("employee_id") == (employee.id|string) %}selected{% endif %}>{{ employee.code }} — {{ employee.full_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
       </div>
       <button type="submit">تنزيل ملف PDF / Download PDF</button>
     </form>
