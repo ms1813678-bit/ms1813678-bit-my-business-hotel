@@ -1,14 +1,8 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>إدارة الرواتب | M.Y. Business Hotel</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<main class="shell">
-  <header class="topbar">
+{% extends "base.html" %}
+{% set active_nav = "payroll" %}
+{% block title %}إدارة الرواتب | M.Y. Business Hotel{% endblock %}
+{% block content %}
+<header class="topbar">
     <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة الرواتب</h1>
       <p class="muted">Payroll management · HR administrator only</p></div>
     <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a> · <a href="/advances">السلف</a></nav>
@@ -49,6 +43,4 @@
     {% else %}<tr><td colspan="5">لا توجد مسيرات رواتب حتى الآن.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
-</main>
-</body>
-</html>
+{% endblock %}
