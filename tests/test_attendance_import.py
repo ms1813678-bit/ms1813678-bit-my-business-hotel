@@ -222,3 +222,13 @@ def test_malformed_or_unrecognized_csv_is_rejected():
         parse_attendance_workbook(
             b"\xff\xfe\x80", "bad.csv", "program_report", ALIASES
         )
+
+
+def test_xlsx_attendance_import_still_works_with_csv_support():
+    raw = workbook_bytes([("Sheet1", [
+        ["AC-No.", "Name", "Date", "Clock In", "Clock Out"],
+        ["SEC-01", "Fayez", date(2026, 11, 1), time(8, 2), time(16, 5)],
+    ])])
+    parsed = parse_attendance_workbook(raw, "legacy-report.xlsx", "program_report", ALIASES)
+    assert len(parsed["events"]) == 2
+    assert parsed["events"][0]["punch_at"] == datetime(2026, 11, 1, 8, 2)
