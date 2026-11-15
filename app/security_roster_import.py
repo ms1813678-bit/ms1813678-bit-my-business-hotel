@@ -89,6 +89,28 @@ def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
                 ]
                 if len(date_candidates) != 1:
                     continue
+                date_column = date_candidates[0]
+                recognized_columns = {idx for idx, _alias in employee_positions}
+                unknown_columns = [
+                    idx for idx, value in enumerate(row)
+                    if idx != date_column and value is not None and str(value).strip()
+                    and idx not in recognized_columns
+                ]
+                if unknown_columns:
+                    return {
+                        "sheet_name": sheet.title,
+                        "employee_headers": {},
+                        "records": [],
+                        "issues": [
+                            {
+                                "row": row_idx, "column": idx + 1,
+                                "employee_header": str(row[idx]).strip(),
+                                "reason": "unknown_security_employee_header",
+                            }
+                            for idx in unknown_columns
+                        ],
+                        "status": "needs_review",
+                    }
 
                 # Do not collapse repeated employee headers into a dict: doing so
                 # silently discards one of the columns and can misassign shifts.
