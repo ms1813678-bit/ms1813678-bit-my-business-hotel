@@ -250,8 +250,8 @@ def test_csv_supports_windows_1256_arabic_encoding():
 
 def test_csv_rejects_rows_with_inconsistent_column_counts():
     raw = (
-        "Employee ID,Employee Name,Date,Clock In,Clock Out\\n"
-        "SEC-01,Fayez,2026-11-01,08:00,16:00,EXTRA\\n"
+        "Employee ID,Employee Name,Date,Clock In,Clock Out\n"
+        "SEC-01,Fayez,2026-11-01,08:00,16:00,EXTRA\n"
     ).encode("utf-8")
     parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", ALIASES)
     assert parsed["events"] == []
