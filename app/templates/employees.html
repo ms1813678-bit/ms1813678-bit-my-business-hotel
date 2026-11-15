@@ -6,7 +6,7 @@
   <div>
     <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
     <h1>إدارة الموظفين</h1>
-    <p class="muted">إضافة وتعديل وأرشفة وإعادة تعيين الموظفين — عرض بطاقات أوضح بدل الجدول الطويل.</p>
+    <p class="muted">عرض بطاقات منظم: بيانات واضحة وإجراءات مرتبة دون جداول طويلة.</p>
   </div>
   <a class="button-link" href="/">لوحة التحكم</a>
 </header>
@@ -46,34 +46,52 @@
   <div class="employee-grid">
     {% for e in employees %}
     <article class="employee-card {% if e.status != 'active' %}is-archived{% endif %}">
-      <div class="employee-card-head">
-        <div class="employee-avatar">
-          {% if e.photo_path %}
-          <img src="/employees/{{ e.id }}/photo" alt="صورة {{ e.full_name }}">
-          {% else %}
-          <span>{{ e.full_name[:1] }}</span>
-          {% endif %}
+      <div class="employee-card-top">
+        <div class="employee-card-head">
+          <div class="employee-avatar">
+            {% if e.photo_path %}
+            <img src="/employees/{{ e.id }}/photo" alt="صورة {{ e.full_name }}">
+            {% else %}
+            <span>{{ e.full_name[:1] }}</span>
+            {% endif %}
+          </div>
+          <div class="employee-title">
+            <div class="employee-title-row">
+              <strong>{{ e.full_name }}</strong>
+              <span class="badge {% if e.status == 'active' %}badge-success{% else %}badge-muted{% endif %}">
+                {% if e.status == 'active' %}نشط{% else %}{{ e.status }}{% endif %}
+              </span>
+            </div>
+            <span class="code">{{ e.code }} · {{ e.position }}</span>
+          </div>
         </div>
-        <div class="employee-title">
-          <strong>{{ e.full_name }}</strong>
-          <span class="code">{{ e.code }}</span>
-          <span class="badge {% if e.status == 'active' %}badge-success{% else %}badge-muted{% endif %}">
-            {% if e.status == 'active' %}نشط{% else %}{{ e.status }}{% endif %}
-          </span>
+        <div class="employee-salary">
+          <span>الراتب الأساسي</span>
+          <strong>{{ e.basic_salary }} <small>ج.م</small></strong>
         </div>
       </div>
 
       <div class="employee-meta">
-        <div><span>القسم</span><strong>{{ e.department.name }}</strong></div>
-        <div><span>الفرع</span><strong>{% for b in all_branches if b.id == e.branch_id %}{{ b.name }}{% else %}—{% endfor %}</strong></div>
-        <div><span>المسمى</span><strong>{{ e.position }}</strong></div>
-        <div><span>الراتب الأساسي</span><strong>{{ e.basic_salary }} ج</strong></div>
-        <div><span>ساعات يومية</span><strong>{{ e.daily_hours }}</strong></div>
-        <div><span>رقم البصمة</span><strong>{{ e.fingerprint_id or '—' }}</strong></div>
+        <div class="meta-item">
+          <span>القسم</span>
+          <strong>{{ e.department.name }}</strong>
+        </div>
+        <div class="meta-item">
+          <span>الفرع</span>
+          <strong>{% for b in all_branches if b.id == e.branch_id %}{{ b.name }}{% else %}—{% endfor %}</strong>
+        </div>
+        <div class="meta-item">
+          <span>ساعات يومية</span>
+          <strong>{{ e.daily_hours }} ساعة</strong>
+        </div>
+        <div class="meta-item">
+          <span>رقم البصمة</span>
+          <strong>{{ e.fingerprint_id or '—' }}</strong>
+        </div>
       </div>
 
       <div class="employee-actions">
-        <details>
+        <details class="action-panel">
           <summary>تعديل البيانات</summary>
           <form method="post" action="/employees/{{ e.id }}/edit">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -93,64 +111,70 @@
               <label>تاريخ سريان التعديل<input name="effective_date" type="date" required></label>
               <label>سبب التعديل<input name="reason" required maxlength="1000"></label>
             </div>
-            <button type="submit">حفظ التعديلات</button>
+            <button type="submit" class="btn-primary">حفظ التعديلات</button>
           </form>
         </details>
 
-        <details>
+        <details class="action-panel">
           <summary>نقل قسم / فرع</summary>
           <form method="post" action="/employees/{{ e.id }}/transfer">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label>القسم الجديد<select name="department_id" required>{% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
-            <label>الفرع الجديد<select name="branch_id"><option value="">بدون فرع</option>{% for b in branches %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></label>
-            <label>تاريخ سريان النقل<input type="date" name="effective_date" required></label>
-            <label>سبب النقل<input name="reason" required></label>
+            <div class="form-grid">
+              <label>القسم الجديد<select name="department_id" required>{% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+              <label>الفرع الجديد<select name="branch_id"><option value="">بدون فرع</option>{% for b in branches %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></label>
+              <label>تاريخ سريان النقل<input type="date" name="effective_date" required></label>
+              <label>سبب النقل<input name="reason" required></label>
+            </div>
             <button type="submit">تسجيل النقل</button>
           </form>
         </details>
 
-        <details>
+        <details class="action-panel">
           <summary>طلب تصحيح بيانات</summary>
           <form method="post" action="/employees/{{ e.id }}/data-change-requests">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <label>البيان<select name="field_name" required>
-              <option value="full_name">الاسم بالكامل</option>
-              <option value="national_id">الرقم القومي</option>
-              <option value="phone">رقم الهاتف</option>
-              <option value="address">العنوان</option>
-              <option value="position">المسمى الوظيفي</option>
-            </select></label>
-            <label>القيمة المطلوبة<input name="requested_value" required maxlength="2000"></label>
-            <label>سبب الطلب<input name="request_reason" required maxlength="1000"></label>
+            <div class="form-grid">
+              <label>البيان<select name="field_name" required>
+                <option value="full_name">الاسم بالكامل</option>
+                <option value="national_id">الرقم القومي</option>
+                <option value="phone">رقم الهاتف</option>
+                <option value="address">العنوان</option>
+                <option value="position">المسمى الوظيفي</option>
+              </select></label>
+              <label>القيمة المطلوبة<input name="requested_value" required maxlength="2000"></label>
+              <label>سبب الطلب<input name="request_reason" required maxlength="1000"></label>
+            </div>
             <button type="submit">تسجيل الطلب</button>
           </form>
         </details>
 
-        <details>
+        <details class="action-panel">
           <summary>سجل التغييرات</summary>
-          <ul>
+          <ul class="change-log">
             {% for change in employee_changes if change.employee_id == e.id %}
-            <li>{{ change.effective_date }} — {{ change.field_name }}: {{ change.old_value or '—' }} ← {{ change.new_value or '—' }} ({{ change.reason }})</li>
+            <li><span>{{ change.effective_date }}</span> {{ change.field_name }}: {{ change.old_value or '—' }} ← {{ change.new_value or '—' }} <em>({{ change.reason }})</em></li>
             {% else %}
-            <li>لا توجد تغييرات مسجلة.</li>
+            <li class="muted">لا توجد تغييرات مسجلة.</li>
             {% endfor %}
           </ul>
         </details>
 
-        {% if e.status == "active" %}
-        <form method="post" action="/employees/{{ e.id }}/archive" class="inline-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input name="reason" required placeholder="سبب الأرشفة">
-          <button type="submit" class="btn-danger">أرشفة</button>
-        </form>
-        {% elif e.status == "archived" %}
-        <form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="date" name="new_hire_date" required>
-          <input name="reason" required placeholder="سبب إعادة التعيين">
-          <button type="submit" class="btn-primary">إعادة تعيين</button>
-        </form>
-        {% endif %}
+        <div class="employee-footer-actions">
+          {% if e.status == "active" %}
+          <form method="post" action="/employees/{{ e.id }}/archive" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input name="reason" required placeholder="سبب الأرشفة">
+            <button type="submit" class="btn-danger">أرشفة</button>
+          </form>
+          {% elif e.status == "archived" %}
+          <form method="post" action="/employees/{{ e.id }}/rehire" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="date" name="new_hire_date" required>
+            <input name="reason" required placeholder="سبب إعادة التعيين">
+            <button type="submit" class="btn-primary">إعادة تعيين</button>
+          </form>
+          {% endif %}
+        </div>
       </div>
     </article>
     {% endfor %}
@@ -165,11 +189,14 @@
     <div><span class="section-kicker">مراجعة</span><h2>طلبات تصحيح البيانات الشخصية</h2></div>
   </div>
   {% for r in data_change_requests %}
-  <article class="employee-card" style="margin-bottom:12px">
-    <p><strong>طلب #{{ r.id }}</strong> — الموظف #{{ r.employee_id }} — {{ r.field_name }}</p>
-    <p class="muted">القيمة المطلوبة: {{ r.requested_value }}</p>
+  <article class="employee-card request-card">
+    <div class="employee-title-row">
+      <strong>طلب #{{ r.id }} — {{ r.field_name }}</strong>
+      <span class="badge">{{ r.status }}</span>
+    </div>
+    <p class="muted">الموظف #{{ r.employee_id }} · {{ r.recorded_at }}</p>
+    <p>القيمة المطلوبة: <strong>{{ r.requested_value }}</strong></p>
     <p class="muted">السبب: {{ r.request_reason }}</p>
-    <p>الحالة: <span class="badge">{{ r.status }}</span> — {{ r.recorded_at }}</p>
     {% if r.status == "pending" %}
     <form method="post" action="/employee-data-change-requests/{{ r.id }}/review">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
