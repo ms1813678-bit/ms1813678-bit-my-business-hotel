@@ -60,7 +60,7 @@ def _time_tokens(value):
         return [time(minutes // 60, minutes % 60)]
     if value is None or str(value).strip() == "":
         return []
-    raw = str(value).strip()
+    raw = str(value).strip().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
     matches = list(TIME_TOKEN.finditer(raw))
     parsed = [
         time(int(match.group(1)), int(match.group(2)), int(match.group(3) or 0))
@@ -105,9 +105,9 @@ def _load_rows(file_bytes: bytes, filename: str):
                 delimiter = max(counts, key=counts.get)
                 if counts[delimiter] == 0:
                     raise ValueError("csv_delimiter_not_detected")
-                dialect = csv.excel
+                dialect = csv.excel()
                 dialect.delimiter = delimiter
-            rows = [tuple(row) for row in csv.reader(decoded.splitlines(), dialect)]
+            rows = [tuple(row) for row in csv.reader(decoded.splitlines(), dialect, strict=True)]
         except (csv.Error, UnicodeError) as exc:
             raise ValueError("invalid_csv_file") from exc
         if not rows or not any(any(str(cell).strip() for cell in row) for row in rows):
@@ -133,7 +133,7 @@ def _matrix_time_tokens(value):
     """Parse separated or directly concatenated HH:MM tokens without guessing."""
     if isinstance(value, (datetime, time)):
         return _time_tokens(value)
-    raw = str(value or "").strip()
+    raw = str(value or "").strip().translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
     if not raw:
         return []
     token_pattern = re.compile(r"(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?")
