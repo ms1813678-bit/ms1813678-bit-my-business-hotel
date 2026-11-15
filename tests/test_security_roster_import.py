@@ -55,14 +55,12 @@ def test_duplicate_dates_are_reported():
     assert any(x["reason"] == "duplicate_date" for x in result["issues"])
 
 
-def test_unknown_employee_mapping_is_rejected():
+def test_unknown_employee_mapping_is_reported_for_two_person_active_team():
     data = _workbook_bytes([["Date", "Fayez", "Yasser", "Walid"]])
-    try:
-        parse_security_roster_xlsx(data, {"Fayez": 11, "Yasser": 12})
-    except ValueError as exc:
-        assert str(exc) == "aliases_must_resolve_to_at_least_two_unique_security_employees"
-    else:
-        raise AssertionError("expected ValueError")
+    result = parse_security_roster_xlsx(data, {"Fayez": 11, "Yasser": 12})
+    assert result["status"] == "needs_review"
+    assert result["records"] == []
+    assert result["issues"][0]["reason"] == "unknown_security_employee_header"
 
 
 def test_duplicate_employee_headers_are_reported_without_silently_collapsing():
