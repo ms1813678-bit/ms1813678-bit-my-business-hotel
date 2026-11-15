@@ -543,6 +543,15 @@ def attendance_import_upload(
     context = {
         "admin": admin.username, "csrf_token": get_csrf_token(request),
         "error": None, "batch": None, "issues": [],
+        "issue_labels": {
+            "unknown_employee": "رقم أو اسم الموظف غير معروف",
+            "invalid_or_missing_date": "تاريخ مفقود أو غير صالح",
+            "invalid_time_value": "وقت بصمة غير صالح",
+            "duplicate_punch": "بصمة مكررة تم استبعادها",
+            "invalid_row_column_count": "عدد أعمدة الصف لا يطابق عناوين الملف",
+            "duplicate_date": "تاريخ مكرر",
+            "missing_day_columns": "أعمدة الأيام لا تغطي الفترة المطلوبة",
+        },
     }
     try:
         if source_type not in {"program_report", "fingerprint"}:
