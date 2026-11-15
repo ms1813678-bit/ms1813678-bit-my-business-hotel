@@ -1,14 +1,8 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>اعتماد شهور الحضور</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-  <main class="shell">
-    <header class="topbar">
+{% extends "base.html" %}
+{% set active_nav = "attendance" %}
+{% block title %}اعتماد شهور الحضور{% endblock %}
+{% block content %}
+<header class="topbar">
       <div>
         <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
         <h1>مراجعة واعتماد شهور الحضور</h1>
@@ -62,7 +56,4 @@
       {% endif %}
     </section>
     {% endfor %}
-    <footer>لا يصبح الشهر معتمدًا إلا بعد اعتماد جميع سجلات الأيام المحفوظة، وخلو ملفات المصدر من مشكلات الاستيراد، وتأكيد مسؤول الموارد البشرية مراجعة التغطية الشهرية.</footer>
-  </main>
-</body>
-</html>
+{% endblock %}
