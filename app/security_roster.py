@@ -1,9 +1,8 @@
-"""Build security shift proposals from the approved three-person daily roster rule.
+"""Build full-day security shift proposals from the active team size.
 
-The Excel roster supplies each employee's shift START time or OFF. This module
-derives the duration from the number of employees working that date and resolves
-the result against configured Security ShiftPattern rows. It does not persist or
-approve assignments.
+The Excel roster supplies each employee's shift START time or OFF. Two active
+employees use two 12-hour shifts; teams of three or more use three 8-hour shifts.
+Proposals must cover a complete day without gaps or overlaps and are never persisted here.
 """
 from datetime import time
 
@@ -33,11 +32,11 @@ def build_security_day_proposal(roster, shift_patterns):
     A proposal is ready only when every derived start/end resolves to exactly
     one configured Security ShiftPattern and all starts are distinct.
     """
-    if not isinstance(roster, dict) or len(roster) != 3:
+    if not isinstance(roster, dict) or len(roster) < 2:
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["security_roster_must_contain_exactly_three_employees"],
+            "issues": ["security_roster_requires_at_least_two_active_employees"],
         }
 
     working = []
@@ -55,11 +54,12 @@ def build_security_day_proposal(roster, shift_patterns):
     if issues:
         return {"status": "needs_review", "assignments": [], "issues": issues}
 
-    if len(working) not in (2, 3):
+    expected_working = 2 if len(roster) == 2 else 3
+    if len(working) != expected_working:
         return {
             "status": "needs_review",
             "assignments": [],
-            "issues": ["daily_security_working_count_must_be_two_or_three"],
+            "issues": ["daily_security_working_count_must_cover_full_day"],
         }
 
     starts = [start for _, start in working]
@@ -70,7 +70,17 @@ def build_security_day_proposal(roster, shift_patterns):
             "issues": ["duplicate_security_shift_start_times"],
         }
 
-    duration = 12 if len(working) == 2 else 8
+    duration = 12 if len(roster) == 2 else 8
+    ordered = sorted(working, key=lambda item: item[1])
+    for index, (_employee_id, start) in enumerate(ordered):
+        next_start = ordered[(index + 1) % len(ordered)][1]
+        if _plus_hours(start, duration) != next_start:
+            return {
+                "status": "needs_review",
+                "assignments": [],
+                "issues": ["security_shifts_must_cover_24_hours_without_gaps_or_overlaps"],
+            }
+
     assignments = []
     for employee_id, start in working:
         end = _plus_hours(start, duration)
