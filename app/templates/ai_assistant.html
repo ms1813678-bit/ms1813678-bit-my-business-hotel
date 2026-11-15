@@ -1,14 +1,8 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>مساعد الموارد البشرية — {{ app_name }}</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<main class="shell">
-  <header class="topbar">
+{% extends "base.html" %}
+{% set active_nav = "ai" %}
+{% block title %}مساعد الموارد البشرية — {{ app_name }}{% endblock %}
+{% block content %}
+<header class="topbar">
     <div>
       <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
       <h1>مساعد الموارد البشرية المحلي</h1>
@@ -52,6 +46,4 @@
       <li>إذا كان النموذج غير متاح، تظل كل وظائف HR والرواتب الأساسية قابلة للاستخدام.</li>
     </ul>
   </section>
-</main>
-</body>
-</html>
+{% endblock %}
