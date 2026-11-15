@@ -360,6 +360,13 @@ def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str
             row = rows[row_index]
             if not any(value is not None and str(value).strip() for value in row):
                 continue
+            if Path(filename or "").suffix.casefold() == ".csv" and len(row) != len(rows[header_index]):
+                issues.append({
+                    "sheet": sheet_name, "row": row_index + 1,
+                    "reason": "invalid_row_column_count",
+                    "value": f"expected {len(rows[header_index])} columns, got {len(row)}",
+                })
+                continue
             def cell(key):
                 index = columns.get(key)
                 return row[index] if index is not None and index < len(row) else None
@@ -418,7 +425,13 @@ def parse_attendance_workbook(file_bytes: bytes, filename: str, source_type: str
     seen_events = set()
     unique_events = []
     for event in events:
-        identity = (event.get("employee_id"), event["punch_at"], event.get("event_type"))
+        employee_identity = event.get("employee_id")
+        if employee_identity is None:
+            employee_identity = (
+                "unresolved",
+                normalize(event.get("raw_employee_code") or event.get("raw_employee_name")),
+            )
+        identity = (employee_identity, event["punch_at"], event.get("event_type"))
         if identity in seen_events:
             issues.append({
                 "sheet": event.get("source_sheet"),
