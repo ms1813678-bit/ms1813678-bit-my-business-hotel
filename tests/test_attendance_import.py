@@ -187,8 +187,8 @@ def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens()
 
 def test_csv_with_arabic_headers_and_utf8_bom_is_parsed():
     raw = (
-        "رقم الموظف;اسم الموظف;التاريخ;وقت الحضور;وقت الانصراف\\n"
-        "SEC-01;فايز;٢٠٢٦-١١-٠١;٠٨:٠٢;١٦:٠٥\\n"
+        "رقم الموظف;اسم الموظف;التاريخ;وقت الحضور;وقت الانصراف\n"
+        "SEC-01;فايز;٢٠٢٦-١١-٠١;٠٨:٠٢;١٦:٠٥\n"
     ).encode("utf-8-sig")
     parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", {
         "SEC-01": 1, "فايز": 1,
@@ -202,10 +202,10 @@ def test_csv_with_arabic_headers_and_utf8_bom_is_parsed():
 
 def test_csv_detects_invalid_date_and_duplicate_punch_rows():
     raw = (
-        "Employee ID,Employee Name,Date,Clock In,Clock Out\\n"
-        "SEC-01,Fayez,2026-11-01,08:00,16:00\\n"
-        "SEC-01,Fayez,2026-11-01,08:00,16:00\\n"
-        "SEC-01,Fayez,not-a-date,08:10,16:10\\n"
+        "Employee ID,Employee Name,Date,Clock In,Clock Out\n"
+        "SEC-01,Fayez,2026-11-01,08:00,16:00\n"
+        "SEC-01,Fayez,2026-11-01,08:00,16:00\n"
+        "SEC-01,Fayez,not-a-date,08:10,16:10\n"
     ).encode("utf-8")
     parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", ALIASES)
     assert len(parsed["events"]) == 2
@@ -216,9 +216,9 @@ def test_csv_detects_invalid_date_and_duplicate_punch_rows():
 def test_malformed_or_unrecognized_csv_is_rejected():
     with pytest.raises(ValueError, match="attendance_headers_not_found"):
         parse_attendance_workbook(
-            b"one;two;three\\n1;2;3\\n", "bad.csv", "program_report", ALIASES
+            b"one;two;three\n1;2;3\n", "bad.csv", "program_report", ALIASES
         )
     with pytest.raises(ValueError, match="csv_encoding_not_supported"):
         parse_attendance_workbook(
-            b"\\xff\\xfe\\x80", "bad.csv", "program_report", ALIASES
+            b"\xff\xfe\x80", "bad.csv", "program_report", ALIASES
         )
