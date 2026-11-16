@@ -100,7 +100,7 @@ def test_rejects_unknown_extension_and_empty_file():
     with pytest.raises(ValueError, match="empty_attendance_file"):
         parse_attendance_workbook(b"", "x.xlsx", "fingerprint", ALIASES)
     with pytest.raises(ValueError, match="unsupported_attendance_file_extension"):
-        parse_attendance_workbook(b"abc", "x.csv", "fingerprint", ALIASES)
+        parse_attendance_workbook(b"abc", "x.txt", "fingerprint", ALIASES)
 
 
 
@@ -164,21 +164,95 @@ def test_fingerprint_att_log_matrix_parses_day_columns_and_concatenated_tokens()
     assert parsed["sheet_count"] == 4
     assert parsed["period_start"] == date(2026, 10, 1)
     assert parsed["period_end"] == date(2026, 10, 31)
-    assert len(parsed["events"]) == 10
+    assert len(parsed["events"]) == 8
     assert [event["punch_at"].time() for event in parsed["events"][:5]] == [
         time(0, 25), time(7, 50), time(16, 9), time(15, 48), time(23, 54)
     ]
     assert [event["punch_at"] for event in parsed["events"][3:5]] == [
         datetime(2026, 10, 2, 15, 48), datetime(2026, 10, 2, 23, 54)
     ]
-    assert [event["punch_at"].time() for event in parsed["events"][5:9]] == [
-        time(8, 2), time(8, 2), time(16, 58), time(16, 58)
+    assert [event["punch_at"].time() for event in parsed["events"][5:7]] == [
+        time(8, 2), time(16, 58)
     ]
-    assert [event["punch_at"].time() for event in parsed["events"][9:]] == [time(8, 0)]
+    assert [event["punch_at"].time() for event in parsed["events"][7:]] == [time(8, 0)]
     assert [event["employee_id"] for event in parsed["events"]] == [
-        101, 101, 101, 101, 101, 105, 105, 105, 105, None
+        101, 101, 101, 101, 101, 105, 105, None
     ]
     assert parsed["events"][0]["source_sheet"] == "Att.log report"
     assert parsed["events"][0]["source_row"] == 6
     assert parsed["events"][0]["raw_timestamp"] == "00:2507:5016:09"
-    assert [issue["reason"] for issue in parsed["issues"]] == ["unknown_employee"]
+    assert [issue["reason"] for issue in parsed["issues"]].count("unknown_employee") == 1
+    assert [issue["reason"] for issue in parsed["issues"]].count("duplicate_punch") == 2
+
+
+
+def test_csv_with_arabic_headers_and_utf8_bom_is_parsed():
+    raw = (
+        "رقم الموظف;اسم الموظف;التاريخ;وقت الحضور;وقت الانصراف\n"
+        "SEC-01;فايز;٢٠٢٦-١١-٠١;٠٨:٠٢;١٦:٠٥\n"
+    ).encode("utf-8-sig")
+    parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", {
+        "SEC-01": 1, "فايز": 1,
+    })
+    assert len(parsed["events"]) == 2
+    assert parsed["events"][0]["employee_id"] == 1
+    assert parsed["events"][0]["punch_at"] == datetime(2026, 11, 1, 8, 2)
+    assert parsed["events"][1]["event_type"] == "OUT"
+    assert parsed["issues"] == []
+
+
+def test_csv_detects_invalid_date_and_duplicate_punch_rows():
+    raw = (
+        "Employee ID,Employee Name,Date,Clock In,Clock Out\n"
+        "SEC-01,Fayez,2026-11-01,08:00,16:00\n"
+        "SEC-01,Fayez,2026-11-01,08:00,16:00\n"
+        "SEC-01,Fayez,not-a-date,08:10,16:10\n"
+    ).encode("utf-8")
+    parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", ALIASES)
+    assert len(parsed["events"]) == 2
+    assert any(issue["reason"] == "duplicate_punch" for issue in parsed["issues"])
+    assert any(issue["reason"] == "invalid_or_missing_date" for issue in parsed["issues"])
+
+
+def test_malformed_or_unrecognized_csv_is_rejected():
+    with pytest.raises(ValueError, match="attendance_headers_not_found"):
+        parse_attendance_workbook(
+            b"one;two;three\n1;2;3\n", "bad.csv", "program_report", ALIASES
+        )
+    with pytest.raises(ValueError, match="invalid_csv_file"):
+        parse_attendance_workbook(
+            b'Employee ID,Date,Clock In,Clock Out\n"SEC-01,2026-11-01,08:00,16:00\n',
+            "bad.csv", "program_report", ALIASES
+        )
+
+
+def test_xlsx_attendance_import_still_works_with_csv_support():
+    raw = workbook_bytes([("Sheet1", [
+        ["AC-No.", "Name", "Date", "Clock In", "Clock Out"],
+        ["SEC-01", "Fayez", date(2026, 11, 1), time(8, 2), time(16, 5)],
+    ])])
+    parsed = parse_attendance_workbook(raw, "legacy-report.xlsx", "program_report", ALIASES)
+    assert len(parsed["events"]) == 2
+    assert parsed["events"][0]["punch_at"] == datetime(2026, 11, 1, 8, 2)
+
+
+def test_csv_supports_windows_1256_arabic_encoding():
+    raw = (
+        "رقم الموظف;اسم الموظف;التاريخ;وقت الحضور;وقت الانصراف\n"
+        "SEC-01;فايز;2026-11-01;08:00;16:00\n"
+    ).encode("cp1256")
+    parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", {
+        "SEC-01": 1, "فايز": 1,
+    })
+    assert len(parsed["events"]) == 2
+    assert parsed["events"][0]["employee_id"] == 1
+
+
+def test_csv_rejects_rows_with_inconsistent_column_counts():
+    raw = (
+        "Employee ID,Employee Name,Date,Clock In,Clock Out\n"
+        "SEC-01,Fayez,2026-11-01,08:00,16:00,EXTRA\n"
+    ).encode("utf-8")
+    parsed = parse_attendance_workbook(raw, "attendance.csv", "program_report", ALIASES)
+    assert parsed["events"] == []
+    assert parsed["issues"][0]["reason"] == "invalid_row_column_count"

@@ -10,12 +10,13 @@ PATTERNS = [
     {"id": 4, "start_time": time(8, 0), "end_time": time(16, 0)},
     {"id": 5, "start_time": time(16, 0), "end_time": time(0, 0)},
     {"id": 6, "start_time": time(0, 0), "end_time": time(12, 0)},
+    {"id": 7, "start_time": time(12, 0), "end_time": time(0, 0)},
 ]
 
 
 def test_two_working_security_employees_receive_12_hour_shifts():
     result = build_security_day_proposal(
-        {"fayez": "OFF", "yasser": "20:00", "walid": "08:00"},
+        {"yasser": "20:00", "walid": "08:00"},
         PATTERNS,
     )
     assert result["status"] == "ready_for_admin_review"
@@ -37,7 +38,7 @@ def test_three_working_security_employees_receive_8_hour_shifts():
 
 def test_midnight_is_a_shift_start_not_a_rest_day():
     result = build_security_day_proposal(
-        {"fayez": "00:00", "yasser": "OFF", "walid": "08:00"},
+        {"fayez": "00:00", "walid": "12:00"},
         PATTERNS,
     )
     assert result["status"] == "ready_for_admin_review"
@@ -52,12 +53,12 @@ def test_invalid_working_count_requires_review():
         PATTERNS,
     )
     assert result["status"] == "needs_review"
-    assert result["issues"] == ["daily_security_working_count_must_be_two_or_three"]
+    assert result["issues"] == ["daily_security_working_count_must_cover_full_day"]
 
 
 def test_missing_pattern_is_not_guessed():
     result = build_security_day_proposal(
-        {"fayez": "OFF", "yasser": "19:00", "walid": "07:00"},
+        {"yasser": "19:00", "walid": "07:00"},
         PATTERNS,
     )
     assert result["status"] == "needs_review"
@@ -71,3 +72,38 @@ def test_duplicate_start_times_require_review():
     )
     assert result["status"] == "needs_review"
     assert result["issues"] == ["duplicate_security_shift_start_times"]
+
+
+
+def test_four_active_team_members_use_three_contiguous_eight_hour_shifts():
+    roster = {"one": "00:00", "two": "08:00", "three": "16:00", "four": "OFF"}
+    result = build_security_day_proposal(roster, PATTERNS)
+    assert result["status"] == "ready_for_admin_review"
+    assert len(result["assignments"]) == 3
+    assert {item["duration_hours"] for item in result["assignments"]} == {8}
+
+
+def test_team_of_three_cannot_create_overlapping_or_gapped_shifts():
+    result = build_security_day_proposal(
+        {"one": "00:00", "two": "09:00", "three": "16:00"}, PATTERNS
+    )
+    assert result["status"] == "needs_review"
+    assert result["issues"] == [
+        "security_shifts_must_cover_24_hours_without_gaps_or_overlaps"
+    ]
+
+
+def test_team_with_one_working_person_is_rejected():
+    result = build_security_day_proposal(
+        {"one": "OFF", "two": "OFF", "three": "08:00"}, PATTERNS
+    )
+    assert result["status"] == "needs_review"
+    assert result["issues"] == ["daily_security_working_count_must_cover_full_day"]
+
+
+def test_all_active_security_employees_cannot_be_off_on_the_same_day():
+    result = build_security_day_proposal(
+        {"one": "OFF", "two": "OFF", "three": "OFF"}, PATTERNS
+    )
+    assert result["status"] == "needs_review"
+    assert result["assignments"] == []

@@ -37,6 +37,8 @@ def roster_db():
             ("NIGHT", time(0, 0), time(8, 0)),
             ("MORNING", time(8, 0), time(16, 0)),
             ("EVENING", time(16, 0), time(0, 0)),
+            ("LONG_DAY", time(0, 0), time(12, 0)),
+            ("LONG_NIGHT", time(12, 0), time(0, 0)),
         )
         for code, start, end in patterns:
             db.add(ShiftPattern(
@@ -205,3 +207,30 @@ def test_persistence_conflict_rolls_back_entire_day(roster_db, monkeypatch):
     monkeypatch.setattr(db, "flush", original_flush)
     assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 0
     assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
+
+
+def test_two_active_security_employees_can_prepare_and_confirm_twelve_hour_coverage(roster_db):
+    db, employees, admin = roster_db
+    employees[2].status = "inactive"
+    db.commit()
+    parsed = {
+        "employee_headers": {
+            employees[0].id: employees[0].full_name,
+            employees[1].id: employees[1].full_name,
+        },
+        "records": [{
+            "work_date": date(2026, 11, 2),
+            "roster": {employees[0].id: time(0, 0), employees[1].id: time(12, 0)},
+        }],
+        "issues": [],
+    }
+    prepared = prepare_security_roster(db, parsed)
+    day = prepared["days"][0]
+    assert day["can_confirm"] is True
+    assert {item["duration_hours"] for item in day["proposal"]["assignments"]} == {12}
+    confirmed = confirm_security_roster_day(
+        db, day["work_date"], day["roster"], admin, parsed["issues"]
+    )
+    db.commit()
+    assert len(confirmed["assignments"]) == 2
+    assert db.scalar(select(func.count()).select_from(SecurityShiftAssignment)) == 2

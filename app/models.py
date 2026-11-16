@@ -675,3 +675,29 @@ class BackupRun(Base):
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     initiated_by: Mapped[str] = mapped_column(String(80), nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class AICommandApproval(Base):
+    __tablename__ = "ai_command_approvals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    actor: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    plan_json: Mapped[str] = mapped_column(Text, nullable=False)
+    plan_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class AIConversationMessage(Base):
+    __tablename__ = "ai_conversation_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)

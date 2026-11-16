@@ -55,14 +55,12 @@ def test_duplicate_dates_are_reported():
     assert any(x["reason"] == "duplicate_date" for x in result["issues"])
 
 
-def test_unknown_employee_mapping_is_rejected():
+def test_unknown_employee_mapping_is_reported_for_two_person_active_team():
     data = _workbook_bytes([["Date", "Fayez", "Yasser", "Walid"]])
-    try:
-        parse_security_roster_xlsx(data, {"Fayez": 11, "Yasser": 12})
-    except ValueError as exc:
-        assert str(exc) == "aliases_must_resolve_to_exactly_three_unique_security_employees"
-    else:
-        raise AssertionError("expected ValueError")
+    result = parse_security_roster_xlsx(data, {"Fayez": 11, "Yasser": 12})
+    assert result["status"] == "needs_review"
+    assert result["records"] == []
+    assert result["issues"][0]["reason"] == "unknown_security_employee_header"
 
 
 def test_duplicate_employee_headers_are_reported_without_silently_collapsing():
@@ -185,3 +183,13 @@ def test_explicit_header_only_sheet_is_not_silently_replaced():
     assert parsed["status"] == "needs_review"
     assert parsed["records"] == []
     assert parsed["issues"][0]["reason"] == "no_valid_roster_rows"
+
+
+def test_roster_import_accepts_two_active_security_employees():
+    data = _workbook_bytes([
+        ["Date", "Fayez", "Yasser"],
+        [date(2026, 11, 1), time(0, 0), time(12, 0)],
+    ])
+    result = parse_security_roster_xlsx(data, {"Fayez": 11, "Yasser": 12})
+    assert result["status"] == "parsed_for_review"
+    assert result["records"][0]["roster"] == {11: time(0, 0), 12: time(12, 0)}
