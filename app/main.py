@@ -45,7 +45,8 @@ from app.attendance_import import parse_attendance_workbook, normalize as normal
 from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 from app.ai_assistant import ask_local_model, local_fallback_answer, local_model_status
-from app.ai_agent import run_ai_command, is_command_request
+from app.ai_agent import is_command_request
+from app.ai_gateway import prepare_command, approve_command, reject_command, recent_memory
 
 SECURITY_ROSTER_MAX_BYTES = 5 * 1024 * 1024
 SECURITY_ROSTER_STAGING_DIR = Path("var") / "security_roster_staging"
@@ -309,12 +310,21 @@ def ai_ask(
     question = question.strip()
     if not question or len(question) > 2000:
         raise HTTPException(status_code=400, detail="اكتب أمرًا أو سؤالًا من 1 إلى 2000 حرف.")
+
+    pending = None
+    answer = None
     if is_command_request(question):
         try:
-            result = run_ai_command(question, admin.username)
-            answer = result["message"]
+            result = prepare_command(question, admin.username)
+            pending = {
+                "token": result["token"],
+                "summary": result["summary"],
+                "plan": result["plan"],
+                "expires_at": result["expires_at"].isoformat(),
+            }
+            answer = "تم إعداد خطة التنفيذ. لن يتم أي تعديل قبل موافقتك الصريحة."
         except (RuntimeError, ValueError, SQLAlchemyError) as exc:
-            answer = f"لم يتم تنفيذ الأمر: {exc}"
+            answer = f"لم يتم إعداد العملية: {exc}"
     else:
         with SessionLocal() as db:
             context = {
@@ -333,11 +343,11 @@ def ai_ask(
                     )) or 0,
                 }
             }
-        status = local_model_status()
         try:
             answer = ask_local_model(question, context)
         except RuntimeError:
             answer = local_fallback_answer(question, context)
+
     return templates.TemplateResponse(
         request=request,
         name="ai.html",
@@ -347,6 +357,58 @@ def ai_ask(
             "status": local_model_status(),
             "question": question,
             "answer": answer,
+            "pending": pending,
+            "memory": recent_memory(admin.username),
+        },
+    )
+
+
+@app.post("/ai/approve", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def ai_approve(
+    request: Request,
+    token: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        answer = approve_command(token.strip(), admin.username)
+    except (RuntimeError, ValueError, SQLAlchemyError) as exc:
+        answer = f"لم يتم تنفيذ العملية: {exc}"
+    return templates.TemplateResponse(
+        request=request,
+        name="ai.html",
+        context={
+            "admin": admin.username,
+            "csrf_token": get_csrf_token(request),
+            "status": local_model_status(),
+            "question": "",
+            "answer": answer,
+            "pending": None,
+            "memory": recent_memory(admin.username),
+        },
+    )
+
+
+@app.post("/ai/reject", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def ai_reject(
+    request: Request,
+    token: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        answer = reject_command(token.strip(), admin.username)
+    except (RuntimeError, ValueError, SQLAlchemyError) as exc:
+        answer = f"لم يتم رفض العملية: {exc}"
+    return templates.TemplateResponse(
+        request=request,
+        name="ai.html",
+        context={
+            "admin": admin.username,
+            "csrf_token": get_csrf_token(request),
+            "status": local_model_status(),
+            "question": "",
+            "answer": answer,
+            "pending": None,
+            "memory": recent_memory(admin.username),
         },
     )
 
