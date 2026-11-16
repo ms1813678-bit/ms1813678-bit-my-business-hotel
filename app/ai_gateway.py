@@ -51,7 +51,12 @@ def recent_memory(actor: str, limit: int = 12) -> list[dict[str, str]]:
 
 
 def prepare_command(question: str, actor: str) -> dict[str, Any]:
-    plan = build_plan(question)
+    history = recent_memory(actor, limit=8)
+    history_text = "\n".join(f"{item['role']}: {item['content']}" for item in history)
+    planning_question = question
+    if history_text:
+        planning_question = f"السياق السابق للمحادثة (للفهم فقط):\\n{history_text}\\n\\nالأمر الحالي: {question}"
+    plan = build_plan(planning_question)
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
     expires = now + timedelta(minutes=APPROVAL_TTL_MINUTES)
