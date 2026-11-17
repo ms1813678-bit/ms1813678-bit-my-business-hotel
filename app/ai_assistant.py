@@ -79,9 +79,12 @@ def ask_local_model(question: str, context: dict[str, Any]) -> str:
         answer_security_roster_comparison,
         is_security_comparison_request,
     )
+    from app.ai_hr_queries import answer_structured_hr_query, is_structured_hr_query
     if is_security_comparison_request(question):
         # Deterministic review report; does not mutate attendance or payroll.
         return answer_security_roster_comparison(question)
+    if is_structured_hr_query(question):
+        return answer_structured_hr_query(question)
     status = local_model_status()
     if not status["available"]:
         raise RuntimeError(status["message"])
@@ -115,8 +118,11 @@ def local_fallback_answer(question: str, context: dict[str, Any]) -> str:
         answer_security_roster_comparison,
         is_security_comparison_request,
     )
+    from app.ai_hr_queries import answer_structured_hr_query, is_structured_hr_query
     if is_security_comparison_request(question):
         return answer_security_roster_comparison(question)
+    if is_structured_hr_query(question):
+        return answer_structured_hr_query(question)
     q = " ".join(question.casefold().split())
     metrics = context.get("metrics", {})
     if any(term in q for term in ("عدد الموظفين", "الموظفين النشطين", "الموظفون النشطون")):
