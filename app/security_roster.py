@@ -1,10 +1,24 @@
-"""Build full-day security shift proposals from the active team size.
+"""Build full-day security shift proposals from guards actually working that day.
 
-The Excel roster supplies each employee's shift START time or OFF. Two active
-employees use two 12-hour shifts; teams of three or more use three 8-hour shifts.
-Proposals must cover a complete day without gaps or overlaps and are never persisted here.
+The Excel roster supplies each employee's shift START time or OFF. OFF is excluded
+before the model is chosen. Exactly two working guards use the approved 12-hour
+windows (08:00–20:00 and 20:00–08:00). More than two use the three approved
+8-hour windows (08:00–16:00, 16:00–00:00, 00:00–08:00). Several guards may share
+one start time. A day is ready for review only when every required window is
+covered and each one resolves to exactly one ShiftPattern. Nothing is persisted here.
 """
 from datetime import time
+
+
+_TWELVE_HOUR_WINDOWS = {
+    time(8, 0): time(20, 0),
+    time(20, 0): time(8, 0),
+}
+_EIGHT_HOUR_WINDOWS = {
+    time(8, 0): time(16, 0),
+    time(16, 0): time(0, 0),
+    time(0, 0): time(8, 0),
+}
 
 
 def _as_time(value):
@@ -15,29 +29,25 @@ def _as_time(value):
     raise ValueError("Shift start must be a time or an HH:MM[:SS] string.")
 
 
-def _plus_hours(start, hours):
-    total = (start.hour * 60 + start.minute + hours * 60) % (24 * 60)
-    return time(total // 60, total % 60)
-
-
 def _pattern_time(value):
     return _as_time(value)
+
+
+def _needs_review(issues):
+    return {"status": "needs_review", "assignments": [], "issues": issues}
 
 
 def build_security_day_proposal(roster, shift_patterns):
     """Return a reviewable proposal for one date.
 
     roster maps every active employee ID to an HH:MM start time or "OFF".
-    A two-person active team receives two 12-hour shifts; larger teams use
-    three 8-hour shifts per day. Every shift must resolve to one configured
-    Security ShiftPattern and the day must be covered without gaps or overlaps.
+    The shift model follows the number of guards working after OFF is excluded,
+    not the size of the roster. Repeated start times are allowed. The work date
+    stays the date the shift starts; this function does not move overnight work
+    onto the next calendar day.
     """
     if not isinstance(roster, dict) or len(roster) < 2:
-        return {
-            "status": "needs_review",
-            "assignments": [],
-            "issues": ["security_roster_requires_at_least_two_active_employees"],
-        }
+        return _needs_review(["security_roster_requires_at_least_two_active_employees"])
 
     working = []
     issues = []
@@ -52,38 +62,25 @@ def build_security_day_proposal(roster, shift_patterns):
         working.append((employee_id, start))
 
     if issues:
-        return {"status": "needs_review", "assignments": [], "issues": issues}
+        return _needs_review(issues)
 
-    starts = [start for _, start in working]
-    if len(set(starts)) != len(starts):
-        return {
-            "status": "needs_review",
-            "assignments": [],
-            "issues": ["duplicate_security_shift_start_times"],
-        }
+    if len(working) < 2:
+        return _needs_review(["daily_security_working_count_must_cover_full_day"])
 
-    expected_working = 2 if len(roster) == 2 else 3
-    if len(working) != expected_working:
-        return {
-            "status": "needs_review",
-            "assignments": [],
-            "issues": ["daily_security_working_count_must_cover_full_day"],
-        }
+    if len(working) == 2:
+        windows = _TWELVE_HOUR_WINDOWS
+        duration = 12
+    else:
+        windows = _EIGHT_HOUR_WINDOWS
+        duration = 8
 
-    duration = 12 if len(roster) == 2 else 8
-    ordered = sorted(working, key=lambda item: item[1])
-    for index, (_employee_id, start) in enumerate(ordered):
-        next_start = ordered[(index + 1) % len(ordered)][1]
-        if _plus_hours(start, duration) != next_start:
-            return {
-                "status": "needs_review",
-                "assignments": [],
-                "issues": ["security_shifts_must_cover_24_hours_without_gaps_or_overlaps"],
-            }
+    unique_starts = {start for _, start in working}
+    if unique_starts != set(windows):
+        return _needs_review(["security_shifts_must_cover_24_hours_without_gaps_or_overlaps"])
 
     assignments = []
     for employee_id, start in working:
-        end = _plus_hours(start, duration)
+        end = windows[start]
         matches = [
             pattern for pattern in shift_patterns
             if _pattern_time(pattern["start_time"]) == start
@@ -104,8 +101,11 @@ def build_security_day_proposal(roster, shift_patterns):
             "shift_pattern_id": matches[0]["id"],
         })
 
+    if issues:
+        return _needs_review(issues)
+
     return {
-        "status": "ready_for_admin_review" if not issues else "needs_review",
+        "status": "ready_for_admin_review",
         "assignments": assignments,
-        "issues": issues,
+        "issues": [],
     }
