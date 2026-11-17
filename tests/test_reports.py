@@ -214,7 +214,7 @@ def test_dashboard_displays_live_hr_workflow_metrics(monkeypatch):
             response = client.get("/")
         assert response.status_code == 200
         assert "الموظفون النشطون" in response.text
-        assert "مسيرات الرواتب المفتوحة" in response.text
+        assert "مسيرات رواتب مفتوحة" in response.text
         assert "0" in response.text
     finally:
         app.dependency_overrides.clear()
