@@ -4,32 +4,31 @@ A local-first HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. 
 
 ## Delivery status
 
-**Still under development — not production-ready.** The feature branches contain substantial HR modules, but the complete release has not yet been integrated, installed, and accepted on the target Windows computer. Do not enter real employee or payroll data until the final delivery gates are passed.
+**Feature-complete on branch `integration/continue-safe-v1` for local testing — not yet production-accepted.**  
+Do **not** enter real employee or payroll data until Windows installation, backup/restore, and owner acceptance are completed. `main` is unchanged until the owner explicitly approves a merge.
 
-## Implemented in the current feature stack
+### Verified on this integration branch
 
 - Single administrator authentication, session security, CSRF protection, and immutable audit history.
-- Employee register, department/branch assignment, employee code sequence, archive/rehire history, and employee change history.
-- Attendance workbook imports, raw source retention, reconciliation, exception review, and explicit daily/monthly approval.
-- Leave types, manually entered opening balances, leave confirmation/cancellation, and balance transaction history.
-- Salary advances with the 15th–22nd request window, separate regular/installment rules, a 25% cap only for regular advances, and an auditable installment ledger consumed by payroll.
-- Sanctions and rewards with manual financial amounts and payroll-month assignment.
-- Monthly payroll runs, employee snapshots, approval/close/reopen workflow, manual insurance/tax entries, and cash/bank payment ledger.
-- Multi-sheet Excel reports, Arabic-capable PDF reports, and live HR dashboard metrics. Reports are requested manually by the administrator with an explicit date range and either all employees or one selected employee.
-- Optional local AI assistant (read-only by default; explicit command prefix required for writes).
-- Modern RTL admin UI shell with sidebar navigation and metric cards.
+- Employee register, department/branch assignment, non-reusable employee codes, archive/rehire history.
+- Attendance workbook imports, raw source retention, reconciliation, exception review, daily/monthly approval.
+- Security roster import and proposal with approved 12-hour / 8-hour coverage rules (working guards after OFF).
+- Leave types, opening balances, confirmation/cancellation, balance transaction history.
+- Salary advances (regular 25% cap; installment advances 1–36 periods) with payroll installment ledger.
+- Sanctions and rewards with manual amounts and payroll-month assignment.
+- Monthly payroll runs, snapshots, overtime approval gate, close/reopen, payment ledger.
+- Manual Excel/PDF reports with date range and employee scope; local file save only.
+- Local AI assistant as a **core product feature** (always present in the UI). If the local model is temporarily unavailable, core HR/payroll continues. Write actions require explicit administrator approval. Security roster vs fingerprint comparison is available as a read-only review report.
+- RTL Arabic admin UI shell with live dashboard metrics.
+- Automated tests excluding live PostgreSQL concurrency/migration suites: **279 passed** on the last full non-Postgres run.
 
-These modules are still being reviewed and tested on separate pull requests. Their presence on feature branches does not mean they have been merged into main.
+### Still required before production release
 
-## Still required before release
-
-- Final integration and migration review across all feature branches.
-- Complete Arabic/English language selection and consistent RTL/LTR coverage.
-- Verified backup and restore system, including external-drive retention and restore testing.
-- Optional local/offline AI assistant remains optional; it must never be required for core operations.
-- Reports specification is manual: the administrator chooses report type, start/end dates, and all employees or one employee.
-- Full **Windows 10 or Windows 11** installation, upgrade, backup/restore, and end-to-end acceptance on the target computer.
-- Final review of unresolved payroll policy wording before approving live payroll calculations.
+1. Run PostgreSQL migration and concurrency tests against a real local PostgreSQL instance.
+2. Full backup and restore verification on the target computer (including external drive if used).
+3. Windows 10/11 installation via `docs/WINDOWS_INSTALL.md` and `scripts/windows/setup.ps1` on the hotel PC.
+4. Owner end-to-end acceptance: attendance month → security roster → payroll → report with synthetic data only.
+5. Explicit owner approval to merge `integration/continue-safe-v1` into `main`.
 
 ## Local Windows setup
 
