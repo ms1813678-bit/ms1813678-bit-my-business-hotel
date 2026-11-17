@@ -75,6 +75,13 @@ def build_system_prompt() -> str:
 
 def ask_local_model(question: str, context: dict[str, Any]) -> str:
     """Ask the configured local model; raises RuntimeError when unavailable."""
+    from app.security_roster_compare import (
+        answer_security_roster_comparison,
+        is_security_comparison_request,
+    )
+    if is_security_comparison_request(question):
+        # Deterministic review report; does not mutate attendance or payroll.
+        return answer_security_roster_comparison(question)
     status = local_model_status()
     if not status["available"]:
         raise RuntimeError(status["message"])
@@ -104,6 +111,12 @@ def ask_local_model(question: str, context: dict[str, Any]) -> str:
 
 def local_fallback_answer(question: str, context: dict[str, Any]) -> str:
     """Provide useful deterministic help even when no model is installed."""
+    from app.security_roster_compare import (
+        answer_security_roster_comparison,
+        is_security_comparison_request,
+    )
+    if is_security_comparison_request(question):
+        return answer_security_roster_comparison(question)
     q = " ".join(question.casefold().split())
     metrics = context.get("metrics", {})
     if any(term in q for term in ("عدد الموظفين", "الموظفين النشطين", "الموظفون النشطون")):
