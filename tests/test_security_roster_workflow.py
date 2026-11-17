@@ -37,8 +37,8 @@ def roster_db():
             ("NIGHT", time(0, 0), time(8, 0)),
             ("MORNING", time(8, 0), time(16, 0)),
             ("EVENING", time(16, 0), time(0, 0)),
-            ("LONG_DAY", time(0, 0), time(12, 0)),
-            ("LONG_NIGHT", time(12, 0), time(0, 0)),
+            ("LONG_DAY", time(8, 0), time(20, 0)),
+            ("LONG_NIGHT", time(20, 0), time(8, 0)),
         )
         for code, start, end in patterns:
             db.add(ShiftPattern(
@@ -220,7 +220,7 @@ def test_two_active_security_employees_can_prepare_and_confirm_twelve_hour_cover
         },
         "records": [{
             "work_date": date(2026, 11, 2),
-            "roster": {employees[0].id: time(0, 0), employees[1].id: time(12, 0)},
+            "roster": {employees[0].id: time(8, 0), employees[1].id: time(20, 0)},
         }],
         "issues": [],
     }
