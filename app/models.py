@@ -400,3 +400,101 @@ class LeaveBalanceTransaction(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     actor: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PayrollPeriod(Base):
+    """Monthly payroll run sourced from an explicitly approved attendance month."""
+    __tablename__ = "payroll_periods"
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_payroll_period_year_month"),
+        CheckConstraint("month BETWEEN 1 AND 12", name="ck_payroll_period_month"),
+        CheckConstraint("year >= 2000", name="ck_payroll_period_year"),
+        CheckConstraint(
+            "status IN ('draft', 'approved', 'closed', 'reopened')",
+            name="ck_payroll_period_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, nullable=False)
+    attendance_month_id: Mapped[int] = mapped_column(
+        ForeignKey("attendance_months.id", ondelete="RESTRICT"), unique=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), default="draft", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_reason: Mapped[str | None] = mapped_column(Text)
+    closed_by: Mapped[str | None] = mapped_column(String(80))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopened_by: Mapped[str | None] = mapped_column(String(80))
+    reopened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reopen_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class PayrollLine(Base):
+    """Auditable employee payroll snapshot and administrator-entered adjustments."""
+    __tablename__ = "payroll_lines"
+    __table_args__ = (
+        UniqueConstraint("payroll_period_id", "employee_id", name="uq_payroll_period_employee"),
+        CheckConstraint("base_salary >= 0", name="ck_payroll_line_salary_nonnegative"),
+        CheckConstraint("daily_hours > 0 AND daily_hours <= 24", name="ck_payroll_line_hours_range"),
+        CheckConstraint("absence_days >= 0", name="ck_payroll_line_absence_nonnegative"),
+        CheckConstraint("late_minutes >= 0 AND early_minutes >= 0", name="ck_payroll_line_minutes_nonnegative"),
+        CheckConstraint(
+            "attendance_bonus >= 0 AND performance_bonus >= 0 AND occupancy_bonus >= 0 "
+            "AND overtime_hours >= 0 AND other_bonuses >= 0",
+            name="ck_payroll_line_earnings_nonnegative",
+        ),
+        CheckConstraint(
+            "insurance_share >= 0 AND tax_withheld >= 0 AND other_deductions >= 0 "
+            "AND advance_deduction >= 0",
+            name="ck_payroll_line_deductions_nonnegative",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payroll_period_id: Mapped[int] = mapped_column(ForeignKey("payroll_periods.id", ondelete="RESTRICT"), index=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="RESTRICT"), index=True)
+    employee_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    employee_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    base_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    daily_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    attendance_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    performance_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    occupancy_bonus: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    overtime_hours: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=0, nullable=False)
+    other_bonuses: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    absence_days: Mapped[Decimal] = mapped_column(Numeric(6, 2), default=0, nullable=False)
+    late_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    early_minutes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    insurance_share: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    tax_withheld: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    other_deductions: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    advance_deduction: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, nullable=False)
+    base_pay: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    overtime_pay: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    absence_deduction: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    lateness_deduction: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    gross_pay: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    net_pay: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    payment_status: Mapped[str] = mapped_column(String(20), default="unpaid", nullable=False)
+    review_notes: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PayrollPayment(Base):
+    """Cash or transfer settlement, supporting partial payments."""
+    __tablename__ = "payroll_payments"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payroll_payment_amount_positive"),
+        CheckConstraint("method IN ('cash', 'bank_transfer')", name="ck_payroll_payment_method"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    payroll_line_id: Mapped[int] = mapped_column(ForeignKey("payroll_lines.id", ondelete="RESTRICT"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    paid_on: Mapped[date] = mapped_column(Date, nullable=False)
+    method: Mapped[str] = mapped_column(String(30), nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(120))
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
