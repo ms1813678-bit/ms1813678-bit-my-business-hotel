@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>السلف والجزاءات والمكافآت</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">الإدارة المالية والموارد البشرية</p>
+        <h1>السلف والجزاءات والمكافآت</h1>
+        <p>نافذة السلف من 15 إلى 22. الحد الأقصى للسلف القائمة 25٪ من الراتب الأساسي. الخصم الكامل في مسير الشهر التالي.</p>
+      </div>
+      <nav class="header-actions">
+        <a href="/">لوحة التحكم</a>
+        <a href="/payroll">الرواتب</a>
+      </nav>
+    </header>
+
+    {% if error %}<p class="banner error">{{ error }}</p>{% endif %}
+
+    <section class="card">
+      <h2>تسجيل سلفة</h2>
+      <form method="post" action="/staff-finance/advances" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>الموظف
+          <select name="employee_id" required>
+            {% for emp in employees %}
+            <option value="{{ emp.id }}">{{ emp.code }} — {{ emp.full_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>تاريخ الطلب <input type="date" name="request_date" required></label>
+        <label>المبلغ <input type="number" step="0.01" min="0.01" name="amount" required></label>
+        <label>السبب <input type="text" name="reason" required></label>
+        <button type="submit">حفظ السلفة</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>السلف النشطة</h2>
+      <table>
+        <thead><tr><th>الموظف</th><th>التاريخ</th><th>المبلغ</th><th>شهر الخصم</th><th>إجراء</th></tr></thead>
+        <tbody>
+          {% for row in advances %}
+          <tr>
+            <td>{{ row.employee_id }}</td>
+            <td>{{ row.request_date }}</td>
+            <td>{{ row.amount }}</td>
+            <td>{{ row.payroll_year }}-{{ '%02d'|format(row.payroll_month) }}</td>
+            <td>
+              {% if row.status == 'active' %}
+              <form method="post" action="/staff-finance/advances/{{ row.id }}/cancel" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="text" name="reason" placeholder="سبب الإلغاء" required>
+                <button type="submit">إلغاء</button>
+              </form>
+              {% else %}{{ row.status }}{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">لا توجد سلف مسجلة.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>تسجيل جزاء أو مكافأة</h2>
+      <form method="post" action="/staff-finance/actions" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>الموظف
+          <select name="employee_id" required>
+            {% for emp in employees %}
+            <option value="{{ emp.id }}">{{ emp.code }} — {{ emp.full_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>النوع
+          <select name="action_kind">
+            <option value="sanction">جزاء</option>
+            <option value="reward">مكافأة</option>
+          </select>
+        </label>
+        <label>التصنيف
+          <select name="category">
+            <option value="verbal_notice">تنبيه شفهي</option>
+            <option value="first_warning">إنذار أول</option>
+            <option value="final_warning">إنذار نهائي</option>
+            <option value="salary_deduction">خصم من الراتب</option>
+            <option value="suspension">إيقاف</option>
+            <option value="financial_reward">مكافأة مالية</option>
+            <option value="certificate">شهادة</option>
+            <option value="commendation">تقدير</option>
+            <option value="promotion_recommendation">ترشيح للترقية</option>
+          </select>
+        </label>
+        <label>التاريخ <input type="date" name="action_date" required></label>
+        <label>المبلغ (إن وُجد) <input type="number" step="0.01" min="0" name="amount"></label>
+        <label>السبب <input type="text" name="reason" required></label>
+        <button type="submit">حفظ السجل</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>سجلات الجزاءات والمكافآت</h2>
+      <table>
+        <thead><tr><th>الموظف</th><th>النوع</th><th>التصنيف</th><th>المبلغ</th><th>التاريخ</th><th>الحالة</th></tr></thead>
+        <tbody>
+          {% for row in actions %}
+          <tr>
+            <td>{{ row.employee_id }}</td>
+            <td>{{ row.action_kind }}</td>
+            <td>{{ row.category }}</td>
+            <td>{{ row.amount or '-' }}</td>
+            <td>{{ row.action_date }}</td>
+            <td>{{ row.status }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">لا توجد سجلات.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
