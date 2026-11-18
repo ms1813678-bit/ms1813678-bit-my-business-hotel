@@ -711,7 +711,7 @@ def update_payroll_line_route(
             row = db.get(PayrollLine, line_id)
             if row is None or row.payroll_period_id != period_id:
                 raise ValueError("payroll_line_not_found")
-            update_payroll_line(db, line_id=line_id, values=locals_values := {
+            update_payroll_line(db, line_id=line_id, values={
                 "attendance_bonus": attendance_bonus, "performance_bonus": performance_bonus,
                 "occupancy_bonus": occupancy_bonus, "overtime_hours": overtime_hours,
                 "other_bonuses": other_bonuses, "absence_days": absence_days,
@@ -720,7 +720,6 @@ def update_payroll_line_route(
                 "other_deductions": other_deductions, "advance_deduction": advance_deduction,
                 "review_notes": review_notes.strip() or None,
             }, reason=reason, actor=admin.username)
-            del locals_values
             db.commit()
     except ValueError:
         return _payroll_redirect(request, period_id, "تعذر تعديل البند؛ راجع القيم وسبب التعديل وحالة المسير.")
