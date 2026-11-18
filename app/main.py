@@ -19,7 +19,10 @@ from app.db import SessionLocal, engine
 from app.employee_codes import reserve_employee_code
 from app.employee_lifecycle import archive_employee, rehire_employee, update_employee_profile
 from app.leave_service import cancel_leave, confirm_leave, create_leave_type, set_manual_balance
-from app.models import (\n    AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeServicePeriod,\n    EmployeeLeaveBalance, LeaveRecord, LeaveType,\n)
+from app.models import (
+    AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeServicePeriod,
+    EmployeeLeaveBalance, LeaveRecord, LeaveType,
+)
 from app.security import csrf_token_for, rotate_csrf_token, verify_csrf_token
 
 
