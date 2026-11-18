@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>التقارير — {{ app_name }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>التقارير والتصدير</h1>
+        <p class="muted">تقارير Excel محلية للموظفين والحضور والإجازات والرواتب والسلف والجزاءات</p>
+      </div>
+      <div class="actions">
+        <a class="button-link secondary" href="/">لوحة الإدارة</a>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="secondary" type="submit">تسجيل الخروج</button>
+        </form>
+      </div>
+    </header>
+
+    {% if error %}
+    <section class="notice error">
+      <p>{{ error }}</p>
+    </section>
+    {% endif %}
+
+    <section class="notice">
+      <h2>تصدير تقرير Excel</h2>
+      <p>اختر فترة التقرير. يتم توليد ملف Excel متعدد الأوراق محليًا دون إرسال بيانات خارج الجهاز.</p>
+      <form method="post" action="/reports/export">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-row">
+          <label>من تاريخ
+            <input type="date" name="start_date" value="{{ start_date }}" required>
+          </label>
+          <label>إلى تاريخ
+            <input type="date" name="end_date" value="{{ end_date }}" required>
+          </label>
+          <button type="submit">تحميل Excel</button>
+        </div>
+      </form>
+      <p class="muted">الأوراق: الموظفون، الحضور، الإجازات، السلف، الجزاءات/المكافآت، الرواتب، الأقسام.</p>
+    </section>
+
+    <footer>التطبيق يعمل محليًا على جهاز الإدارة فقط. التصدير لا يغيّر أي بيانات.</footer>
+  </main>
+</body>
+</html>
