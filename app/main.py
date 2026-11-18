@@ -17,7 +17,8 @@ from app.auth import authenticate, get_session_admin
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.employee_codes import reserve_employee_code
-from app.models import AdminAccount, AuditLog, Department, Employee, EmployeeChange
+from app.employee_lifecycle import archive_employee, rehire_employee, update_employee_profile
+from app.models import AdminAccount, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeServicePeriod
 from app.security import csrf_token_for, rotate_csrf_token, verify_csrf_token
 
 
@@ -128,11 +129,15 @@ def _employee_page_context(db: Session, request: Request, *, error: str | None =
         .where(Department.active.is_(True))
         .order_by(Department.name)
     ).all()
+    branches = db.scalars(
+        select(Branch).where(Branch.active.is_(True)).order_by(Branch.name)
+    ).all()
     employees = db.scalars(
         select(Employee).order_by(Employee.code)
     ).all()
     return {
         "departments": departments,
+        "branches": branches,
         "employees": employees,
         "error": error,
         "csrf_token": csrf_token_for(request),
@@ -175,6 +180,7 @@ def create_employee(
     national_id: str = Form(""),
     phone: str = Form(""),
     department_id: int = Form(...),
+    branch_id: int = Form(0),
     position: str = Form(...),
     hire_date: date = Form(...),
     basic_salary: Decimal = Form(...),
@@ -228,6 +234,19 @@ def create_employee(
                     status_code=400,
                 )
 
+            selected_branch_id = branch_id or None
+            if selected_branch_id is not None:
+                branch = db.get(Branch, selected_branch_id)
+                if branch is None or not branch.active or branch.department_id != department_id:
+                    return templates.TemplateResponse(
+                        request=request,
+                        name="employees.html",
+                        context=_employee_page_context(
+                            db, request, error="الفرع المحدد غير تابع للقسم المختار."
+                        ),
+                        status_code=400,
+                    )
+
             employee_code = reserve_employee_code(db)
             employee = Employee(
                 code=employee_code,
@@ -235,6 +254,7 @@ def create_employee(
                 national_id=national_id.strip() or None,
                 phone=phone.strip() or None,
                 department_id=department_id,
+                branch_id=selected_branch_id,
                 position=clean_position,
                 hire_date=hire_date,
                 basic_salary=basic_salary,
@@ -245,10 +265,16 @@ def create_employee(
             db.add(employee)
             db.flush()
 
+            db.add(EmployeeServicePeriod(
+                employee_id=employee.id,
+                start_date=hire_date,
+                start_reason="Initial employment",
+            ))
             initial_values = {
                 "code": employee.code,
                 "full_name": employee.full_name,
                 "department_id": department_id,
+                "branch_id": selected_branch_id,
                 "position": clean_position,
                 "hire_date": hire_date.isoformat(),
                 "basic_salary": str(basic_salary),
@@ -285,6 +311,172 @@ def create_employee(
             )
 
     return RedirectResponse("/employees", status_code=303)
+
+
+@app.get("/employees/{employee_id}/edit", response_class=HTMLResponse)
+def edit_employee_page(request: Request, employee_id: int):
+    admin = require_admin(request)
+    if isinstance(admin, RedirectResponse):
+        return admin
+    with SessionLocal() as db:
+        employee = db.get(Employee, employee_id)
+        if employee is None:
+            return HTMLResponse("الموظف غير موجود.", status_code=404)
+        departments = db.scalars(
+            select(Department).where(Department.active.is_(True)).order_by(Department.name)
+        ).all()
+        branches = db.scalars(
+            select(Branch).where(Branch.active.is_(True)).order_by(Branch.name)
+        ).all()
+        periods = db.scalars(
+            select(EmployeeServicePeriod)
+            .where(EmployeeServicePeriod.employee_id == employee_id)
+            .order_by(EmployeeServicePeriod.start_date.desc())
+        ).all()
+        return templates.TemplateResponse(
+            request=request,
+            name="employee_edit.html",
+            context={
+                "employee": employee,
+                "departments": departments,
+                "branches": branches,
+                "periods": periods,
+                "csrf_token": csrf_token_for(request),
+                "error": None,
+            },
+        )
+
+
+@app.post("/employees/{employee_id}/edit", response_class=HTMLResponse)
+def edit_employee(
+    request: Request,
+    employee_id: int,
+    full_name: str = Form(...),
+    national_id: str = Form(""),
+    phone: str = Form(""),
+    address: str = Form(""),
+    department_id: int = Form(...),
+    branch_id: int = Form(0),
+    position: str = Form(...),
+    hire_date: date = Form(...),
+    basic_salary: Decimal = Form(...),
+    daily_hours: Decimal = Form(...),
+    fingerprint_id: str = Form(""),
+    effective_date: date = Form(...),
+    reason: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    admin = require_admin(request)
+    if isinstance(admin, RedirectResponse):
+        return admin
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/employees", status_code=303)
+
+    changes = {
+        "full_name": full_name.strip(),
+        "national_id": national_id.strip() or None,
+        "phone": phone.strip() or None,
+        "address": address.strip() or None,
+        "department_id": department_id,
+        "branch_id": branch_id or None,
+        "position": position.strip(),
+        "hire_date": hire_date,
+        "basic_salary": basic_salary,
+        "daily_hours": daily_hours,
+        "fingerprint_id": fingerprint_id.strip() or None,
+    }
+    try:
+        with SessionLocal() as db:
+            update_employee_profile(
+                db,
+                employee_id=employee_id,
+                changes=changes,
+                effective_date=effective_date,
+                reason=reason,
+                actor=admin.username,
+            )
+            db.commit()
+    except ValueError as exc:
+        message = {
+            "employee_not_found": "الموظف غير موجود.",
+            "employee_change_reason_required": "سبب التعديل مطلوب.",
+            "employee_department_unavailable": "القسم المحدد غير متاح.",
+            "employee_branch_not_in_department": "الفرع المحدد غير تابع للقسم المختار.",
+            "employee_salary_or_hours_invalid": "راجع الراتب وساعات العمل.",
+            "employee_name_and_position_required": "الاسم والمسمى الوظيفي مطلوبان.",
+            "terminated_employee_cannot_be_edited": "الموظف المؤرشف لا يقبل تعديلات مباشرة.",
+        }.get(str(exc), "تعذر حفظ التعديلات. راجع البيانات.")
+        with SessionLocal() as db:
+            employee = db.get(Employee, employee_id)
+            if employee is None:
+                return HTMLResponse("الموظف غير موجود.", status_code=404)
+            departments = db.scalars(select(Department).where(Department.active.is_(True))).all()
+            branches = db.scalars(select(Branch).where(Branch.active.is_(True))).all()
+            periods = db.scalars(select(EmployeeServicePeriod).where(
+                EmployeeServicePeriod.employee_id == employee_id
+            ).order_by(EmployeeServicePeriod.start_date.desc())).all()
+            return templates.TemplateResponse(
+                request=request,
+                name="employee_edit.html",
+                context={
+                    "employee": employee, "departments": departments, "branches": branches,
+                    "periods": periods, "csrf_token": csrf_token_for(request), "error": message,
+                },
+                status_code=400,
+            )
+    except IntegrityError:
+        return RedirectResponse(f"/employees/{employee_id}/edit", status_code=303)
+    return RedirectResponse(f"/employees/{employee_id}/edit", status_code=303)
+
+
+@app.post("/employees/{employee_id}/archive")
+def archive_employee_route(
+    request: Request,
+    employee_id: int,
+    effective_date: date = Form(...),
+    reason: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    admin = require_admin(request)
+    if isinstance(admin, RedirectResponse):
+        return admin
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/employees", status_code=303)
+    try:
+        with SessionLocal() as db:
+            archive_employee(
+                db, employee_id=employee_id, effective_date=effective_date,
+                reason=reason, actor=admin.username,
+            )
+            db.commit()
+    except ValueError:
+        return RedirectResponse(f"/employees/{employee_id}/edit", status_code=303)
+    return RedirectResponse(f"/employees/{employee_id}/edit", status_code=303)
+
+
+@app.post("/employees/{employee_id}/rehire")
+def rehire_employee_route(
+    request: Request,
+    employee_id: int,
+    start_date: date = Form(...),
+    reason: str = Form(...),
+    csrf_token: str = Form(...),
+):
+    admin = require_admin(request)
+    if isinstance(admin, RedirectResponse):
+        return admin
+    if not verify_csrf_token(request, csrf_token):
+        return RedirectResponse("/employees", status_code=303)
+    try:
+        with SessionLocal() as db:
+            rehire_employee(
+                db, employee_id=employee_id, start_date=start_date,
+                reason=reason, actor=admin.username,
+            )
+            db.commit()
+    except ValueError:
+        return RedirectResponse(f"/employees/{employee_id}/edit", status_code=303)
+    return RedirectResponse(f"/employees/{employee_id}/edit", status_code=303)
 
 
 @app.post("/logout")
