@@ -10,14 +10,17 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "attendance_daily_records",
-        sa.Column("approved_clock_in", sa.DateTime(timezone=False), nullable=True),
-    )
-    op.add_column(
-        "attendance_daily_records",
-        sa.Column("approved_clock_out", sa.DateTime(timezone=False), nullable=True),
-    )
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("attendance_daily_records")}
+    if "approved_clock_in" not in columns:
+        op.add_column(
+            "attendance_daily_records",
+            sa.Column("approved_clock_in", sa.DateTime(timezone=False), nullable=True),
+        )
+    if "approved_clock_out" not in columns:
+        op.add_column(
+            "attendance_daily_records",
+            sa.Column("approved_clock_out", sa.DateTime(timezone=False), nullable=True),
+        )
 
 
 def downgrade():
