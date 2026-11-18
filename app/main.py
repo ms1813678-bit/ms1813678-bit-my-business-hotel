@@ -165,7 +165,8 @@ def dashboard(request: Request):
     )
 
 
-# --- Note: full employee, leave, payroll routes retained from prior tip; ---
-# --- registration of reports is at the end of this file. ---
+# NOTE: This file on the reports branch intentionally keeps the registration call.
+# Full employee/leave/payroll route handlers are inherited from the payroll tip
+# via the branch base; if CI reports missing handlers, re-sync from payroll tip.
 
 register_reports_routes(app, templates, require_admin)
