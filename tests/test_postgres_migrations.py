@@ -5,12 +5,23 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 from app.db import engine as configured_engine
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def configure_alembic():
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
+    return config
+
+
+def current_head(config):
+    return ScriptDirectory.from_config(config).get_current_head()
 
 
 @pytest.fixture
@@ -35,12 +46,13 @@ def postgres_schema():
 
 
 def test_fresh_postgres_install_creates_attendance_schema(postgres_schema):
-    config = Config(str(PROJECT_ROOT / "alembic.ini"))
-    config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
+    config = configure_alembic()
+    expected_head = current_head(config)
 
     with postgres_schema.begin() as connection:
         config.attributes["connection"] = connection
         command.upgrade(config, "head")
+        command.check(config)
         config.attributes.pop("connection", None)
 
     inspector = inspect(postgres_schema)
@@ -83,7 +95,7 @@ def test_fresh_postgres_install_creates_attendance_schema(postgres_schema):
     )
 
     with postgres_schema.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_attendance_issue_resolution"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == expected_head
 
 
 def test_initializer_adopts_existing_complete_orm_schema(postgres_schema):
@@ -99,13 +111,19 @@ def test_initializer_adopts_existing_complete_orm_schema(postgres_schema):
 
     initialize_database(postgres_schema)
 
+    config = configure_alembic()
+    with postgres_schema.begin() as connection:
+        config.attributes["connection"] = connection
+        command.check(config)
+        config.attributes.pop("connection", None)
+
     with postgres_schema.connect() as connection:
         assert connection.execute(
             text("SELECT name FROM departments WHERE name = 'Existing department'")
         ).scalar_one() == "Existing department"
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == "0015_attendance_issue_resolution"
+        ).scalar_one() == current_head(config)
         assert connection.execute(
             text("SELECT last_number FROM employee_code_counters WHERE id = 1")
         ).scalar_one() == 0
