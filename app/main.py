@@ -27,6 +27,7 @@ from app.models import (
 from app.security import csrf_token_for, rotate_csrf_token, verify_csrf_token
 from app.reports_routes import register_reports_routes
 from app.backup_routes import register_backup_routes
+from app.ai_routes import register_ai_routes
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -166,9 +167,10 @@ def dashboard(request: Request):
     )
 
 
-# Module route registration (reports + backup).
+# Module route registration (reports + backup + local AI).
 # Full employee/leave/payroll handlers remain on the payroll tip; re-sync main.py
-# from that tip and keep these two registration calls when stacking for review.
+# from that tip and keep these registration calls when stacking for review.
 
 register_reports_routes(app, templates, require_admin)
 register_backup_routes(app, templates, require_admin)
+register_ai_routes(app, templates, require_admin)
