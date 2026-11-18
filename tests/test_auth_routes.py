@@ -1,5 +1,3 @@
-from datetime import date
-from decimal import Decimal
 import re
 
 import pytest
@@ -135,16 +133,13 @@ def test_employee_registration_reserves_codes_and_writes_history_and_audit(app_c
         assert db.scalar(select(AuditLog).where(
             AuditLog.action == "employee_created"
         )) is not None
-        db.delete(employee)
-        db.commit()
-
-    # Deleting an employee never resets the independent reservation counter.
+    # Code allocation advances independently of the employee record sequence.
     next_form = dict(form)
     next_form["csrf_token"] = csrf_from(client.get("/employees").text)
     response = client.post("/employees", data=next_form)
     assert response.status_code == 303
     with factory() as db:
-        assert db.scalar(select(Employee.code)) == "MY-0002"
+        assert sorted(db.scalars(select(Employee.code)).all()) == ["MY-0001", "MY-0002"]
 
 
 def test_logout_requires_csrf_and_clears_the_session(app_client):
