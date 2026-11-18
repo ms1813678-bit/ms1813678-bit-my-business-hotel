@@ -41,6 +41,9 @@ class Employee(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")
     basic_salary: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     daily_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    probation_start_date: Mapped[date | None] = mapped_column(Date)
+    probation_end_date: Mapped[date | None] = mapped_column(Date)
+    photo_path: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     department: Mapped[Department] = relationship(back_populates="employees")
 
@@ -72,11 +75,43 @@ class AuditLog(Base):
 
 class AdminAccount(Base):
     __tablename__ = "admin_accounts"
+    __table_args__ = (
+        UniqueConstraint("singleton_key", name="uq_admin_accounts_singleton_key"),
+        CheckConstraint("singleton_key = 1", name="ck_admin_accounts_singleton_key"),
+        CheckConstraint("active IS TRUE", name="ck_admin_accounts_must_remain_active"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
+    singleton_key: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     username: Mapped[str] = mapped_column(String(80), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class EmployeeCodeCounter(Base):
+    __tablename__ = "employee_code_counters"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_employee_code_counter_singleton"),
+        CheckConstraint("last_number >= 0", name="ck_employee_code_counter_nonnegative"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    last_number: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+
+
+class EmployeeDataChangeRequest(Base):
+    __tablename__ = "employee_data_change_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    field_name: Mapped[str] = mapped_column(String(40))
+    requested_value: Mapped[str] = mapped_column(Text)
+    request_reason: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending", server_default="pending")
+    decision_reason: Mapped[str | None] = mapped_column(Text)
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[str | None] = mapped_column(String(80))
 
 
 class ShiftPattern(Base):
