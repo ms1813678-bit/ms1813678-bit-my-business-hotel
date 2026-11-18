@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>النسخ الاحتياطي — {{ app_name }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>النسخ الاحتياطي والاستعادة</h1>
+        <p class="muted">نسخ خارجي مع تحقق من السلامة — يومي 40 يومًا، أسبوعي سنة، ربع سنوي لا يُحذف تلقائيًا</p>
+      </div>
+      <div class="actions">
+        <a class="button-link secondary" href="/">لوحة الإدارة</a>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="secondary" type="submit">تسجيل الخروج</button>
+        </form>
+      </div>
+    </header>
+
+    {% if error %}<section class="notice error"><p>{{ error }}</p></section>{% endif %}
+    {% if message %}<section class="notice"><p>{{ message }}</p></section>{% endif %}
+
+    <section class="notice">
+      <h2>مسار القرص الخارجي</h2>
+      <form method="post" action="/backup/configure">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>المسار المطلق
+          <input type="text" name="backup_root" value="{{ backup_root }}" placeholder="D:\\MYHotelBackups" required style="min-width:28rem">
+        </label>
+        <button type="submit">حفظ المسار</button>
+      </form>
+      <p class="muted">يُفضَّل قرص خارجي مختلف عن قرص النظام. الاستعادة تتطلب تأكيدًا وسببًا ونسخة pre-restore أولاً.</p>
+    </section>
+
+    <section class="notice">
+      <h2>تشغيل نسخة الآن</h2>
+      <form method="post" action="/backup/run">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>النوع
+          <select name="backup_type">
+            <option value="manual">يدوي</option>
+            <option value="daily">يومي</option>
+            <option value="weekly">أسبوعي</option>
+            <option value="quarterly">ربع سنوي</option>
+          </select>
+        </label>
+        <button type="submit">إنشاء نسخة والتحقق</button>
+      </form>
+    </section>
+
+    <section class="notice">
+      <h2>آخر العمليات</h2>
+      {% if runs %}
+      <table>
+        <thead>
+          <tr><th>الوقت</th><th>النوع</th><th>الحالة</th><th>الحجم</th><th>المسار / الخطأ</th></tr>
+        </thead>
+        <tbody>
+          {% for run in runs %}
+          <tr>
+            <td>{{ run.created_at }}</td>
+            <td>{{ run.backup_type }}</td>
+            <td>{{ run.status }}</td>
+            <td>{{ run.size_bytes }}</td>
+            <td>{% if run.status == 'success' %}{{ run.archive_path }}{% else %}{{ run.error_message }}{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="muted">لا توجد عمليات بعد.</p>
+      {% endif %}
+    </section>
+
+    <footer>لا تُحذف النسخ الربع سنوية تلقائيًا. النجاح يُبلَّغ فقط بعد التحقق من الـ ZIP وهاش قاعدة البيانات.</footer>
+  </main>
+</body>
+</html>

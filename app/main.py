@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.security import csrf_token_for, rotate_csrf_token, verify_csrf_token
 from app.reports_routes import register_reports_routes
+from app.backup_routes import register_backup_routes
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -165,8 +166,9 @@ def dashboard(request: Request):
     )
 
 
-# Routes for employees, leave, payroll are registered below via the same
-# patterns as the payroll tip. Reports registration is appended at the end.
-# See PR description for re-sync instructions if handlers appear missing in CI.
+# Module route registration (reports + backup).
+# Full employee/leave/payroll handlers remain on the payroll tip; re-sync main.py
+# from that tip and keep these two registration calls when stacking for review.
 
 register_reports_routes(app, templates, require_admin)
+register_backup_routes(app, templates, require_admin)
