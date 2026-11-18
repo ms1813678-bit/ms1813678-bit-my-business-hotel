@@ -335,3 +335,68 @@ class AttendanceImportIssue(Base):
     resolved_by: Mapped[str | None] = mapped_column(String(80))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class LeaveType(Base):
+    """Administrator-configurable leave category and balance behavior."""
+    __tablename__ = "leave_types"
+    __table_args__ = (
+        CheckConstraint("code <> ''", name="ck_leave_types_code_nonempty"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    paid: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    deducts_balance: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class EmployeeLeaveBalance(Base):
+    """Balances are initialized or corrected manually; no entitlement is inferred."""
+    __tablename__ = "employee_leave_balances"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "leave_type_id", name="uq_employee_leave_balance"),
+        CheckConstraint("opening_balance >= 0", name="ck_leave_balance_opening_nonnegative"),
+        CheckConstraint("current_balance >= 0", name="ck_leave_balance_current_nonnegative"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="RESTRICT"), index=True)
+    leave_type_id: Mapped[int] = mapped_column(ForeignKey("leave_types.id", ondelete="RESTRICT"), index=True)
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    current_balance: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class LeaveRecord(Base):
+    """A confirmed administrator-entered leave record; cancellation restores its deduction."""
+    __tablename__ = "leave_records"
+    __table_args__ = (
+        CheckConstraint("end_date >= start_date", name="ck_leave_records_date_order"),
+        CheckConstraint("days > 0", name="ck_leave_records_days_positive"),
+        CheckConstraint("status IN ('confirmed', 'cancelled')", name="ck_leave_records_status"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="RESTRICT"), index=True)
+    leave_type_id: Mapped[int] = mapped_column(ForeignKey("leave_types.id", ondelete="RESTRICT"), index=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    days: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="confirmed", nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class LeaveBalanceTransaction(Base):
+    """Append-only record of manual balance changes and leave usage/restoration."""
+    __tablename__ = "leave_balance_transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id", ondelete="RESTRICT"), index=True)
+    leave_type_id: Mapped[int] = mapped_column(ForeignKey("leave_types.id", ondelete="RESTRICT"), index=True)
+    leave_record_id: Mapped[int | None] = mapped_column(ForeignKey("leave_records.id", ondelete="RESTRICT"))
+    change_amount: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    balance_after: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
