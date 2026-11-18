@@ -36,10 +36,5 @@ def upgrade():
 
 
 def downgrade():
-    with op.batch_alter_table("attendance_import_issues") as batch_op:
-        batch_op.drop_constraint(
-            "fk_attendance_import_issues_resolved_employee", type_="foreignkey"
-        )
-        batch_op.drop_column("resolved_at")
-        batch_op.drop_column("resolved_by")
-        batch_op.drop_column("resolved_employee_id")
+    # Keep HR resolution records intact; this revision is intentionally irreversible.
+    pass
