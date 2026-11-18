@@ -3,6 +3,8 @@ name: Python test suite
 on:
   push:
     branches:
+      - main
+      - 'codex/**'
       - feature/auth-security
       - feature/platform-hardening
       - work/leave-management-foundation
@@ -12,14 +14,6 @@ on:
       - integration/release-hardening-v2
       - feature/dashboard-ai-v1
   pull_request:
-    branches:
-      - main
-      - feature/dashboard-ai-v1
-      - feature/auth-security
-      - work/leave-management-foundation
-      - work/rewards-sanctions-v2
-      - work/payroll-foundation
-      - work/backup-recovery-v2
   workflow_dispatch:
 
 permissions:
