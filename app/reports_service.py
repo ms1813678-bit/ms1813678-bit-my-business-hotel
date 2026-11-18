@@ -1,5 +1,5 @@
 """Local Excel reports for employees, attendance, leave, advances, staff actions and payroll."""
-from datetime import date, datetime, time, timedelta
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 
@@ -166,7 +166,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
                 item.end_date,
                 _money(item.days),
                 item.status,
-                item.reason or "",
+                getattr(item, "reason", None) or "",
             )
             for item in leave_records
         ],
@@ -250,7 +250,7 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
 
     payroll_rows = db.execute(
         select(PayrollPeriod, PayrollLine, Employee)
-        .join(PayrollLine, PayrollLine.period_id == PayrollPeriod.id)
+        .join(PayrollLine, PayrollLine.payroll_period_id == PayrollPeriod.id)
         .join(Employee, Employee.id == PayrollLine.employee_id)
         .where(
             PayrollPeriod.year * 100 + PayrollPeriod.month >= start_date.year * 100 + start_date.month,
@@ -296,20 +296,20 @@ def build_hr_workbook(db: Session, start_date: date, end_date: date) -> bytes:
                 period.status,
                 emp.code,
                 emp.full_name,
-                _money(line.base_pay),
-                _money(line.overtime_pay),
-                _money(line.absence_deduction),
-                _money(line.lateness_deduction),
-                _money(line.advance_deduction),
-                _money(line.other_deductions),
-                _money(line.gross_pay),
-                _money(line.net_pay),
-                line.payment_status,
+                _money(getattr(line, "base_pay", None) or getattr(line, "base_salary", None)),
+                _money(getattr(line, "overtime_pay", None)),
+                _money(getattr(line, "absence_deduction", None)),
+                _money(getattr(line, "lateness_deduction", None)),
+                _money(getattr(line, "advance_deduction", None)),
+                _money(getattr(line, "other_deductions", None)),
+                _money(getattr(line, "gross_pay", None)),
+                _money(getattr(line, "net_pay", None)),
+                getattr(line, "payment_status", ""),
                 _money(payment_sums.get(line.id, Decimal("0"))),
                 _money(
                     max(
                         Decimal("0"),
-                        (line.net_pay or Decimal("0"))
+                        (getattr(line, "net_pay", None) or Decimal("0"))
                         - payment_sums.get(line.id, Decimal("0")),
                     )
                 ),
