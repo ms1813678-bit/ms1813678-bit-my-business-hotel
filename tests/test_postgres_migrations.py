@@ -84,3 +84,25 @@ def test_fresh_postgres_install_creates_attendance_schema(postgres_schema):
 
     with postgres_schema.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "0015_attendance_issue_resolution"
+
+
+def test_initializer_adopts_existing_complete_orm_schema(postgres_schema):
+    from app import models as _models  # noqa: F401
+    from app.db import Base
+    from scripts.initialize_database import initialize_database
+
+    Base.metadata.create_all(bind=postgres_schema)
+    with postgres_schema.begin() as connection:
+        connection.execute(
+            text("INSERT INTO departments (name, active) VALUES ('Existing department', true)")
+        )
+
+    initialize_database(postgres_schema)
+
+    with postgres_schema.connect() as connection:
+        assert connection.execute(
+            text("SELECT name FROM departments WHERE name = 'Existing department'")
+        ).scalar_one() == "Existing department"
+        assert connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one() == "0015_attendance_issue_resolution"
