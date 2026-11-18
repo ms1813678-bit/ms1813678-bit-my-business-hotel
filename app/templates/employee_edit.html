@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>سجل الموظف</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>{{ employee.full_name }}</h1>
+        <p class="muted">{{ employee.code }} — {{ employee.status }}</p>
+      </div>
+      <nav><a href="/employees">قائمة الموظفين</a><a href="/">لوحة التحكم</a></nav>
+    </header>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    {% if employee.status == "active" %}
+    <section class="notice">
+      <h2>تعديل البيانات الوظيفية</h2>
+      <p class="muted">سبب التعديل وتاريخ سريانه مطلوبان لحفظ سجل التغييرات.</p>
+      <form method="post" action="/employees/{{ employee.id }}/edit">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>الاسم بالكامل<input name="full_name" value="{{ employee.full_name }}" required maxlength="200"></label>
+          <label>الرقم القومي<input name="national_id" value="{{ employee.national_id or '' }}" maxlength="20"></label>
+          <label>رقم الهاتف<input name="phone" value="{{ employee.phone or '' }}" maxlength="30"></label>
+          <label>العنوان<input name="address" value="{{ employee.address or '' }}"></label>
+          <label>القسم<select name="department_id" required>{% for d in departments %}<option value="{{ d.id }}" {% if d.id == employee.department_id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select></label>
+          <label>الفرع<select name="branch_id"><option value="0">بدون فرع</option>{% for b in branches %}<option value="{{ b.id }}" {% if b.id == employee.branch_id %}selected{% endif %}>{{ b.department.name }} — {{ b.name }}</option>{% endfor %}</select></label>
+          <label>المسمى الوظيفي<input name="position" value="{{ employee.position }}" required maxlength="120"></label>
+          <label>تاريخ التعيين الحالي<input name="hire_date" type="date" value="{{ employee.hire_date.isoformat() }}" required></label>
+          <label>الراتب الأساسي بالجنيه<input name="basic_salary" type="number" min="0" step="0.01" value="{{ employee.basic_salary }}" required></label>
+          <label>ساعات العمل اليومية<input name="daily_hours" type="number" min="0.5" max="24" step="0.5" value="{{ employee.daily_hours }}" required></label>
+          <label>رقم البصمة<input name="fingerprint_id" value="{{ employee.fingerprint_id or '' }}" maxlength="50"></label>
+          <label>تاريخ سريان التغييرات<input name="effective_date" type="date" required></label>
+          <label class="wide">سبب التعديل<input name="reason" required maxlength="500"></label>
+        </div>
+        <button type="submit">حفظ مع تسجيل التغييرات</button>
+      </form>
+    </section>
+    <section class="notice">
+      <h2>إنهاء الخدمة وأرشفة الموظف</h2>
+      <form method="post" action="/employees/{{ employee.id }}/archive">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>آخر يوم خدمة<input name="effective_date" type="date" required></label>
+          <label>سبب إنهاء الخدمة<input name="reason" required maxlength="500"></label>
+        </div>
+        <button class="secondary" type="submit">أرشفة الموظف</button>
+      </form>
+    </section>
+    {% else %}
+    <section class="notice">
+      <h2>إعادة تعيين الموظف</h2>
+      <p>سيظل كود الموظف كما هو، ويبدأ سجل خدمة جديد مع الاحتفاظ بالفترات السابقة.</p>
+      <form method="post" action="/employees/{{ employee.id }}/rehire">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>تاريخ بدء الخدمة الجديدة<input name="start_date" type="date" required></label>
+          <label>سبب إعادة التعيين<input name="reason" required maxlength="500"></label>
+        </div>
+        <button type="submit">إعادة التعيين</button>
+      </form>
+    </section>
+    {% endif %}
+    <section class="notice">
+      <h2>فترات الخدمة</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>بداية الخدمة</th><th>نهاية الخدمة</th><th>سبب البداية</th><th>سبب النهاية</th></tr></thead>
+          <tbody>{% for p in periods %}<tr><td>{{ p.start_date.strftime("%d/%m/%Y") }}</td><td>{{ p.end_date.strftime("%d/%m/%Y") if p.end_date else "مستمرة" }}</td><td>{{ p.start_reason }}</td><td>{{ p.end_reason or "—" }}</td></tr>{% else %}<tr><td colspan="4">لا توجد فترات خدمة مسجلة.</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
