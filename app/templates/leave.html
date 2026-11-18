@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>إدارة الإجازات</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>إدارة الإجازات</h1>
+        <p class="muted">تسجيل يدوي للأرصدة والإجازات المؤكدة مع سجل تدقيق.</p>
+      </div>
+      <nav><a href="/">لوحة التحكم</a><a href="/employees">الموظفون</a></nav>
+    </header>
+    {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+    <section class="notice">
+      <h2>أنواع الإجازات</h2>
+      <p class="muted">أدخل الأنواع وسياسة خصم الرصيد حسب سياسة الفندق. لا ينشئ النظام استحقاقات تلقائية.</p>
+      <form method="post" action="/leave/types">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>رمز النوع<input name="code" required maxlength="40" placeholder="annual"></label>
+          <label>اسم النوع<input name="name" required maxlength="100"></label>
+          <label><span>إجازة مدفوعة</span><input type="checkbox" name="paid" value="true"></label>
+          <label><span>تُخصم من رصيد مسجل</span><input type="checkbox" name="deducts_balance" value="true"></label>
+        </div>
+        <button type="submit">إضافة نوع إجازة</button>
+      </form>
+    </section>
+    <section class="notice">
+      <h2>تسجيل أو تصحيح رصيد يدوي</h2>
+      <form method="post" action="/leave/balances">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>الموظف<select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }}</option>{% endfor %}</select></label>
+          <label>نوع الإجازة<select name="leave_type_id" required>{% for t in leave_types %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}</select></label>
+          <label>الرصيد الحالي بالأيام<input type="number" name="balance" min="0" step="0.25" required></label>
+          <label>سبب الإدخال أو التصحيح<input name="reason" required maxlength="500"></label>
+        </div>
+        <button type="submit">حفظ الرصيد</button>
+      </form>
+    </section>
+    <section class="notice">
+      <h2>تسجيل إجازة مؤكدة</h2>
+      <p class="muted">التأكيد هنا يتم بواسطة مسؤول النظام. تدخل أيام الإجازة يدويًا مع مراعاة أيام العمل والراحة المعتمدة.</p>
+      <form method="post" action="/leave/records">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>الموظف<select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }}</option>{% endfor %}</select></label>
+          <label>نوع الإجازة<select name="leave_type_id" required>{% for t in leave_types %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}</select></label>
+          <label>من تاريخ<input type="date" name="start_date" required></label>
+          <label>إلى تاريخ<input type="date" name="end_date" required></label>
+          <label>عدد الأيام المخصومة أو المسجلة<input type="number" name="days" min="0.25" step="0.25" required></label>
+          <label>السبب<input name="reason" required maxlength="500"></label>
+        </div>
+        <button type="submit">تأكيد الإجازة</button>
+      </form>
+    </section>
+    <section class="notice">
+      <h2>الأرصدة الحالية</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>كود الموظف</th><th>الموظف</th><th>نوع الإجازة</th><th>الرصيد الافتتاحي اليدوي</th><th>المتاح</th></tr></thead>
+        <tbody>{% for balance, full_name, code, type_name in balances %}
+          <tr><td>{{ code }}</td><td>{{ full_name }}</td><td>{{ type_name }}</td><td>{{ balance.opening_balance }}</td><td>{{ balance.current_balance }}</td></tr>
+        {% else %}<tr><td colspan="5">لم تُدخل أرصدة بعد.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+    <section class="notice">
+      <h2>سجل الإجازات</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>الموظف</th><th>النوع</th><th>الفترة</th><th>الأيام</th><th>الحالة</th><th>السبب / الإجراء</th></tr></thead>
+        <tbody>{% for record, full_name, code, type_name in records %}
+          <tr>
+            <td>{{ code }} — {{ full_name }}</td><td>{{ type_name }}</td>
+            <td>{{ record.start_date.strftime("%d/%m/%Y") }} — {{ record.end_date.strftime("%d/%m/%Y") }}</td>
+            <td>{{ record.days }}</td><td>{{ "مؤكدة" if record.status == "confirmed" else "ملغاة" }}</td>
+            <td>{{ record.reason }}
+              {% if record.status == "confirmed" %}
+              <form method="post" action="/leave/records/{{ record.id }}/cancel">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <label>سبب الإلغاء<input name="reason" required maxlength="500"></label>
+                <button class="secondary" type="submit">إلغاء واستعادة الرصيد</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}<tr><td colspan="6">لا توجد إجازات مسجلة.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </section>
+  </main>
+</body>
+</html>
