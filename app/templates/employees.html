@@ -31,6 +31,7 @@
           <label>الرقم القومي<input name="national_id" maxlength="20"></label>
           <label>رقم الهاتف<input name="phone" maxlength="30"></label>
           <label>القسم<select name="department_id" required>{% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+          <label>الفرع (اختياري)<select name="branch_id"><option value="0">بدون فرع</option>{% for b in branches %}<option value="{{ b.id }}">{{ b.department.name }} — {{ b.name }}</option>{% endfor %}</select></label>
           <label>المسمى الوظيفي<input name="position" required maxlength="120"></label>
           <label>تاريخ التعيين<input name="hire_date" type="date" required></label>
           <label>الراتب الأساسي بالجنيه<input name="basic_salary" type="number" min="0" step="0.01" required></label>
@@ -44,12 +45,12 @@
       <h2>السجل</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>المسمى</th><th>الحالة</th></tr></thead>
+          <thead><tr><th>الكود</th><th>الاسم</th><th>القسم</th><th>المسمى</th><th>الحالة</th><th>الإجراء</th></tr></thead>
           <tbody>
             {% for e in employees %}
-            <tr><td>{{ e.code }}</td><td>{{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{{ e.position }}</td><td>{{ e.status }}</td></tr>
+            <tr><td>{{ e.code }}</td><td>{{ e.full_name }}</td><td>{{ e.department.name }}</td><td>{{ e.position }}</td><td>{{ e.status }}</td><td><a href="/employees/{{ e.id }}/edit">عرض وتعديل</a></td></tr>
             {% else %}
-            <tr><td colspan="5">لا يوجد موظفون مسجلون بعد.</td></tr>
+            <tr><td colspan="6">لا يوجد موظفون مسجلون بعد.</td></tr>
             {% endfor %}
           </tbody>
         </table>
