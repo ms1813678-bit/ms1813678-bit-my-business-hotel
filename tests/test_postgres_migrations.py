@@ -69,6 +69,10 @@ def test_fresh_postgres_install_creates_attendance_schema(postgres_schema):
         "attendance_daily_records",
         "attendance_import_issues",
         "attendance_months",
+        "leave_types",
+        "employee_leave_balances",
+        "leave_records",
+        "leave_balance_transactions",
         "alembic_version",
     }.issubset(tables)
 
