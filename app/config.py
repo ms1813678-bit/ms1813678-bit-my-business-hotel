@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +9,15 @@ class Settings(BaseSettings):
     app_port: int = 8000
     database_url: str = "postgresql+psycopg://hr_app:CHANGE_ME@127.0.0.1:5432/my_business_hotel_hr"
     session_secret: str = "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+
+    @field_validator("session_secret")
+    @classmethod
+    def require_private_session_secret(cls, value: str) -> str:
+        if value.startswith("CHANGE_") or len(value) < 32:
+            raise ValueError(
+                "SESSION_SECRET must be a private random value of at least 32 characters."
+            )
+        return value
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
