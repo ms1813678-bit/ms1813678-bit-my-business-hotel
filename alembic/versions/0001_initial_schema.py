@@ -102,7 +102,7 @@ def upgrade():
     _create_table_if_missing(
         "employees",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("code", sa.String(20), nullable=False, unique=True),
+        sa.Column("code", sa.String(20), nullable=False),
         sa.Column("full_name", sa.String(200), nullable=False),
         sa.Column("national_id", sa.String(20), nullable=True, unique=True),
         sa.Column("phone", sa.String(30), nullable=True),
@@ -154,12 +154,10 @@ def upgrade():
     if "ix_branches_department_id" not in existing_indexes:
         op.create_index("ix_branches_department_id", "branches", ["department_id"])
     existing_indexes = {item["name"] for item in _inspector().get_indexes("employees")}
-    for name, column in (
-        ("ix_employees_code", "code"),
-        ("ix_employees_full_name", "full_name"),
-    ):
-        if name not in existing_indexes:
-            op.create_index(name, "employees", [column])
+    if "ix_employees_code" not in existing_indexes:
+        op.create_index("ix_employees_code", "employees", ["code"], unique=True)
+    if "ix_employees_full_name" not in existing_indexes:
+        op.create_index("ix_employees_full_name", "employees", ["full_name"])
     existing_indexes = {item["name"] for item in _inspector().get_indexes("employee_changes")}
     if "ix_employee_changes_employee_id" not in existing_indexes:
         op.create_index("ix_employee_changes_employee_id", "employee_changes", ["employee_id"])
