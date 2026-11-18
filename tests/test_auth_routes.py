@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.main as main
 from app.db import Base
-from app.models import AdminAccount, AuditLog, Department, Employee, EmployeeChange
+from app.models import AdminAccount, AuditLog, Department, Employee, EmployeeChange, EmployeeServicePeriod
 from scripts.create_admin import create_admin
 from app.security import hash_password, verify_password
 
