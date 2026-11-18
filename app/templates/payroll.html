@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>مسير الرواتب</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">الإدارة المالية</p>
+        <h1>مسير الرواتب الشهري</h1>
+        <p>لا يُنشأ المسير إلا بعد اعتماد حضور الشهر. الغياب والسلف والضرائب تُدخل يدويًا.</p>
+      </div>
+      <nav class="header-actions">
+        <a href="/">لوحة التحكم</a>
+        <a href="/leave">الإجازات</a>
+      </nav>
+    </header>
+
+    {% if error %}
+    <p class="banner error">{{ error }}</p>
+    {% endif %}
+
+    <section class="card">
+      <h2>إنشاء مسير جديد</h2>
+      <form method="post" action="/payroll" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>السنة <input type="number" name="year" min="2000" required></label>
+        <label>الشهر <input type="number" name="month" min="1" max="12" required></label>
+        <button type="submit">إنشاء من الحضور المعتمد</button>
+      </form>
+    </section>
+
+    {% if periods %}
+    <section class="card">
+      <h2>المسيرات</h2>
+      <ul class="period-list">
+        {% for period in periods %}
+        <li>
+          <a href="/payroll?period={{ period.id }}">{{ period.year }}-{{ '%02d'|format(period.month) }} — {{ period.status }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    {% if selected %}
+    <section class="card">
+      <h2>مسير {{ selected.year }}-{{ '%02d'|format(selected.month) }} ({{ selected.status }})</h2>
+      {% if selected.status in ['draft', 'reopened'] %}
+      <form method="post" action="/payroll/{{ selected.id }}/approve" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>سبب الاعتماد <input type="text" name="reason" required></label>
+        <button type="submit">اعتماد المسير</button>
+      </form>
+      {% endif %}
+      {% if selected.status == 'approved' %}
+      <form method="post" action="/payroll/{{ selected.id }}/close" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">إغلاق الشهر</button>
+      </form>
+      {% endif %}
+      {% if selected.status == 'closed' %}
+      <form method="post" action="/payroll/{{ selected.id }}/reopen" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>سبب إعادة الفتح <input type="text" name="reason" required></label>
+        <button type="submit">إعادة فتح</button>
+      </form>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>بنود الموظفين</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>الكود</th><th>الاسم</th><th>الأساسي</th><th>صافي</th><th>غياب</th><th>تأخير دقائق</th>
+              <th>سلفة</th><th>حالة الصرف</th><th>تعديل</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in lines %}
+            <tr>
+              <td>{{ row.employee_code }}</td>
+              <td>{{ row.employee_name }}</td>
+              <td>{{ row.base_salary }}</td>
+              <td>{{ row.net_pay }}</td>
+              <td>{{ row.absence_days }}</td>
+              <td>{{ row.late_minutes }}</td>
+              <td>{{ row.advance_deduction }}</td>
+              <td>{{ row.payment_status }}</td>
+              <td>
+                {% if selected.status in ['draft', 'reopened'] %}
+                <form method="post" action="/payroll/{{ selected.id }}/lines/{{ row.id }}" class="stack-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <label>أيام الغياب <input type="number" step="1" min="0" name="absence_days" value="{{ row.absence_days }}"></label>
+                  <label>دقائق التأخير <input type="number" min="0" name="late_minutes" value="{{ row.late_minutes }}"></label>
+                  <label>دقائق الانصراف المبكر <input type="number" min="0" name="early_minutes" value="{{ row.early_minutes }}"></label>
+                  <label>ساعات إضافية <input type="number" step="0.01" min="0" name="overtime_hours" value="{{ row.overtime_hours }}"></label>
+                  <label>مكافأة حضور <input type="number" step="0.01" min="0" name="attendance_bonus" value="{{ row.attendance_bonus }}"></label>
+                  <label>مكافأة أداء <input type="number" step="0.01" min="0" name="performance_bonus" value="{{ row.performance_bonus }}"></label>
+                  <label>مكافأة إشغال <input type="number" step="0.01" min="0" name="occupancy_bonus" value="{{ row.occupancy_bonus }}"></label>
+                  <label>مكافآت أخرى <input type="number" step="0.01" min="0" name="other_bonuses" value="{{ row.other_bonuses }}"></label>
+                  <label>تأمين <input type="number" step="0.01" min="0" name="insurance_share" value="{{ row.insurance_share }}"></label>
+                  <label>ضريبة <input type="number" step="0.01" min="0" name="tax_withheld" value="{{ row.tax_withheld }}"></label>
+                  <label>خصومات أخرى <input type="number" step="0.01" min="0" name="other_deductions" value="{{ row.other_deductions }}"></label>
+                  <label>خصم سلفة <input type="number" step="0.01" min="0" name="advance_deduction" value="{{ row.advance_deduction }}"></label>
+                  <label>ملاحظات <input type="text" name="review_notes" value="{{ row.review_notes or '' }}"></label>
+                  <label>سبب التعديل <input type="text" name="reason" required></label>
+                  <button type="submit">حفظ البند</button>
+                </form>
+                {% endif %}
+                {% if selected.status in ['approved', 'closed'] %}
+                <form method="post" action="/payroll/{{ selected.id }}/lines/{{ row.id }}/payments" class="stack-form">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <label>المبلغ <input type="number" step="0.01" min="0.01" name="amount" required></label>
+                  <label>تاريخ الصرف <input type="date" name="paid_on" required></label>
+                  <label>الطريقة
+                    <select name="method">
+                      <option value="cash">نقدًا</option>
+                      <option value="bank_transfer">تحويل بنكي</option>
+                    </select>
+                  </label>
+                  <label>مرجع <input type="text" name="reference"></label>
+                  <button type="submit">تسجيل صرف</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9">لا توجد بنود لهذا المسير.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>
