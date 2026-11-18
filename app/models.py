@@ -1,7 +1,7 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, Numeric, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -76,4 +76,226 @@ class AdminAccount(Base):
     username: Mapped[str] = mapped_column(String(80), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ShiftPattern(Base):
+    __tablename__ = "shift_patterns"
+    __table_args__ = (
+        UniqueConstraint("department_id", "code", name="uq_shift_patterns_department_code"),
+        CheckConstraint(
+            "match_window_minutes IS NULL OR match_window_minutes >= 0",
+            name="ck_shift_patterns_match_window_nonnegative",
+        ),
+        CheckConstraint(
+            "match_before_minutes BETWEEN 0 AND 120",
+            name="ck_shift_patterns_match_before_range",
+        ),
+        CheckConstraint(
+            "match_after_minutes BETWEEN 0 AND 120",
+            name="ck_shift_patterns_match_after_range",
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    department_id: Mapped[int] = mapped_column(ForeignKey("departments.id"), index=True)
+    code: Mapped[str] = mapped_column(String(40))
+    name: Mapped[str] = mapped_column(String(100))
+    start_time: Mapped[time] = mapped_column(Time)
+    end_time: Mapped[time] = mapped_column(Time)
+    # Legacy symmetric margin retained for migration compatibility; new matching uses the separate bounds.
+    match_window_minutes: Mapped[int | None] = mapped_column(Integer)
+    match_before_minutes: Mapped[int | None] = mapped_column(Integer)
+    match_after_minutes: Mapped[int | None] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class SecurityShiftAssignment(Base):
+    __tablename__ = "security_shift_assignments"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "work_date", name="uq_security_shift_employee_date"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    work_date: Mapped[date] = mapped_column(Date, index=True)
+    shift_pattern_id: Mapped[int] = mapped_column(ForeignKey("shift_patterns.id"))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class EmployeeServicePeriod(Base):
+    __tablename__ = "employee_service_periods"
+    __table_args__ = (
+        CheckConstraint(
+            "end_date IS NULL OR end_date >= start_date",
+            name="ck_employee_service_period_dates",
+        ),
+        Index(
+            "uq_employee_one_open_service_period", "employee_id", unique=True,
+            postgresql_where=(__import__("sqlalchemy").text("end_date IS NULL")),
+            sqlite_where=(__import__("sqlalchemy").text("end_date IS NULL")),
+        ),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), index=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    start_reason: Mapped[str] = mapped_column(Text, default="Initial employment")
+    end_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class AttendanceImportBatch(Base):
+    """Immutable source-file receipt and processing state for monthly attendance imports."""
+    __tablename__ = "attendance_import_batches"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('program_report', 'fingerprint')",
+            name="ck_attendance_import_source_type",
+        ),
+        CheckConstraint(
+            "status IN ('uploaded', 'parsed', 'needs_review', 'approved', 'rejected')",
+            name="ck_attendance_import_status",
+        ),
+        CheckConstraint("period_end >= period_start", name="ck_attendance_import_period"),
+        CheckConstraint("row_count >= 0 AND issue_count >= 0", name="ck_attendance_import_counts"),
+        UniqueConstraint("source_type", "file_sha256", name="uq_attendance_import_source_hash"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    original_file_bytes: Mapped[bytes | None] = mapped_column(LargeBinary)
+    uploaded_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="uploaded", nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    issue_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttendancePunch(Base):
+    """Parsed fingerprint event; raw source identity and cell text are retained for traceability."""
+    __tablename__ = "attendance_punches"
+    __table_args__ = (
+        UniqueConstraint(
+            "import_batch_id", "source_sheet", "source_row", "event_index",
+            name="uq_attendance_punch_source_position",
+        ),
+        CheckConstraint("event_index >= 0", name="ck_attendance_punch_event_index"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT"), index=True
+    )
+    employee_id: Mapped[int | None] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), index=True
+    )
+    raw_employee_code: Mapped[str | None] = mapped_column(String(80))
+    raw_employee_name: Mapped[str | None] = mapped_column(String(200))
+    punch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), index=True)
+    raw_timestamp: Mapped[str] = mapped_column(String(120), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(40))
+    source_sheet: Mapped[str] = mapped_column(String(120), nullable=False)
+    source_row: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttendanceMonth(Base):
+    """Monthly attendance lifecycle; daily approvals alone never close a period."""
+    __tablename__ = "attendance_months"
+    __table_args__ = (
+        CheckConstraint("period_end >= period_start", name="ck_attendance_month_period"),
+        CheckConstraint(
+            "status IN ('imported', 'under_review', 'approved')",
+            name="ck_attendance_month_status",
+        ),
+        UniqueConstraint("period_start", "period_end", name="uq_attendance_month_period"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
+    program_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    fingerprint_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    status: Mapped[str] = mapped_column(String(24), default="imported", nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    reviewed_by: Mapped[str | None] = mapped_column(String(80))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class AttendanceDailyRecord(Base):
+    """One employee/work-date reconciliation result, pending HR approval by default."""
+    __tablename__ = "attendance_daily_records"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "work_date", name="uq_attendance_daily_employee_date"),
+        CheckConstraint(
+            "status IN ('needs_review', 'ready_for_review', 'approved', 'rejected')",
+            name="ck_attendance_daily_status",
+        ),
+        CheckConstraint(
+            "scheduled_end_at IS NULL OR scheduled_start_at IS NULL "
+            "OR scheduled_end_at > scheduled_start_at",
+            name="ck_attendance_daily_schedule_order",
+        ),
+        CheckConstraint("worked_minutes IS NULL OR worked_minutes >= 0", name="ck_attendance_daily_worked_minutes"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_id: Mapped[int] = mapped_column(
+        ForeignKey("employees.id", ondelete="RESTRICT"), index=True
+    )
+    work_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    shift_pattern_id: Mapped[int | None] = mapped_column(ForeignKey("shift_patterns.id"))
+    security_shift_assignment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("security_shift_assignments.id", ondelete="RESTRICT")
+    )
+    program_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    fingerprint_import_batch_id: Mapped[int | None] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT")
+    )
+    scheduled_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    scheduled_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    program_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    program_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    approved_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    approved_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    first_clock_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    last_clock_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    worked_minutes: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="needs_review", nullable=False)
+    review_notes: Mapped[str | None] = mapped_column(Text)
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttendanceImportIssue(Base):
+    """A source-row parsing or identity problem retained for explicit HR review."""
+    __tablename__ = "attendance_import_issues"
+    __table_args__ = (
+        CheckConstraint("source_row >= 0", name="ck_attendance_import_issue_source_row"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("attendance_import_batches.id", ondelete="RESTRICT"), index=True
+    )
+    source_sheet: Mapped[str | None] = mapped_column(String(120))
+    source_row: Mapped[int | None] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(100), nullable=False)
+    raw_value: Mapped[str | None] = mapped_column(Text)
+    details: Mapped[str | None] = mapped_column(Text)
+    resolved_employee_id: Mapped[int | None] = mapped_column(ForeignKey("employees.id"))
+    resolved_by: Mapped[str | None] = mapped_column(String(80))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
