@@ -106,3 +106,14 @@ def test_initializer_adopts_existing_complete_orm_schema(postgres_schema):
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one() == "0015_attendance_issue_resolution"
+        assert connection.execute(
+            text("SELECT last_number FROM employee_code_counters WHERE id = 1")
+        ).scalar_one() == 0
+        assert connection.execute(
+            text("SELECT to_regclass('employee_code_number_seq') IS NOT NULL")
+        ).scalar_one()
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM pg_trigger WHERE tgname IN "
+                 "('trg_prevent_admin_account_deletion', 'trg_audit_logs_immutable') "
+                 "AND NOT tgisinternal")
+        ).scalar_one() == 2
