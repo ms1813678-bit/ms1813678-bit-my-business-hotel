@@ -80,6 +80,7 @@ class AdminAccount(Base):
 
 
 class ShiftPattern(Base):
+    """Reusable department shift definition used for attendance reconciliation."""
     __tablename__ = "shift_patterns"
     __table_args__ = (
         UniqueConstraint("department_id", "code", name="uq_shift_patterns_department_code"),
