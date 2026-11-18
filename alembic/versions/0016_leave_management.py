@@ -18,7 +18,9 @@ def upgrade():
     if expected_tables.issubset(existing_tables):
         return
     if expected_tables.intersection(existing_tables):
-        raise RuntimeError("Partial leave schema detected; refusing an unsafe upgrade.")\n\n    op.create_table(
+        raise RuntimeError("Partial leave schema detected; refusing an unsafe upgrade.")
+
+    op.create_table(
         "leave_types",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("code", sa.String(length=40), nullable=False),
