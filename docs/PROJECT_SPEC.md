@@ -8,8 +8,8 @@ A local-first Arabic/English HR and payroll application for M.Y. Business Hotel,
 - Local web application with PostgreSQL as the database and local file storage.
 - Manual launch from a desktop shortcut; do not auto-start with Windows.
 - Arabic is the default language; support English, RTL/LTR, Africa/Cairo timezone, DD/MM/YYYY, 24-hour time, and EGP.
-- Core functions must work offline. AI is optional and must not block normal operation.
-- Prefer a free local AI model. Do not use paid APIs, subscriptions, or external data services without explicit approval.
+- Core functions must work offline, including when the AI assistant is unavailable.
+- The local AI assistant is a required product feature. Prefer a free local model that can operate offline after initial setup. Do not use paid APIs, subscriptions, or external data services without explicit approval.
 - Keep the architecture migration-ready for a future cloud deployment without requiring hosting now.
 
 ## Access and security
@@ -28,7 +28,7 @@ A local-first Arabic/English HR and payroll application for M.Y. Business Hotel,
 6. Advances
 7. Sanctions and rewards
 8. Reports
-9. Optional AI assistant
+9. Local AI assistant (required feature; offline after setup)
 10. Settings and backup
 
 Future modules, not part of the initial release: purchasing, inventory, accounting, maintenance, assets/custody, and expenses. Payroll must not be linked to accounting or expenses.
@@ -62,7 +62,8 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Configurable shift patterns:
   - Administration: 09:00–17:00
   - Reception: 07:00–15:00, 15:00–23:00, 23:00–07:00
-  - Security: 08:00–20:00, 20:00–08:00, 08:00–16:00, 16:00–00:00, 00:00–08:00
+  - Security staffing rule (binding): never fewer than two active guards. Exactly two guards → two 12-hour shifts 08:00–20:00 and 20:00–08:00. More than two guards → three 8-hour shifts 08:00–16:00, 16:00–00:00, 00:00–08:00; more than one guard may share a shift. Full 24-hour coverage is required; a day with all guards OFF is rejected.
+  - Security shift pattern catalog may include 08:00–20:00, 20:00–08:00, 08:00–16:00, 16:00–00:00, 00:00–08:00
   - Housekeeping: 08:00–16:00, 16:00–00:00, 09:00–17:00
   - Maintenance: 09:00–18:00
 - Daily hours are defined by job/employee; do not assume every role is eight hours.
@@ -117,10 +118,10 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Dashboard shows counts, attendance, incomplete records, leaves, payroll, alerts, department rankings, and previous-month comparisons.
 - Never present unresolved absence as final.
 
-## Optional AI assistant
-- Administrator only. Free local model preferred; evaluate compatibility/performance on 16 GB Windows laptop.
+## Local AI assistant
+- Administrator only. Required feature with a free local model preferred; evaluate compatibility/performance on 16 GB Windows laptop.
 - Model download may require internet once; offline operation afterward.
-- System must remain fully usable when AI is disabled or unavailable.
+- System must remain fully usable when AI is disabled or unavailable; core HR/payroll paths must never depend on AI availability.
 - Natural-language assistance for employee search/analysis, Excel parsing/mapping, leave, payroll preview, advances, sanctions/rewards, and reports.
 - Preview and confirm before saving. Never invent missing data, approve payroll/leave automatically, or change consequential data without administrator confirmation.
 - Never guess unknown Excel columns; ask only when genuinely necessary.
