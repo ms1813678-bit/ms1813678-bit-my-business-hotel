@@ -12,18 +12,22 @@
       <div>
         <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
         <h1>إدارة الموارد البشرية والرواتب</h1>
-        <p class="muted">نظام محلي لإدارة شؤون العاملين</p>
+        <p class="muted">مرحبًا {{ admin }} — نظام محلي لإدارة شؤون العاملين</p>
       </div>
-      <span class="status">مرحلة التأسيس</span>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="secondary" type="submit">تسجيل الخروج</button>
+      </form>
     </header>
     <section class="notice">
-      <h2>مرحبًا بك</h2>
-      <p>تم تجهيز الواجهة الأساسية. ستظهر هنا مؤشرات الموظفين والحضور والإجازات والرواتب بعد تنفيذ وربط الوحدات.</p>
+      <h2>لوحة الإدارة</h2>
+      <p>تم تأمين دخول مسؤول النظام. وحدات النظام تُفعّل تباعًا بعد ربطها واختبارها.</p>
+      <a class="button-link" href="/employees">إدارة الموظفين</a>
     </section>
     <section class="grid">
-      <article class="tile"><span>01</span><h3>الموظفون</h3><p>البيانات الوظيفية والهيكل الإداري</p></article>
+      <article class="tile"><span>01</span><h3><a href="/employees">الموظفون</a></h3><p>البيانات الوظيفية والهيكل الإداري</p></article>
       <article class="tile"><span>02</span><h3>الحضور والانصراف</h3><p>استيراد البصمة ومراجعة السجلات</p></article>
-      <article class="tile"><span>03</span><h3>الإجازات</h3><p>الأرصدة والطلبات والسجل التاريخي</p></article>
+      <article class="tile"><span>03</span><h3>الإجازات</h3><p>الأرصدة والسجل التاريخي</p></article>
       <article class="tile"><span>04</span><h3>الرواتب</h3><p>المراجعة والاعتماد وسجل الصرف</p></article>
       <article class="tile"><span>05</span><h3>السلف والجزاءات</h3><p>المبالغ والخصومات والمكافآت</p></article>
       <article class="tile"><span>06</span><h3>التقارير والنسخ الاحتياطي</h3><p>التقارير الدورية وحماية البيانات</p></article>
