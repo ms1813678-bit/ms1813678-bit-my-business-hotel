@@ -10,7 +10,7 @@ depends_on = None
 
 
 def upgrade():
-    # Batch mode also supports SQLite deployments used by the Windows installer.
+    # Batch mode keeps the schema alteration grouped for PostgreSQL.
     with op.batch_alter_table("attendance_import_issues") as batch_op:
         batch_op.add_column(sa.Column("resolved_employee_id", sa.Integer(), nullable=True))
         batch_op.add_column(sa.Column("resolved_by", sa.String(length=80), nullable=True))
