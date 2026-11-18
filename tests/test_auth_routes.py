@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 import app.main as main
 from app.db import Base
 from app.models import AdminAccount, AuditLog, Department, Employee, EmployeeChange
+from scripts.create_admin import create_admin
 from app.security import hash_password
 
 
@@ -160,3 +161,16 @@ def test_logout_requires_csrf_and_clears_the_session(app_client):
     logout = client.post("/logout", data={"csrf_token": logout_token})
     assert logout.status_code == 303
     assert client.get("/").headers["location"] == "/login"
+
+
+
+def test_admin_setup_is_one_time_and_never_sets_a_default_password(app_client):
+    _, factory = app_client
+    with factory() as db:
+        with pytest.raises(RuntimeError, match="يوجد حساب مدير بالفعل"):
+            create_admin("second-admin", "Another-Strong-Password-2026!", db)
+        assert db.scalar(select(AdminAccount.id)) is not None
+        audit_events = db.scalars(
+            select(AuditLog).where(AuditLog.action == "administrator_created")
+        ).all()
+        assert audit_events == []
