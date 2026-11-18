@@ -10,7 +10,7 @@ depends_on = None
 
 
 def upgrade():
-    op.create_table(
+    expected_tables = {\n        \"leave_types\", \"employee_leave_balances\", \"leave_records\",\n        \"leave_balance_transactions\",\n    }\n    existing_tables = set(sa.inspect(op.get_bind()).get_table_names())\n    if expected_tables.issubset(existing_tables):\n        return\n    if expected_tables.intersection(existing_tables):\n        raise RuntimeError(\"Partial leave schema detected; refusing an unsafe upgrade.\")\n\n    op.create_table(
         "leave_types",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("code", sa.String(length=40), nullable=False),
