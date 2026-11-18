@@ -13,6 +13,7 @@ def upgrade():
     dialect = bind.dialect.name
 
     if dialect == "postgresql":
+        op.execute("DROP TRIGGER IF EXISTS trg_audit_logs_immutable ON audit_logs")
         op.execute("""
             CREATE OR REPLACE FUNCTION prevent_audit_log_mutation()
             RETURNS trigger AS $$
@@ -27,6 +28,8 @@ def upgrade():
             FOR EACH ROW EXECUTE FUNCTION prevent_audit_log_mutation()
         """)
     elif dialect == "sqlite":
+        op.execute("DROP TRIGGER IF EXISTS trg_audit_logs_no_update")
+        op.execute("DROP TRIGGER IF EXISTS trg_audit_logs_no_delete")
         op.execute("""
             CREATE TRIGGER trg_audit_logs_no_update
             BEFORE UPDATE ON audit_logs
