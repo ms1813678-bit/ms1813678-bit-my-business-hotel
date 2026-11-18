@@ -10,7 +10,7 @@ import app.main as main
 from app.db import Base
 from app.models import AdminAccount, AuditLog, Department, Employee, EmployeeChange
 from scripts.create_admin import create_admin
-from app.security import hash_password
+from app.security import hash_password, verify_password
 
 
 @pytest.fixture
@@ -164,13 +164,26 @@ def test_logout_requires_csrf_and_clears_the_session(app_client):
 
 
 
-def test_admin_setup_is_one_time_and_never_sets_a_default_password(app_client):
-    _, factory = app_client
-    with factory() as db:
-        with pytest.raises(RuntimeError, match="يوجد حساب مدير بالفعل"):
-            create_admin("second-admin", "Another-Strong-Password-2026!", db)
-        assert db.scalar(select(AdminAccount.id)) is not None
-        audit_events = db.scalars(
-            select(AuditLog).where(AuditLog.action == "administrator_created")
-        ).all()
-        assert audit_events == []
+def test_admin_setup_is_one_time_and_never_sets_a_default_password():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    try:
+        with factory() as db:
+            admin = create_admin("hr-admin", "HotelAdmin-Strong-2026!", db)
+            assert verify_password("HotelAdmin-Strong-2026!", admin.password_hash)
+            assert admin.password_hash != "HotelAdmin-Strong-2026!"
+            with pytest.raises(RuntimeError, match="يوجد حساب مدير بالفعل"):
+                create_admin("second-admin", "Another-Strong-Password-2026!", db)
+            assert db.scalar(select(AdminAccount.id)) == admin.id
+            audit_events = db.scalars(
+                select(AuditLog).where(AuditLog.action == "administrator_created")
+            ).all()
+            assert len(audit_events) == 1
+    finally:
+        Base.metadata.drop_all(engine)
+        engine.dispose()
