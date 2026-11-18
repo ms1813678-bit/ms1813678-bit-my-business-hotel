@@ -1,0 +1,137 @@
+"""PostgreSQL integration test for the Alembic attendance schema chain."""
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+from alembic import command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, inspect, text
+
+from app.db import engine as configured_engine
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def configure_alembic():
+    config = Config(str(PROJECT_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(PROJECT_ROOT / "alembic"))
+    return config
+
+
+def current_head(config):
+    return ScriptDirectory.from_config(config).get_current_head()
+
+
+@pytest.fixture
+def postgres_schema():
+    if configured_engine.dialect.name != "postgresql":
+        pytest.skip("These migration tests require PostgreSQL.")
+
+    schema = "migration_test_" + uuid4().hex
+    with configured_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+
+    test_engine = create_engine(
+        configured_engine.url,
+        connect_args={"options": f"-csearch_path={schema}"},
+    )
+    try:
+        yield test_engine
+    finally:
+        test_engine.dispose()
+        with configured_engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+
+
+def test_fresh_postgres_install_creates_attendance_schema(postgres_schema):
+    config = configure_alembic()
+    expected_head = current_head(config)
+
+    with postgres_schema.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+        command.check(config)
+        config.attributes.pop("connection", None)
+
+    inspector = inspect(postgres_schema)
+    tables = set(inspector.get_table_names())
+    assert {
+        "departments",
+        "branches",
+        "employees",
+        "employee_service_periods",
+        "shift_patterns",
+        "security_shift_assignments",
+        "attendance_import_batches",
+        "attendance_punches",
+        "attendance_daily_records",
+        "attendance_import_issues",
+        "attendance_months",
+        "alembic_version",
+    }.issubset(tables)
+
+    columns = {
+        table: {column["name"] for column in inspector.get_columns(table)}
+        for table in (
+            "attendance_import_batches",
+            "attendance_punches",
+            "attendance_daily_records",
+            "attendance_import_issues",
+        )
+    }
+    assert {"source_type", "file_sha256", "original_file_bytes"}.issubset(
+        columns["attendance_import_batches"]
+    )
+    assert {"employee_id", "punch_at", "source_sheet", "event_index"}.issubset(
+        columns["attendance_punches"]
+    )
+    assert {"work_date", "status", "approved_by", "approved_at"}.issubset(
+        columns["attendance_daily_records"]
+    )
+    assert {"reason", "resolved_employee_id", "resolved_by", "resolved_at"}.issubset(
+        columns["attendance_import_issues"]
+    )
+
+    with postgres_schema.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == expected_head
+
+
+def test_initializer_adopts_existing_complete_orm_schema(postgres_schema):
+    from app import models as _models  # noqa: F401
+    from app.db import Base
+    from scripts.initialize_database import initialize_database
+
+    Base.metadata.create_all(bind=postgres_schema)
+    with postgres_schema.begin() as connection:
+        connection.execute(
+            text("INSERT INTO departments (name, active) VALUES ('Existing department', true)")
+        )
+
+    initialize_database(postgres_schema)
+
+    config = configure_alembic()
+    with postgres_schema.begin() as connection:
+        config.attributes["connection"] = connection
+        command.check(config)
+        config.attributes.pop("connection", None)
+
+    with postgres_schema.connect() as connection:
+        assert connection.execute(
+            text("SELECT name FROM departments WHERE name = 'Existing department'")
+        ).scalar_one() == "Existing department"
+        assert connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one() == current_head(config)
+        assert connection.execute(
+            text("SELECT last_number FROM employee_code_counters WHERE id = 1")
+        ).scalar_one() == 0
+        assert connection.execute(
+            text("SELECT to_regclass('employee_code_number_seq') IS NOT NULL")
+        ).scalar_one()
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM pg_trigger WHERE tgname IN "
+                 "('trg_prevent_admin_account_deletion', 'trg_audit_logs_immutable') "
+                 "AND NOT tgisinternal")
+        ).scalar_one() == 2

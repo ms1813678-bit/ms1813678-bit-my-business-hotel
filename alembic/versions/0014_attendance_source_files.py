@@ -10,10 +10,12 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "attendance_import_batches",
-        sa.Column("original_file_bytes", sa.LargeBinary(), nullable=True),
-    )
+    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("attendance_import_batches")}
+    if "original_file_bytes" not in columns:
+        op.add_column(
+            "attendance_import_batches",
+            sa.Column("original_file_bytes", sa.LargeBinary(), nullable=True),
+        )
 
 
 def downgrade():

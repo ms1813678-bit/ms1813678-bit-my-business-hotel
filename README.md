@@ -24,10 +24,11 @@ See [docs/PROJECT_SPEC.md](docs/PROJECT_SPEC.md) for the agreed product scope an
 2. Create a local database and database user with a strong password.
 3. Copy `.env.example` to `.env`; set `DATABASE_URL` and a long random `SESSION_SECRET`.
 4. Install: `python -m pip install -e ".[dev]"`.
-5. Run: `uvicorn app.main:app --host 127.0.0.1 --port 8000`.
+5. Initialize or upgrade the database: `python scripts/initialize_database.py`.
+6. Run: `uvicorn app.main:app --host 127.0.0.1 --port 8000`.
 6. Open `http://127.0.0.1:8000`. Health check: `http://127.0.0.1:8000/health`.
 
-The database schema is not yet migrated or initialized. The dashboard is a visual scaffold and does not yet provide authenticated HR operations.
+The initialization command applies the Alembic migration chain. If it detects a complete schema created by the earlier ORM initializer, it records the current migration head without recreating tables. The dashboard is a visual scaffold and does not yet provide authenticated HR operations.
 
 ## Safety
 
