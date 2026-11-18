@@ -25,12 +25,27 @@ def upgrade():
             sa.Column("match_after_minutes", sa.Integer(), nullable=True),
         )
 
+    # Do not silently narrow existing HR configuration to fit the new range.
+    invalid_window = bind.execute(sa.text("""
+        SELECT id
+        FROM shift_patterns
+        WHERE match_window_minutes > 120
+          AND (match_before_minutes IS NULL OR match_after_minutes IS NULL)
+        LIMIT 1
+    """)).scalar_one_or_none()
+    if invalid_window is not None:
+        raise RuntimeError(
+            f"Shift pattern {invalid_window} has a legacy matching window above 120 minutes. "
+            "Set explicit before/after margins within the supported range before migrating; "
+            "no shift configuration was changed."
+        )
+
     # Backfill only rows that have an explicitly configured legacy window.
     # Also preserve already-migrated values if this revision is re-applied
     # after a downgrade whose policy intentionally retains HR configuration.
     op.execute(
         "UPDATE shift_patterns SET "
-        "match_before_minutes = LEAST(match_window_minutes, 120) "
+        "match_before_minutes = match_window_minutes "
         "WHERE match_before_minutes IS NULL AND match_window_minutes IS NOT NULL"
     )
     op.execute(
