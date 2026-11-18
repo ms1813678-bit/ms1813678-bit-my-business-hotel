@@ -187,3 +187,125 @@ def test_admin_setup_is_one_time_and_never_sets_a_default_password():
     finally:
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+
+def _login_as_admin(client):
+    token = csrf_from(client.get("/login").text)
+    response = client.post("/login", data={
+        "username": "hr-admin",
+        "password": "HotelAdmin-Strong-2026!",
+        "csrf_token": token,
+    })
+    assert response.status_code == 303
+
+
+def _create_test_employee(client):
+    token = csrf_from(client.get("/employees").text)
+    response = client.post("/employees", data={
+        "csrf_token": token,
+        "full_name": "موظف اختبار دورة الحياة",
+        "national_id": "",
+        "phone": "",
+        "department_id": "1",
+        "position": "موظف",
+        "hire_date": "2026-11-01",
+        "basic_salary": "5000.00",
+        "daily_hours": "8",
+        "fingerprint_id": "",
+    })
+    assert response.status_code == 303
+
+
+def test_employee_profile_correction_archive_and_rehire_keep_service_history(app_client):
+    client, factory = app_client
+    _login_as_admin(client)
+    _create_test_employee(client)
+
+    with factory() as db:
+        employee = db.scalar(select(Employee))
+        employee_id = employee.id
+        employee_code = employee.code
+        period = db.scalar(select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.employee_id == employee_id
+        ))
+        assert period.start_date.isoformat() == "2026-11-01"
+
+    edit_page = client.get(f"/employees/{employee_id}/edit")
+    assert edit_page.status_code == 200
+    token = csrf_from(edit_page.text)
+    corrected = client.post(f"/employees/{employee_id}/edit", data={
+        "csrf_token": token,
+        "full_name": "موظف اختبار دورة الحياة",
+        "national_id": "",
+        "phone": "",
+        "address": "",
+        "department_id": "1",
+        "branch_id": "0",
+        "position": "موظف",
+        "hire_date": "2026-10-25",
+        "basic_salary": "5000.00",
+        "daily_hours": "8",
+        "fingerprint_id": "",
+        "effective_date": "2026-10-25",
+        "reason": "تصحيح تاريخ التعيين",
+    })
+    assert corrected.status_code == 303
+
+    with factory() as db:
+        employee = db.get(Employee, employee_id)
+        period = db.scalar(select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.employee_id == employee_id
+        ))
+        assert employee.hire_date.isoformat() == "2026-10-25"
+        assert period.start_date.isoformat() == "2026-10-25"
+        correction = db.scalar(select(EmployeeChange).where(
+            EmployeeChange.employee_id == employee_id,
+            EmployeeChange.field_name == "hire_date",
+        ))
+        assert correction.old_value == "2026-11-01"
+        assert correction.new_value == "2026-10-25"
+
+    token = csrf_from(client.get(f"/employees/{employee_id}/edit").text)
+    archived = client.post(f"/employees/{employee_id}/archive", data={
+        "csrf_token": token,
+        "effective_date": "2026-11-30",
+        "reason": "انتهاء فترة العمل",
+    })
+    assert archived.status_code == 303
+    with factory() as db:
+        employee = db.get(Employee, employee_id)
+        period = db.scalar(select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.employee_id == employee_id
+        ))
+        assert employee.status == "terminated"
+        assert period.end_date.isoformat() == "2026-11-30"
+        assert period.end_reason == "انتهاء فترة العمل"
+
+    token = csrf_from(client.get(f"/employees/{employee_id}/edit").text)
+    rehired = client.post(f"/employees/{employee_id}/rehire", data={
+        "csrf_token": token,
+        "start_date": "2026-12-01",
+        "reason": "إعادة تعيين",
+    })
+    assert rehired.status_code == 303
+    with factory() as db:
+        employee = db.get(Employee, employee_id)
+        periods = db.scalars(select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.employee_id == employee_id
+        ).order_by(EmployeeServicePeriod.start_date)
+        ).all()
+        assert employee.status == "active"
+        assert employee.code == employee_code
+        assert len(periods) == 2
+        assert periods[0].end_date.isoformat() == "2026-11-30"
+        assert periods[1].start_date.isoformat() == "2026-12-01"
+        assert periods[1].end_date is None
+        assert db.scalar(select(AuditLog).where(
+            AuditLog.action == "employee_archived",
+            AuditLog.entity_id == str(employee_id),
+        )) is not None
+        assert db.scalar(select(AuditLog).where(
+            AuditLog.action == "employee_rehired",
+            AuditLog.entity_id == str(employee_id),
+        )) is not None
