@@ -14,6 +14,7 @@ on:
   pull_request:
     branches:
       - main
+      - codex/fix-attendance-models-2026-11-18
       - feature/dashboard-ai-v1
       - feature/auth-security
       - work/leave-management-foundation
