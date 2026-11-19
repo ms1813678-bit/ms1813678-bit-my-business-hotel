@@ -28,7 +28,7 @@ Do **not** enter real employee or payroll data until Windows installation, backu
 2. Full backup and restore verification on the target computer (including external drive if used).
 3. Windows 10/11 installation via `docs/WINDOWS_INSTALL.md` and `scripts/windows/setup.ps1` on the hotel PC.
 4. Owner end-to-end acceptance: attendance month → variable-size security roster → payroll → report with synthetic data only.
-5. Explicit owner approval to merge `integration/continue-safe-v1` into `main`.
+5. Explicit owner approval to merge `integration/final-acceptance-v1` into `main`.
 
 ## Local Windows setup
 
