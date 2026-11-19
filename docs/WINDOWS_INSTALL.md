@@ -20,7 +20,7 @@ Do not use a production database until the complete application, security, backu
 4. Setup creates a project-local virtual environment and installs dependencies.
 5. Enter PostgreSQL connection details; the password is requested as hidden input.
 6. Setup writes .env only when it does not already exist.
-7. Setup applies migrations, seeds missing standard departments, and creates the first administrator.
+7. Setup applies migrations, seeds missing standard departments and configured shift patterns, and creates the first administrator.
 8. A desktop shortcut named M.Y. Business Hotel HR is created after successful setup.
 
 ## Reports
