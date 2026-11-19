@@ -18,6 +18,8 @@ def test_windows_setup_preserves_existing_env_and_uses_secure_database_password_
     assert "secrets.token_urlsafe(48)" in setup
     assert "scripts.initialize_database" in setup
     assert "scripts.seed_departments" in setup
+    assert "scripts.seed_shifts" in setup
+    assert "Database port must be a number between 1 and 65535." in setup
     assert "scripts.create_admin" in setup
 
 
