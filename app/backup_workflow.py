@@ -443,6 +443,43 @@ def _restore_archive_contents(
         engine.dispose()
 
 
+def _ensure_pre_restore_run_record(
+    db: Session,
+    *,
+    archive_path: Path,
+    archive_sha256: str,
+    actor: str,
+) -> None:
+    """Keep one successful history row for a pre-restore archive.
+
+    A failed restore rolls the database back to the pre-restore snapshot, which
+    already contains the row created before the restore started. Do not insert
+    the same archive into history a second time during rollback.
+    """
+    existing_id = db.scalar(
+        select(BackupRun.id).where(
+            BackupRun.backup_type == "pre_restore",
+            BackupRun.status == "success",
+            BackupRun.archive_path == str(archive_path),
+            BackupRun.sha256 == archive_sha256,
+        ).limit(1)
+    )
+    if existing_id is not None:
+        return
+
+    recorded_at = datetime.now(timezone.utc)
+    db.add(BackupRun(
+        backup_type="pre_restore",
+        status="success",
+        archive_path=str(archive_path),
+        sha256=archive_sha256,
+        size_bytes=archive_path.stat().st_size,
+        created_at=recorded_at,
+        verified_at=recorded_at,
+        initiated_by=actor,
+    ))
+
+
 def restore_backup(
     archive_path: str | Path,
     expected_sha256: str,
@@ -480,16 +517,12 @@ def restore_backup(
         try:
             _restore_archive_contents(pre_restore_path, backup_root, pre_restore_hash)
             with SessionLocal.begin() as db:
-                db.add(BackupRun(
-                    backup_type="pre_restore",
-                    status="success",
-                    archive_path=str(pre_restore_path),
-                    sha256=pre_restore_hash,
-                    size_bytes=pre_restore_path.stat().st_size,
-                    created_at=datetime.now(timezone.utc),
-                    verified_at=datetime.now(timezone.utc),
-                    initiated_by=actor,
-                ))
+                _ensure_pre_restore_run_record(
+                    db,
+                    archive_path=pre_restore_path,
+                    archive_sha256=pre_restore_hash,
+                    actor=actor,
+                )
                 db.add(AuditLog(
                     actor=actor,
                     action="backup_restore_rolled_back",
@@ -510,16 +543,12 @@ def restore_backup(
 
     completed_at = datetime.now(timezone.utc)
     with SessionLocal.begin() as db:
-        db.add(BackupRun(
-            backup_type="pre_restore",
-            status="success",
-            archive_path=str(pre_restore_path),
-            sha256=pre_restore_hash,
-            size_bytes=pre_restore_path.stat().st_size,
-            created_at=completed_at,
-            verified_at=completed_at,
-            initiated_by=actor,
-        ))
+        _ensure_pre_restore_run_record(
+            db,
+            archive_path=pre_restore_path,
+            archive_sha256=pre_restore_hash,
+            actor=actor,
+        )
         db.add(AuditLog(
             actor=actor,
             action="backup_restored",
