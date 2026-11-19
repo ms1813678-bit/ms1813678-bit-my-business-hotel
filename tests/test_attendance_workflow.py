@@ -914,3 +914,92 @@ def test_security_roster_requires_two_guards_and_full_coverage(db_session):
     with pytest.raises(ValueError, match="security_roster_shift_count_invalid"):
         validate_security_roster(db_session, period_start=day, period_end=day)
 
+
+def test_security_roster_validator_allows_multiple_guards_to_share_a_shift(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security Shared Shift", active=True)
+    db_session.add(security)
+    db_session.flush()
+    guards = []
+    for index in range(4):
+        guard = Employee(
+            code=f"SEC-SHARE-{index+1}", full_name=f"Shared Shift Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(employee_id=guard.id, start_date=date(2026, 1, 1)))
+    db_session.flush()
+
+    patterns = [
+        ShiftPattern(department_id=security.id, code="SHARE-A", name="08-16",
+                     start_time=time(8, 0), end_time=time(16, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=security.id, code="SHARE-B", name="16-00",
+                     start_time=time(16, 0), end_time=time(0, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=security.id, code="SHARE-C", name="00-08",
+                     start_time=time(0, 0), end_time=time(8, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+    ]
+    db_session.add_all(patterns)
+    db_session.flush()
+
+    day = date(2026, 11, 3)
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[2].id, work_date=day, shift_pattern_id=patterns[1].id),
+        SecurityShiftAssignment(employee_id=guards[3].id, work_date=day, shift_pattern_id=patterns[2].id),
+    ])
+    db_session.flush()
+
+    validate_security_roster(db_session, period_start=day, period_end=day)
+
+
+def test_security_roster_validator_uses_twelve_hour_model_for_two_working_guards(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security Two Working", active=True)
+    db_session.add(security)
+    db_session.flush()
+    guards = []
+    for index in range(5):
+        guard = Employee(
+            code=f"SEC-TWO-{index+1}", full_name=f"Two Working Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(employee_id=guard.id, start_date=date(2026, 1, 1)))
+    db_session.flush()
+
+    patterns = [
+        ShiftPattern(department_id=security.id, code="TWO-A", name="08-20",
+                     start_time=time(8, 0), end_time=time(20, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=security.id, code="TWO-B", name="20-08",
+                     start_time=time(20, 0), end_time=time(8, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+    ]
+    db_session.add_all(patterns)
+    db_session.flush()
+
+    day = date(2026, 11, 4)
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=patterns[1].id),
+    ])
+    db_session.flush()
+
+    # The other three active guards are explicitly OFF for this day.
+    validate_security_roster(db_session, period_start=day, period_end=day)
