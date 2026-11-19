@@ -918,7 +918,7 @@ def test_security_roster_requires_two_guards_and_full_coverage(db_session):
 def test_security_roster_validator_allows_multiple_guards_to_share_a_shift(db_session):
     from app.attendance_workflow import validate_security_roster
 
-    security = Department(name="Security Shared Shift", active=True)
+    security = Department(name="Security", active=True)
     db_session.add(security)
     db_session.flush()
     guards = []
@@ -965,7 +965,7 @@ def test_security_roster_validator_allows_multiple_guards_to_share_a_shift(db_se
 def test_security_roster_validator_uses_twelve_hour_model_for_two_working_guards(db_session):
     from app.attendance_workflow import validate_security_roster
 
-    security = Department(name="Security Two Working", active=True)
+    security = Department(name="Security", active=True)
     db_session.add(security)
     db_session.flush()
     guards = []
