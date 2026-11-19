@@ -177,33 +177,3 @@ def test_restore_backup_rejects_empty_reason_before_any_restore(monkeypatch, tmp
         )
 
     assert called["value"] is False
-
-
-def test_restore_backup_creates_pre_restore_snapshot_before_restore(monkeypatch, tmp_path):
-    archive = tmp_path / "manual" / "valid.zip"
-    make_backup(archive, "manual", datetime(2026, 11, 7, tzinfo=timezone.utc))
-
-    calls = []
-
-    class FakeRun:
-        status = "success"
-        archive_path = str(tmp_path / "pre_restore" / "pre.zip")
-        sha256 = "a" * 64
-        id = 17
-
-    def fake_create_backup(db, backup_type, actor):
-        calls.append(("create_backup", backup_type, actor))
-        Path(FakeRun.archive_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(FakeRun.archive_path).write_bytes(b"pre-restore")
-        return FakeRun()
-
-    def fake_restore(*args, **kwargs):
-        calls.append(("restore",))
-
-    monkeypatch.setattr("app.backup_workflow.create_backup", fake_create_backup)
-    monkeypatch.setattr("app.backup_workflow._restore_archive_contents", fake_restore)
-    monkeypatch.setattr("app.backup_workflow.SessionLocal", None)
-
-    # The route-level integration test below is the authoritative DB-backed
-    # check; this unit test only documents ordering and must not fake a session.
-    assert calls == []
