@@ -30,9 +30,53 @@ if (-not (Test-Path ".env")) {
     if ([string]::IsNullOrWhiteSpace($DbName) -or [string]::IsNullOrWhiteSpace($DbUser) -or [string]::IsNullOrEmpty($DbPassword)) {
         throw "Database name, username, and password are required."
     }
+    if ($DbPort -notmatch '^\d{1,5}
+    $SessionSecret = (& $VenvPython -c "import secrets; print(secrets.token_urlsafe(48))").Trim()
+    if ($LASTEXITCODE -ne 0 -or $SessionSecret.Length -lt 32) { throw "Could not generate session secret." }
+    $EnvContent = @"
+APP_NAME="M.Y. Business Hotel HR"
+APP_ENV=development
+APP_HOST=127.0.0.1
+APP_PORT=8000
+DATABASE_URL="$DatabaseUrl"
+SESSION_SECRET="$SessionSecret"
+"@
+    [System.IO.File]::WriteAllText((Join-Path $ProjectRoot ".env"), $EnvContent, [System.Text.UTF8Encoding]::new($false))
+    $DbPassword = $null
+    $SecurePassword = $null
+    Write-Host "Created .env. Keep it private." -ForegroundColor Green
+} else {
+    Write-Host "Existing .env found; preserving it." -ForegroundColor Yellow
+}
+& $VenvPython -m scripts.initialize_database
+if ($LASTEXITCODE -ne 0) { throw "Database migration failed. Check PostgreSQL and .env; administrator was not created." }
+& $VenvPython -m scripts.seed_departments
+if ($LASTEXITCODE -ne 0) { throw "Department initialization failed." }
+& $VenvPython -m scripts.seed_shifts
+if ($LASTEXITCODE -ne 0) { throw "Shift initialization failed." }
+Write-Host "Create the first administrator; password input is hidden and requires 12 characters."
+& $VenvPython -m scripts.create_admin
+if ($LASTEXITCODE -ne 0) { throw "Administrator setup failed. Existing credentials were not replaced." }
+$Desktop = [Environment]::GetFolderPath("Desktop")
+$ShortcutPath = Join-Path $Desktop "M.Y. Business Hotel HR.lnk"
+$Launcher = Join-Path $ProjectRoot "scripts\windows\start.ps1"
+$Shell = New-Object -ComObject WScript.Shell
+$Shortcut = $Shell.CreateShortcut($ShortcutPath)
+$Shortcut.TargetPath = (Get-Command powershell.exe).Source
+$Shortcut.Arguments = ('-NoProfile -ExecutionPolicy Bypass -File "' + $Launcher + '"')
+$Shortcut.WorkingDirectory = $ProjectRoot
+$Shortcut.Description = "Start the local M.Y. Business Hotel HR application"
+$Shortcut.Save()
+Write-Host "HR reports are generated manually by the administrator; no report schedule is registered."
+Write-Host "Setup completed. Start the application from the desktop shortcut." -ForegroundColor Green
+Write-Host "The application is local-only and does not auto-start with Windows."
+ -or [int]$DbPort -lt 1 -or [int]$DbPort -gt 65535) {
+        throw "Database port must be a number between 1 and 65535."
+    }
     $EncodedUser = [Uri]::EscapeDataString($DbUser)
     $EncodedPassword = [Uri]::EscapeDataString($DbPassword)
-    $DatabaseUrl = "postgresql+psycopg://{0}:{1}@{2}:{3}/{4}" -f $EncodedUser, $EncodedPassword, $DbHost, $DbPort, $DbName
+    $EncodedDbName = [Uri]::EscapeDataString($DbName)
+    $DatabaseUrl = "postgresql+psycopg://{0}:{1}@{2}:{3}/{4}" -f $EncodedUser, $EncodedPassword, $DbHost, $DbPort, $EncodedDbName
     $SessionSecret = (& $VenvPython -c "import secrets; print(secrets.token_urlsafe(48))").Trim()
     if ($LASTEXITCODE -ne 0 -or $SessionSecret.Length -lt 32) { throw "Could not generate session secret." }
     $EnvContent = @"
