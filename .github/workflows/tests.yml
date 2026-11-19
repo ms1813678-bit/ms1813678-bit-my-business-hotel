@@ -77,5 +77,27 @@ jobs:
           cache: pip
       - name: Install project and development dependencies
         run: python -m pip install -e ".[dev]"
+      - name: Parse Windows PowerShell scripts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scriptFiles = @(Get-ChildItem -Path "scripts/windows" -Filter "*.ps1" -File -Recurse)
+          if ($scriptFiles.Count -eq 0) {
+            throw "No Windows PowerShell scripts were found."
+          }
+          foreach ($scriptFile in $scriptFiles) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $scriptFile.FullName,
+              [ref]$tokens,
+              [ref]$parseErrors
+            ) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $messages = $parseErrors | ForEach-Object { $_.Message }
+              throw ("PowerShell syntax errors in {0}: {1}" -f $scriptFile.Name, ($messages -join "; "))
+            }
+            Write-Host ("PowerShell syntax OK: {0}" -f $scriptFile.Name)
+          }
       - name: Run platform-independent test suite
         run: python -m pytest -v --ignore=tests/test_postgres_migrations.py
