@@ -244,6 +244,22 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
     normal_employee = db_session.scalar(
         select(Employee).where(Employee.code == "ATT-001")
     )
+    from app.models import LeaveRecord, LeaveType
+
+    annual_leave = LeaveType(
+        code="annual", name_ar="إجازة سنوية", name_en="Annual leave",
+        is_paid=True, tracks_balance=True, active=True,
+    )
+    db_session.add(annual_leave)
+    db_session.flush()
+    db_session.add(LeaveRecord(
+        employee_id=normal_employee.id,
+        leave_type_id=annual_leave.id,
+        start_date=work_date, end_date=work_date,
+        calendar_days=1, charged_days=1,
+        reason="Confirmed annual leave overlapping imported attendance",
+        status="confirmed", created_by="hr-admin",
+    ))
     historical_rehire = Employee(
         code="ATT-HISTORICAL-REHIRE", full_name="Historical Rehire",
         department_id=attendance_department.id, position="Test",
@@ -309,13 +325,16 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
     db_session.commit()
 
     assert summary == {
-        "total": 4, "ready_for_review": 4, "needs_review": 0,
+        "total": 4, "ready_for_review": 3, "needs_review": 1,
         "import_issue_count": 0,
         "period_start": work_date, "period_end": work_date,
     }
     records = db_session.scalars(select(AttendanceDailyRecord)).all()
     assert len(records) == 4
-    assert all(item.status == "ready_for_review" for item in records)
+    normal_record = next(item for item in records if item.employee_id == normal_employee.id)
+    assert normal_record.status == "needs_review"
+    assert "attendance_conflicts_with_confirmed_leave" in (normal_record.review_notes or "")
+    assert sum(item.status == "ready_for_review" for item in records) == 3
     assert all(item.approved_by is None and item.approved_at is None for item in records)
     assert historical_rehire.id in {item.employee_id for item in records}
     assert security_employees[2].id not in {item.employee_id for item in records}
@@ -671,6 +690,22 @@ def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_a
         status="under_review", created_by="hr-admin",
     )
     db_session.add(month)
+    from app.models import LeaveRecord, LeaveType
+
+    annual_leave = LeaveType(
+        code="annual", name_ar="إجازة سنوية", name_en="Annual leave",
+        is_paid=True, tracks_balance=True, active=True,
+    )
+    db_session.add(annual_leave)
+    db_session.flush()
+    db_session.add(LeaveRecord(
+        employee_id=db_session.scalar(select(Employee).where(Employee.code == "ATT-001")).id,
+        leave_type_id=annual_leave.id,
+        start_date=work_date, end_date=work_date,
+        calendar_days=1, charged_days=1,
+        reason="Confirmed leave explains missing attendance",
+        status="confirmed", created_by="hr-admin",
+    ))
     pattern = ShiftPattern(
         department_id=security.id, code="SEC-08-20", name="Security 08-20",
         start_time=time(8, 0), end_time=time(20, 0),
@@ -702,11 +737,11 @@ def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_a
     db_session.flush()
 
     summary = summarize_attendance_month_coverage(db_session, month)
-    assert summary["unrepresented_employee_days"] == 2
+    assert summary["unrepresented_employee_days"] == 1
     assert {
         (gap["employee_code"], gap["work_date"])
         for gap in summary["coverage_examples"]
-    } == {("ATT-001", work_date), ("SEC-COVER-0", work_date)}
+    } == {("SEC-COVER-0", work_date)}
 
 
 def test_monthly_coverage_includes_historical_service_period_after_rehire(db_session):
@@ -1003,3 +1038,47 @@ def test_security_roster_validator_uses_twelve_hour_model_for_two_working_guards
 
     # The other three active guards are explicitly OFF for this day.
     validate_security_roster(db_session, period_start=day, period_end=day)
+
+
+def test_security_roster_validator_rejects_shift_patterns_from_other_departments(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security", active=True)
+    unrelated = Department(name="Unrelated", active=True)
+    db_session.add_all([security, unrelated])
+    db_session.flush()
+    guards = []
+    for index in range(2):
+        guard = Employee(
+            code=f"SEC-WRONG-DEPT-{index+1}", full_name=f"Wrong Department Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(employee_id=guard.id, start_date=date(2026, 1, 1)))
+    db_session.flush()
+
+    patterns = [
+        ShiftPattern(department_id=unrelated.id, code="OTHER-08-20", name="Wrong 08-20",
+                     start_time=time(8, 0), end_time=time(20, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=unrelated.id, code="OTHER-20-08", name="Wrong 20-08",
+                     start_time=time(20, 0), end_time=time(8, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+    ]
+    db_session.add_all(patterns)
+    db_session.flush()
+
+    day = date(2026, 11, 5)
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=patterns[1].id),
+    ])
+    db_session.flush()
+
+    with pytest.raises(ValueError, match="security_roster_shift_pattern_wrong_department"):
+        validate_security_roster(db_session, period_start=day, period_end=day)
