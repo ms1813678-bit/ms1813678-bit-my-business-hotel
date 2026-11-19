@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import zipfile
@@ -155,22 +156,67 @@ def _hash_zip_photos(archive: zipfile.ZipFile) -> tuple[str, int]:
     return digest.hexdigest(), count
 
 
+def _validate_archive_members(archive: zipfile.ZipFile) -> None:
+    """Reject ambiguous, unsafe, or unexpected ZIP entries before reading/extracting."""
+    seen: set[str] = set()
+    for member in archive.infolist():
+        name = member.filename
+        if not name or "\\" in name or name.startswith(("/", "\\\\")):
+            raise ValueError("Backup archive contains an unsafe file path.")
+        parts = name.rstrip("/").split("/")
+        if any(part in {"", ".", ".."} for part in parts) or ":" in parts[0]:
+            raise ValueError("Backup archive contains an unsafe file path.")
+        normalized = "/".join(parts)
+        if normalized in seen:
+            raise ValueError("Backup archive contains duplicate file paths.")
+        seen.add(normalized)
+        mode = (member.external_attr >> 16) & 0xFFFF
+        if stat.S_ISLNK(mode):
+            raise ValueError("Backup archive cannot contain symbolic links.")
+        if normalized not in {"database.dump", "manifest.json"} and not normalized.startswith("employee_photos/"):
+            raise ValueError("Backup archive contains an unexpected file.")
+        if normalized == "employee_photos" and not member.is_dir():
+            raise ValueError("Backup photo archive path is invalid.")
+
+
 def _read_manifest(archive_path: Path) -> dict:
     with zipfile.ZipFile(archive_path, "r") as archive:
+        _validate_archive_members(archive)
+        names = [item.filename for item in archive.infolist() if not item.is_dir()]
+        if names.count("manifest.json") != 1 or names.count("database.dump") != 1:
+            raise ValueError("Backup archive must contain exactly one manifest and database dump.")
         bad_file = archive.testzip()
         if bad_file:
             raise ValueError(f"Backup archive integrity check failed at {bad_file}.")
         try:
             manifest = json.loads(archive.read("manifest.json"))
-        except (KeyError, json.JSONDecodeError) as exc:
+        except (KeyError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ValueError("Backup manifest is missing or invalid.") from exc
+        if not isinstance(manifest, dict):
+            raise ValueError("Backup manifest is invalid.")
+        if manifest.get("application") != "M.Y. Business Hotel HR & Payroll System":
+            raise ValueError("Backup manifest belongs to an unknown application.")
+        if manifest.get("backup_type") not in {"daily", "weekly", "quarterly", "manual", "pre_restore"}:
+            raise ValueError("Backup manifest contains an invalid backup type.")
+        try:
+            datetime.fromisoformat(manifest["created_at"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Backup manifest has an invalid creation timestamp.") from exc
+        database_hash = manifest.get("database_sha256")
+        photo_hash_expected = manifest.get("employee_photos_sha256")
+        photo_count_expected = manifest.get("employee_photo_count")
+        for value in (database_hash, photo_hash_expected):
+            if not isinstance(value, str) or len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value.lower()):
+                raise ValueError("Backup manifest contains an invalid SHA-256 digest.")
+        if not isinstance(photo_count_expected, int) or isinstance(photo_count_expected, bool) or photo_count_expected < 0:
+            raise ValueError("Backup manifest contains an invalid employee photo count.")
         dump = archive.read("database.dump")
-        if hashlib.sha256(dump).hexdigest() != manifest.get("database_sha256"):
+        if hashlib.sha256(dump).hexdigest() != database_hash:
             raise ValueError("Database dump hash does not match the manifest.")
         photo_hash, photo_count = _hash_zip_photos(archive)
-        if photo_hash != manifest.get("employee_photos_sha256"):
+        if photo_hash != photo_hash_expected:
             raise ValueError("Employee photo archive hash does not match the manifest.")
-        if photo_count != manifest.get("employee_photo_count"):
+        if photo_count != photo_count_expected:
             raise ValueError("Employee photo count does not match the manifest.")
         return manifest
 
@@ -290,6 +336,8 @@ def create_backup(db: Session, backup_type: str, actor: str) -> BackupRun:
             archive_hash = sha256_file(temporary_archive)
             archive_size = temporary_archive.stat().st_size
             os.replace(temporary_archive, archive_path)
+        # Verify the exact persisted archive before recording a successful run.
+        verify_backup_archive(archive_path, archive_hash)
         expired_paths = cleanup_retention(backup_root)
         if expired_paths:
             db.execute(delete(BackupRun).where(BackupRun.archive_path.in_(expired_paths)))
@@ -320,8 +368,12 @@ def create_backup(db: Session, backup_type: str, actor: str) -> BackupRun:
         return run
 
 
-def _extract_verified_archive(archive_path: Path, destination: Path) -> tuple[Path, Path]:
-    verify_backup_archive(archive_path)
+def _extract_verified_archive(
+    archive_path: Path,
+    destination: Path,
+    expected_sha256: str | None = None,
+) -> tuple[Path, Path]:
+    verify_backup_archive(archive_path, expected_sha256)
     destination_resolved = destination.resolve()
     with zipfile.ZipFile(archive_path, "r") as archive:
         for member in archive.infolist():
@@ -336,7 +388,11 @@ def _extract_verified_archive(archive_path: Path, destination: Path) -> tuple[Pa
     return dump_path, photos_path
 
 
-def _restore_archive_contents(archive_path: Path, backup_root: Path) -> None:
+def _restore_archive_contents(
+    archive_path: Path,
+    backup_root: Path,
+    expected_sha256: str | None = None,
+) -> None:
     import psycopg
     import sys
 
@@ -346,7 +402,7 @@ def _restore_archive_contents(archive_path: Path, backup_root: Path) -> None:
     connection_args, env = _database_args()
     with tempfile.TemporaryDirectory(prefix="myhotel_restore_", dir=backup_root) as work_dir:
         work = Path(work_dir)
-        dump_path, photos_path = _extract_verified_archive(archive_path, work)
+        dump_path, photos_path = _extract_verified_archive(archive_path, work, expected_sha256)
         _run([pg_restore, "--list", str(dump_path)], env)
 
         # Close pooled application connections before replacing the public schema.
@@ -419,10 +475,10 @@ def restore_backup(
         pre_restore_hash = pre_restore.sha256
 
     try:
-        _restore_archive_contents(selected, backup_root)
+        _restore_archive_contents(selected, backup_root, expected_sha256)
     except Exception as restore_error:
         try:
-            _restore_archive_contents(pre_restore_path, backup_root)
+            _restore_archive_contents(pre_restore_path, backup_root, pre_restore_hash)
             with SessionLocal.begin() as db:
                 db.add(BackupRun(
                     backup_type="pre_restore",
