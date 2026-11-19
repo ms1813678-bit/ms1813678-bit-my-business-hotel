@@ -1,7 +1,8 @@
 """Guards for restore workflow (reason, path, hash)."""
 import pytest
 
-from app.backup_service import restore_backup, verify_backup_archive
+from app.backup_restore import restore_backup
+from app.backup_service import verify_backup_archive
 
 
 def test_restore_requires_reason(tmp_path):

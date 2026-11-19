@@ -3,13 +3,8 @@ from fastapi import Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.backup_service import (
-    create_backup,
-    get_backup_root,
-    list_recent_backups,
-    restore_backup,
-    save_backup_root,
-)
+from app.backup_restore import restore_backup
+from app.backup_service import create_backup, get_backup_root, list_recent_backups, save_backup_root
 from app.config import settings
 from app.db import SessionLocal
 from app.security import csrf_token_for, verify_csrf_token
