@@ -322,17 +322,29 @@ def validate_security_roster(db, *, period_start: date, period_end: date) -> Non
         if any(row.employee_id not in active_ids for row in rows):
             raise ValueError(f"security_roster_employee_not_active:{current.isoformat()}")
 
-        required_shifts = 2 if len(active_guards) == 2 else 3
-        expected_hours = 12 if len(active_guards) == 2 else 8
-        if len(rows) != required_shifts:
+        # The shift model is based on employees actually assigned to work
+        # after OFF entries have been excluded, not the total active headcount.
+        # Several guards may share one of the required shift windows.
+        working_count = len(rows)
+        if working_count < 2:
             raise ValueError(
                 f"security_roster_shift_count_invalid:{current.isoformat()}:"
-                f"expected={required_shifts}:actual={len(rows)}"
+                f"expected_at_least=2:actual={working_count}"
+            )
+        required_shifts = 2 if working_count == 2 else 3
+        expected_hours = 12 if working_count == 2 else 8
+        unique_pattern_ids = {row.shift_pattern_id for row in rows}
+        if len(unique_pattern_ids) != required_shifts:
+            raise ValueError(
+                f"security_roster_shift_count_invalid:{current.isoformat()}:"
+                f"expected_unique={required_shifts}:actual={len(unique_pattern_ids)}"
             )
 
+        # Validate each distinct coverage window once. Duplicate assignments
+        # to the same pattern represent guards sharing a shift, not overlap.
         intervals = []
-        for row in rows:
-            pattern = patterns.get(row.shift_pattern_id)
+        for pattern_id in sorted(unique_pattern_ids):
+            pattern = patterns.get(pattern_id)
             if pattern is None:
                 raise ValueError(f"security_roster_shift_pattern_missing:{current.isoformat()}")
             start = pattern.start_time.hour * 60 + pattern.start_time.minute
