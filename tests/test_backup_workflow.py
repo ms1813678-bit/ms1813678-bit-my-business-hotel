@@ -28,6 +28,7 @@ def make_backup(path: Path, backup_type: str, created_at: datetime) -> Path:
     photo_hash.update(hashlib.sha256(photo).hexdigest().encode("ascii"))
     manifest = {
         "format_version": 1,
+        "application": "M.Y. Business Hotel HR & Payroll System",
         "backup_type": backup_type,
         "created_at": created_at.isoformat(),
         "database_sha256": hashlib.sha256(database_dump).hexdigest(),
