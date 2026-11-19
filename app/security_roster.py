@@ -48,6 +48,8 @@ def build_security_day_proposal(roster, shift_patterns):
     """
     if not isinstance(roster, dict) or len(roster) < 2:
         return _needs_review(["security_roster_requires_at_least_two_active_employees"])
+    if any(employee_id in (None, "") for employee_id in roster):
+        return _needs_review(["security_roster_contains_invalid_employee_identity"])
 
     working = []
     issues = []
