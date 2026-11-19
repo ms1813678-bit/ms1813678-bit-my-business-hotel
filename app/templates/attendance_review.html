@@ -10,6 +10,32 @@
       </div>
       <nav><a href="/attendance/reconcile">مطابقة شهر جديد</a> <a href="/attendance/months">اعتماد الشهور</a></nav>
     </header>
+
+
+
+    <section class="notice">
+      <h2>إضافة حضور يدوي</h2>
+      <p>هذا الإدخال يسجل كحضور يدوي بواسطة مسؤول HR ولا يغيّر البصمة الأصلية. سيظل اليوم بحاجة إلى المراجعة والاعتماد قبل استخدامه في الرواتب.</p>
+      <form method="post" action="/attendance/manual">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="manual-employee">الموظف</label>
+        <select id="manual-employee" name="employee_id" required>
+          <option value="">اختر الموظف</option>
+          {% for employee in employees %}
+          <option value="{{ employee.id }}">{{ employee.full_name }} — {{ employee.code }}</option>
+          {% endfor %}
+        </select>
+        <label for="manual-date">تاريخ العمل</label>
+        <input id="manual-date" name="work_date" type="date" required>
+        <label for="manual-in">وقت الدخول</label>
+        <input id="manual-in" name="clock_in" type="datetime-local" required>
+        <label for="manual-out">وقت الخروج</label>
+        <input id="manual-out" name="clock_out" type="datetime-local" required>
+        <label for="manual-reason">سبب الإدخال اليدوي</label>
+        <input id="manual-reason" name="reason" type="text" minlength="3" maxlength="500" required>
+        <button type="submit">إضافة الحضور للمراجعة</button>
+      </form>
+    </section>
     {% if not records %}
     <section class="notice">
       <h2>لا توجد سجلات معلقة</h2>
