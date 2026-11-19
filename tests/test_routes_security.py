@@ -256,6 +256,57 @@ def test_attendance_review_page_is_paginated(client):
     assert "الصفحة 2 من 2" in second.text
 
 
+
+def test_manual_attendance_is_prefilled_and_visible_in_review(client):
+    assert login(client).status_code == 303
+    from app.main import SessionLocal
+    from app.models import AttendanceMonth
+
+    token = csrf_from(client.get("/employees"))
+    created = client.post(
+        "/employees",
+        data={
+            "csrf_token": token,
+            "full_name": "Manual Attendance Review Employee",
+            "department_id": str(client.test_department_id),
+            "position": "Test Position",
+            "hire_date": "2025-01-01",
+            "basic_salary": "1000.00",
+            "daily_hours": "8",
+        },
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+
+    with SessionLocal.begin() as db:
+        db.add(AttendanceMonth(
+            period_start=date(2026, 11, 1),
+            period_end=date(2026, 11, 30),
+            status="under_review",
+            created_by="integration-admin",
+        ))
+
+    token = csrf_from(client.get("/attendance/review"))
+    response = client.post(
+        "/attendance/manual",
+        data={
+            "csrf_token": token,
+            "employee_id": "1",
+            "work_date": "2026-11-19",
+            "clock_in": "2026-11-19T08:05",
+            "clock_out": "2026-11-19T16:10",
+            "reason": "Manual correction approved for review test",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    review = client.get("/attendance/review")
+    assert review.status_code == 200
+    assert 'value="2026-11-19T08:05"' in review.text
+    assert 'value="2026-11-19T16:10"' in review.text
+    assert "Manual correction approved for review test" in review.text
+    assert "integration-admin" in review.text
+
 def test_logout_requires_csrf_and_clears_session(client):
     assert login(client).status_code == 303
     dashboard = client.get("/")
