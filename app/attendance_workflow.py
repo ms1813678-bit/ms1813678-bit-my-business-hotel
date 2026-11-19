@@ -650,6 +650,116 @@ def prepare_and_persist_monthly_reconciliation(
     }
 
 
+def add_manual_attendance(
+    db,
+    *,
+    employee_id: int,
+    work_date: date,
+    clock_in: datetime,
+    clock_out: datetime,
+    reason: str,
+    actor: str,
+):
+    """Add or correct one attendance day as explicit HR-entered evidence.
+
+    Manual attendance never masquerades as a fingerprint/program event. It is
+    stored separately, remains reviewable, and cannot be entered into an
+    already-approved month.
+    """
+    if not actor or not actor.strip():
+        raise ValueError("attendance_manual_actor_required")
+    if not reason or len(reason.strip()) < 3:
+        raise ValueError("attendance_manual_reason_required")
+    if not isinstance(work_date, date):
+        raise ValueError("attendance_manual_work_date_required")
+    if not isinstance(clock_in, datetime) or not isinstance(clock_out, datetime):
+        raise ValueError("attendance_manual_clock_values_must_be_datetimes")
+    if clock_in.date() != work_date:
+        raise ValueError("attendance_manual_clock_in_must_match_work_date")
+    if clock_out <= clock_in:
+        raise ValueError("attendance_manual_clock_out_must_follow_clock_in")
+
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise ValueError("employee_not_found")
+
+    service_period = db.scalar(
+        select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.employee_id == employee_id,
+            EmployeeServicePeriod.start_date <= work_date,
+            or_(
+                EmployeeServicePeriod.end_date.is_(None),
+                EmployeeServicePeriod.end_date >= work_date,
+            ),
+        ).order_by(EmployeeServicePeriod.start_date.desc(), EmployeeServicePeriod.id.desc())
+    )
+    if service_period is None:
+        raise ValueError("attendance_employee_not_in_service_on_date")
+
+    month = db.scalar(
+        select(AttendanceMonth).where(
+            AttendanceMonth.period_start <= work_date,
+            AttendanceMonth.period_end >= work_date,
+        ).order_by(AttendanceMonth.period_start.desc(), AttendanceMonth.id.desc()).with_for_update()
+    )
+    if month is None:
+        raise ValueError("attendance_month_not_found_for_manual_entry")
+    if month.status == "approved":
+        raise ValueError("attendance_month_already_approved")
+    if month.status != "under_review":
+        raise ValueError("attendance_month_not_ready_for_manual_entry")
+
+    record = db.scalar(
+        select(AttendanceDailyRecord).where(
+            AttendanceDailyRecord.employee_id == employee_id,
+            AttendanceDailyRecord.work_date == work_date,
+        ).with_for_update()
+    )
+    if record is not None and record.status == "approved":
+        raise ValueError("attendance_daily_record_already_approved")
+
+    if record is None:
+        record = AttendanceDailyRecord(
+            employee_id=employee_id,
+            work_date=work_date,
+            program_import_batch_id=month.program_import_batch_id,
+            fingerprint_import_batch_id=month.fingerprint_import_batch_id,
+            status="needs_review",
+        )
+        db.add(record)
+        db.flush()
+    else:
+        record.program_import_batch_id = month.program_import_batch_id
+        record.fingerprint_import_batch_id = month.fingerprint_import_batch_id
+        record.status = "needs_review"
+
+    record.manual_clock_in = clock_in
+    record.manual_clock_out = clock_out
+    record.manual_entry_reason = reason.strip()
+    record.manual_entered_by = actor.strip()
+    record.manual_entered_at = datetime.now(timezone.utc)
+    record.review_notes = (
+        f"{record.review_notes}; " if record.review_notes else ""
+    ) + "Manual HR attendance entered and awaiting approval."
+    record.worked_minutes = int((clock_out - clock_in).total_seconds() // 60)
+
+    db.add(AuditLog(
+        actor=actor.strip(),
+        action="attendance_manual_entry_created",
+        entity_type="attendance_daily_record",
+        entity_id=str(record.id),
+        old_value=None,
+        new_value=(
+            f"employee_id={employee_id}; work_date={work_date.isoformat()}; "
+            f"clock_in={clock_in.isoformat()}; clock_out={clock_out.isoformat()}; "
+            f"status=needs_review"
+        ),
+        reason=reason.strip(),
+    ))
+    db.flush()
+    return record
+
+
 def approve_attendance_day(
     db,
     *,
