@@ -42,7 +42,7 @@ from app.payroll_workflow import (
 from app.models import AdvanceRequest, BackupRun, SystemSetting, StaffAction, PayrollRun, PayrollItem, PayrollPayment, AdminAccount, AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceMonth, AuditLog, Branch, Department, Employee, EmployeeChange, EmployeeDataChangeRequest, EmployeeServicePeriod, LeaveBalanceTransaction, LeaveRecord, LeaveType
 from app.security_roster_import import parse_security_roster_xlsx
 from app.attendance_import import parse_attendance_workbook, normalize as normalize_attendance_alias
-from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
+from app.attendance_workflow import persist_attendance_import, prepare_and_persist_monthly_reconciliation, approve_attendance_day, approve_attendance_month, add_manual_attendance, resolve_unknown_attendance_employee, summarize_attendance_month_coverage
 from app.security_roster_workflow import prepare_security_roster, confirm_security_roster_day
 from app.ai_assistant import ask_local_model, local_fallback_answer, local_model_status
 from app.ai_agent import is_command_request
@@ -835,13 +835,45 @@ def attendance_review_page(
                 "worked_minutes": record.worked_minutes,
                 "status": record.status, "review_notes": record.review_notes,
             })
+    employees = db.scalars(
+        select(Employee).where(Employee.status == "active").order_by(Employee.full_name, Employee.id)
+    ).all()
     return templates.TemplateResponse(
         request=request, name="attendance_review.html",
         context={"admin": admin.username, "csrf_token": get_csrf_token(request),
-                 "records": records, "error": None, "page": page,
+                 "records": records, "employees": employees, "error": None, "page": page,
                  "total_pages": total_pages, "total_records": total_records,
                  "page_size": page_size},
     )
+
+
+@app.post("/attendance/manual", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
+def attendance_manual_entry(
+    request: Request,
+    employee_id: int = Form(...),
+    work_date: str = Form(...),
+    clock_in: str = Form(...),
+    clock_out: str = Form(...),
+    reason: str = Form(...),
+    admin: AdminAccount = Depends(get_current_admin),
+):
+    try:
+        entered_date = date.fromisoformat(work_date)
+        entered_in = datetime.fromisoformat(clock_in)
+        entered_out = datetime.fromisoformat(clock_out)
+        with SessionLocal.begin() as db:
+            add_manual_attendance(
+                db,
+                employee_id=employee_id,
+                work_date=entered_date,
+                clock_in=entered_in,
+                clock_out=entered_out,
+                reason=reason,
+                actor=admin.username,
+            )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse("/attendance/review", status_code=303)
 
 
 @app.post("/attendance/{record_id}/approve", response_class=HTMLResponse, dependencies=[Depends(csrf_protect)])
