@@ -9,11 +9,13 @@
 - Overnight shifts remain associated with the work date on which the shift starts.
 - Missing or uncertain fingerprint events are never fabricated.
 
-- Security roster rule: the Excel roster gives each of the three employees' shift start time or OFF. Exactly two working employees means 12 hours each; all three working means 8 hours each. 00:00 is a valid start time. End times are derived by adding the duration across midnight. Invalid working counts, duplicate starts, and missing/ambiguous configured patterns require administrator review.
+- Security roster rule: the Excel roster gives every currently active Security employee's configured shift start time or explicit OFF. The roster is not limited to three guards. Exactly two working employees after OFF entries are excluded means 12 hours each; three or more working employees use the three configured 8-hour shifts, with additional guards allowed to share a shift. 00:00 is a valid start time. The end time must resolve to an active configured shift pattern across midnight; it must not be invented. Fewer than two working guards, incomplete 24-hour coverage, missing patterns, and ambiguous pattern definitions require administrator review. Multiple employees sharing one configured shift is allowed.
 
-## Approved shift patterns
+## Seeded default shift patterns
 
-| Department | Shift times |
+The following are initial defaults, not a fixed headcount or a license to infer missing times. Security roster validation must use the active configured shift definitions and must require full 24-hour coverage.
+
+| Department | Default shift times |
 |---|---|
 | Administration | 09:00–17:00 |
 | Reception | 07:00–15:00; 15:00–23:00; 23:00–07:00 |
