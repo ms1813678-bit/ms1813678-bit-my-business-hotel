@@ -110,3 +110,45 @@ def test_backup_without_configured_external_drive_is_recorded_as_failed(tmp_path
     finally:
         Base.metadata.drop_all(engine)
         engine.dispose()
+
+
+def test_backup_archive_rejects_unsafe_duplicate_and_unexpected_members(tmp_path):
+    now = datetime(2026, 11, 7, tzinfo=timezone.utc)
+    archive = tmp_path / "manual" / "unsafe.zip"
+    archive.parent.mkdir(parents=True)
+    manifest = {
+        "format_version": 1,
+        "application": "M.Y. Business Hotel HR & Payroll System",
+        "backup_type": "manual",
+        "created_at": now.isoformat(),
+        "database_sha256": hashlib.sha256(b"dump").hexdigest(),
+        "employee_photos_sha256": hashlib.sha256(b"").hexdigest(),
+        "employee_photo_count": 0,
+    }
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("database.dump", b"dump")
+        zf.writestr("manifest.json", json.dumps(manifest))
+        zf.writestr("../outside.txt", b"unsafe")
+    with pytest.raises(ValueError, match="unsafe"):
+        verify_backup_archive(archive)
+
+
+def test_backup_archive_rejects_unknown_application(tmp_path):
+    now = datetime(2026, 11, 7, tzinfo=timezone.utc)
+    archive = tmp_path / "manual" / "foreign.zip"
+    archive.parent.mkdir(parents=True)
+    dump = b"dump"
+    manifest = {
+        "format_version": 1,
+        "application": "Other Application",
+        "backup_type": "manual",
+        "created_at": now.isoformat(),
+        "database_sha256": hashlib.sha256(dump).hexdigest(),
+        "employee_photos_sha256": hashlib.sha256(b"").hexdigest(),
+        "employee_photo_count": 0,
+    }
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("database.dump", dump)
+        zf.writestr("manifest.json", json.dumps(manifest))
+    with pytest.raises(ValueError, match="unknown application"):
+        verify_backup_archive(archive)
