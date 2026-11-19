@@ -810,8 +810,10 @@ def attendance_review_page(
         ).all()
         records = []
         for record, employee in rows:
-            suggested_in = record.program_clock_in or record.first_clock_in
-            suggested_out = record.program_clock_out or record.last_clock_out
+            # Manual HR evidence is the latest explicit correction and must
+            # be visible as the default review proposal, without replacing raw punches.
+            suggested_in = record.manual_clock_in or record.program_clock_in or record.first_clock_in
+            suggested_out = record.manual_clock_out or record.program_clock_out or record.last_clock_out
             if (
                 suggested_in is not None and suggested_out is not None
                 and suggested_out <= suggested_in
@@ -830,6 +832,11 @@ def attendance_review_page(
                 "program_clock_out": record.program_clock_out,
                 "fingerprint_in": record.first_clock_in,
                 "fingerprint_out": record.last_clock_out,
+                "manual_clock_in": record.manual_clock_in,
+                "manual_clock_out": record.manual_clock_out,
+                "manual_entry_reason": record.manual_entry_reason,
+                "manual_entered_by": record.manual_entered_by,
+                "manual_entered_at": record.manual_entered_at,
                 "suggested_clock_in": suggested_in,
                 "suggested_clock_out": suggested_out,
                 "worked_minutes": record.worked_minutes,
