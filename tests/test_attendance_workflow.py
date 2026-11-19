@@ -1082,3 +1082,57 @@ def test_security_roster_validator_rejects_shift_patterns_from_other_departments
 
     with pytest.raises(ValueError, match="security_roster_shift_pattern_wrong_department"):
         validate_security_roster(db_session, period_start=day, period_end=day)
+
+
+def test_add_manual_attendance_requires_existing_under_review_month_and_preserves_source(db_session):
+    from app.attendance_workflow import add_manual_attendance
+    from app.models import AttendanceMonth
+
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    db_session.add(EmployeeServicePeriod(employee_id=employee.id, start_date=date(2026, 11, 1)))
+    month = AttendanceMonth(
+        period_start=date(2026, 11, 1), period_end=date(2026, 11, 30),
+        status="under_review",
+    )
+    db_session.add(month)
+    db_session.flush()
+
+    record = add_manual_attendance(
+        db_session,
+        employee_id=employee.id,
+        work_date=date(2026, 11, 5),
+        clock_in=datetime(2026, 11, 5, 8, 0),
+        clock_out=datetime(2026, 11, 5, 16, 0),
+        reason="Employee forgot fingerprint card",
+        actor="admin",
+    )
+    assert record.status == "needs_review"
+    assert record.manual_entered_by == "admin"
+    assert record.manual_entry_reason == "Employee forgot fingerprint card"
+    assert record.program_clock_in is None
+    assert record.first_clock_in is None
+    assert record.worked_minutes == 480
+
+
+def test_add_manual_attendance_rejects_approved_month(db_session):
+    from app.attendance_workflow import add_manual_attendance
+    from app.models import AttendanceMonth
+
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    db_session.add(EmployeeServicePeriod(employee_id=employee.id, start_date=date(2026, 11, 1)))
+    db_session.add(AttendanceMonth(
+        period_start=date(2026, 11, 1), period_end=date(2026, 11, 30),
+        status="approved",
+    ))
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="attendance_month_already_approved"):
+        add_manual_attendance(
+            db_session,
+            employee_id=employee.id,
+            work_date=date(2026, 11, 5),
+            clock_in=datetime(2026, 11, 5, 8, 0),
+            clock_out=datetime(2026, 11, 5, 16, 0),
+            reason="Late fingerprint",
+            actor="admin",
+        )
