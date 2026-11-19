@@ -1093,6 +1093,7 @@ def test_add_manual_attendance_requires_existing_under_review_month_and_preserve
     month = AttendanceMonth(
         period_start=date(2026, 11, 1), period_end=date(2026, 11, 30),
         status="under_review",
+        created_by="hr-admin",
     )
     db_session.add(month)
     db_session.flush()
@@ -1123,6 +1124,7 @@ def test_add_manual_attendance_rejects_approved_month(db_session):
     db_session.add(AttendanceMonth(
         period_start=date(2026, 11, 1), period_end=date(2026, 11, 30),
         status="approved",
+        created_by="hr-admin",
     ))
     db_session.commit()
 
