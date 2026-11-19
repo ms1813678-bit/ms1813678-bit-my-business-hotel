@@ -4,8 +4,8 @@ A local-first HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. 
 
 ## Delivery status
 
-**Feature-complete on branch `integration/continue-safe-v1` for local testing — not yet production-accepted.**  
-Do **not** enter real employee or payroll data until Windows installation, backup/restore, and owner acceptance are completed. `main` is unchanged until the owner explicitly approves a merge.
+**Feature-complete on the final-acceptance track for local testing — not yet production-accepted.**  
+Do **not** enter real employee or payroll data until Windows installation, backup/restore, and owner acceptance are completed. `main` remains unchanged until the owner explicitly approves a merge.
 
 ### Verified on this integration branch
 
