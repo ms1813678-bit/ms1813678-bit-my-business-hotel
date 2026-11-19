@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
         <h1>النسخ الاحتياطي والاستعادة</h1>
-        <p class="muted">نسخ خارجي مع تحقق من السلامة — يومي 40 يومًا، أسبوعي سنة، ربع سنوي لا يُحذف تلقائيًا</p>
+        <p class="muted">نسخ خارجي مع تحقق — يومي 40 يوماً، أسبوعي سنة، ربع سنوي لا يُحذف تلقائياً</p>
       </div>
       <div class="actions">
         <a class="button-link secondary" href="/">لوحة الإدارة</a>
@@ -35,7 +35,6 @@
         </label>
         <button type="submit">حفظ المسار</button>
       </form>
-      <p class="muted">يُفضَّل قرص خارجي مختلف عن قرص النظام. الاستعادة تتطلب تأكيدًا وسببًا ونسخة pre-restore أولاً.</p>
     </section>
 
     <section class="notice">
@@ -55,11 +54,42 @@
     </section>
 
     <section class="notice">
+      <h2>استعادة من نسخة ناجحة</h2>
+      <p class="muted">قبل الاستعادة تُنشأ تلقائياً نسخة pre-restore. عند الفشل تُعاد قاعدة البيانات منها. يتطلب سبباً وتأكيد «استعادة».</p>
+      {% if success_runs %}
+      <form method="post" action="/backup/restore" class="stack-form" onsubmit="return confirm('سيتم استبدال قاعدة البيانات الحالية. هل أنت متأكد؟');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>النسخة
+          <select name="archive_path" required>
+            {% for run in success_runs %}
+            <option value="{{ run.archive_path }}">
+              {{ run.created_at }} — {{ run.backup_type }} — {{ run.archive_path }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>SHA-256 للنسخة (من جدول آخر العمليات)
+          <input type="text" name="archive_sha256" required placeholder="هاش الأرشيف المسجّل" style="min-width:28rem">
+        </label>
+        <label>سبب الاستعادة
+          <textarea name="reason" rows="2" required placeholder="مثال: استعادة بعد خطأ إدخال بيانات تجريبية"></textarea>
+        </label>
+        <label>اكتب كلمة «استعادة» للتأكيد
+          <input type="text" name="confirm_text" required autocomplete="off">
+        </label>
+        <button type="submit">تنفيذ الاستعادة</button>
+      </form>
+      {% else %}
+      <p class="muted">لا توجد نسخ ناجحة متاحة للاستعادة بعد.</p>
+      {% endif %}
+    </section>
+
+    <section class="notice">
       <h2>آخر العمليات</h2>
       {% if runs %}
       <table>
         <thead>
-          <tr><th>الوقت</th><th>النوع</th><th>الحالة</th><th>الحجم</th><th>المسار / الخطأ</th></tr>
+          <tr><th>الوقت</th><th>النوع</th><th>الحالة</th><th>الحجم</th><th>SHA-256</th><th>المسار / الخطأ</th></tr>
         </thead>
         <tbody>
           {% for run in runs %}
@@ -68,6 +98,7 @@
             <td>{{ run.backup_type }}</td>
             <td>{{ run.status }}</td>
             <td>{{ run.size_bytes }}</td>
+            <td><code style="font-size:0.75rem">{{ run.sha256 or '—' }}</code></td>
             <td>{% if run.status == 'success' %}{{ run.archive_path }}{% else %}{{ run.error_message }}{% endif %}</td>
           </tr>
           {% endfor %}
@@ -78,7 +109,7 @@
       {% endif %}
     </section>
 
-    <footer>لا تُحذف النسخ الربع سنوية تلقائيًا. النجاح يُبلَّغ فقط بعد التحقق من الـ ZIP وهاش قاعدة البيانات.</footer>
+    <footer>النجاح يُبلَّغ فقط بعد التحقق من ZIP وهاش قاعدة البيانات. الاستعادة لا تتم دون سبب وتأكيد صريح.</footer>
   </main>
 </body>
 </html>
