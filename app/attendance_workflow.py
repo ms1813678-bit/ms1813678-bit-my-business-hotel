@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeChange, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
+from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeChange, EmployeeServicePeriod, LeaveRecord, SecurityShiftAssignment, ShiftPattern)
 
 
 def _department_history_by_date(db, employees, period_start: date, period_end: date):
@@ -347,6 +347,8 @@ def validate_security_roster(db, *, period_start: date, period_end: date) -> Non
             pattern = patterns.get(pattern_id)
             if pattern is None:
                 raise ValueError(f"security_roster_shift_pattern_missing:{current.isoformat()}")
+            if pattern.department_id != security_department.id:
+                raise ValueError(f"security_roster_shift_pattern_wrong_department:{current.isoformat()}")
             start = pattern.start_time.hour * 60 + pattern.start_time.minute
             end = pattern.end_time.hour * 60 + pattern.end_time.minute
             duration = (end - start) % 1440
@@ -573,6 +575,35 @@ def prepare_and_persist_monthly_reconciliation(
     )
     if not proposals:
         raise ValueError("no_attendance_proposals_generated")
+
+    # A confirmed leave is authoritative HR evidence. Attendance evidence or
+    # a rostered shift on that date must be reviewed as a conflict, never
+    # silently accepted as an ordinary attendance day.
+    proposal_employee_ids = {item["employee_id"] for item in proposals}
+    confirmed_leaves = db.scalars(
+        select(LeaveRecord).where(
+            LeaveRecord.status == "confirmed",
+            LeaveRecord.employee_id.in_(proposal_employee_ids or {-1}),
+            LeaveRecord.start_date <= period_end,
+            LeaveRecord.end_date >= period_start,
+        ).order_by(LeaveRecord.employee_id, LeaveRecord.start_date, LeaveRecord.id)
+    ).all()
+    leaves_by_employee = {}
+    for leave in confirmed_leaves:
+        leaves_by_employee.setdefault(leave.employee_id, []).append(leave)
+    for item in proposals:
+        proposal = item["proposal"]
+        work_date = proposal["work_date"]
+        overlaps = [
+            leave for leave in leaves_by_employee.get(item["employee_id"], [])
+            if leave.start_date <= work_date <= leave.end_date
+        ]
+        if overlaps:
+            leave_ids = ",".join(str(leave.id) for leave in overlaps)
+            proposal["status"] = "needs_review"
+            proposal.setdefault("issues", []).append(
+                f"attendance_conflicts_with_confirmed_leave:records={leave_ids}"
+            )
 
     import_issue_count = program_batch.issue_count + fingerprint_batch.issue_count
     if import_issue_count:
@@ -888,6 +919,22 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
             ).all()
         }
 
+    confirmed_leaves = db.scalars(
+        select(LeaveRecord).where(
+            LeaveRecord.status == "confirmed",
+            LeaveRecord.start_date <= month.period_end,
+            LeaveRecord.end_date >= month.period_start,
+        )
+    ).all()
+    confirmed_leave_days = set()
+    for leave in confirmed_leaves:
+        first = max(leave.start_date, month.period_start)
+        last = min(leave.end_date, month.period_end)
+        current = first
+        while current <= last:
+            confirmed_leave_days.add((leave.employee_id, current))
+            current += timedelta(days=1)
+
     security_approved_dates = set()
     approved_values = db.scalars(
         select(AuditLog.entity_id).where(
@@ -927,6 +974,10 @@ def summarize_attendance_month_coverage(db, month: AttendanceMonth):
 
         for work_date in sorted(service_dates):
             if (employee.id, work_date) in represented:
+                continue
+            if (employee.id, work_date) in confirmed_leave_days:
+                # A confirmed HR leave record explains why no attendance row
+                # is expected; it is not an unresolved attendance gap.
                 continue
             if (
                 security_department is not None
