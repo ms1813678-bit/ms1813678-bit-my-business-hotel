@@ -32,3 +32,12 @@ def test_windows_launcher_is_local_and_manual():
     assert "schtasks" not in launcher.lower()
 
 
+
+
+def test_windows_setup_has_balanced_powershell_blocks():
+    setup = (ROOT / "scripts" / "windows" / "setup.ps1").read_text(encoding="utf-8")
+    # Catch the most common accidental corruption: an unfinished conditional or here-string.
+    assert "if (-not [int]::TryParse($DbPortInput, [ref]$ParsedPort)" in setup
+    assert '$EnvContent = @"' in setup
+    assert setup.count('$EnvContent = @"') == 1
+    assert setup.count('"@') == 1
