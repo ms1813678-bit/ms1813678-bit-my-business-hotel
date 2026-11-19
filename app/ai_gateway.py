@@ -33,6 +33,13 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _as_utc(value: datetime) -> datetime:
+    """Normalize database timestamps from SQLite/PostgreSQL to aware UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _memory(actor: str, role: str, content: str) -> None:
     with SessionLocal.begin() as db:
         db.add(AIConversationMessage(actor=actor, role=role, content=content[:10000]))
@@ -103,7 +110,7 @@ def reject_command(token: str, actor: str, reason: str = "رفض المسؤول 
             raise ValueError("طلب الموافقة غير موجود.")
         if approval.status != "pending":
             raise ValueError("هذا الطلب لم يعد قابلًا للرفض.")
-        if approval.expires_at <= now:
+        if _as_utc(approval.expires_at) <= now:
             approval.status = "expired"
             expired = True
             db.add(AuditLog(
