@@ -112,8 +112,13 @@ def payroll_client(monkeypatch):
             work_date=date(2026, 10, 5),
             scheduled_start_at=datetime(2026, 10, 5, 9, 0),
             scheduled_end_at=datetime(2026, 10, 5, 17, 0),
-            approved_clock_in=datetime(2026, 10, 5, 9, 20),
-            approved_clock_out=datetime(2026, 10, 5, 16, 50),
+            approved_clock_in=datetime(2026, 10, 5, 9, 30),
+            approved_clock_out=datetime(2026, 10, 5, 16, 45),
+            manual_clock_in=datetime(2026, 10, 5, 9, 30),
+            manual_clock_out=datetime(2026, 10, 5, 16, 45),
+            manual_entry_reason="Synthetic manual HR correction",
+            manual_entered_by="payroll-admin",
+            manual_entered_at=datetime.utcnow(),
             status="approved",
             approved_by="payroll-admin",
             approved_at=datetime.utcnow(),
@@ -289,9 +294,11 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         assert item.position_snapshot == "Test Position"
         assert item.salary_basis == Decimal("9000.00")
         assert item.base_salary == Decimal("9000.00")
-        assert item.late_minutes == 20
-        assert item.early_minutes == 10
-        assert item.lateness_deduction == Decimal("9.38")
+        assert item.late_minutes == 30
+        assert item.early_minutes == 15
+        # 30 late/early minutes remain chargeable after 10/5 minute grace:
+        # 30 minutes × (9000 / (8 × 30) / 60) = 18.75.
+        assert item.lateness_deduction == Decimal("18.75")
         assert item.advance_deduction == Decimal("500.00")
         assert item.staff_reward_amount == Decimal("100.00")
         assert item.staff_sanction_amount == Decimal("50.00")
@@ -338,7 +345,7 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
             "overtime_hours": "2",
             "other_bonus": "25",
             "absence_days": "1",
-            "lateness_deduction": "9.38",
+            "lateness_deduction": "18.75",
             "insurance_share": "200",
             "taxes": "50",
             "other_deductions": "10",
@@ -352,7 +359,7 @@ def test_payroll_run_calculates_and_closes_once_then_tracks_partial_payment(payr
         item = db.get(PayrollItem, item_id)
         assert item.overtime_amount == Decimal("0.00")
         assert item.absence_deduction == Decimal("290.32")
-        assert item.net_pay == Decimal("8365.30")
+        assert item.net_pay == Decimal("8355.93")
 
     approved_overtime = client.post(
         f"/payroll/items/{item_id}/overtime-approve",
