@@ -145,7 +145,7 @@ def approve_command(token: str, actor: str) -> str:
             raise ValueError("طلب الموافقة غير موجود.")
         if approval.status != "pending":
             raise ValueError("هذا الطلب سبق التعامل معه ولا يمكن تنفيذه مرة أخرى.")
-        if approval.expires_at <= now:
+        if _as_utc(approval.expires_at) <= now:
             approval.status = "expired"
             db.add(AuditLog(
                 actor=actor, action="ai_command_expired", entity_type="ai_command",
