@@ -28,3 +28,12 @@ def test_ai_approval_expiry_is_time_bounded():
     expires = now + timedelta(minutes=10)
     assert expires > now
     assert expires <= now + timedelta(minutes=10)
+
+def test_ai_gateway_normalizes_naive_database_expiry_to_utc():
+    from app.ai_gateway import _as_utc
+
+    naive = datetime(2026, 11, 20, 12, 0, 0)
+    aware = _as_utc(naive)
+
+    assert aware.tzinfo == timezone.utc
+    assert aware == datetime(2026, 11, 20, 12, 0, 0, tzinfo=timezone.utc)
