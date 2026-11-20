@@ -177,3 +177,139 @@ def test_restore_backup_rejects_empty_reason_before_any_restore(monkeypatch, tmp
         )
 
     assert called["value"] is False
+
+
+def _prepare_restore_test_environment(monkeypatch, tmp_path, *, fail_selected_restore=False):
+    from sqlalchemy.orm import sessionmaker
+
+    import app.backup_workflow as backup_workflow
+    import app.db as db_module
+    from app.models import AuditLog, SystemSetting
+
+    database_path = tmp_path / "restore-test.sqlite"
+    engine = create_engine(f"sqlite:///{database_path}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    backup_root = tmp_path / "external-backups"
+    selected_archive = make_backup(
+        backup_root / "manual" / "selected.zip",
+        "manual",
+        datetime(2026, 11, 7, tzinfo=timezone.utc),
+    )
+    pre_restore_archive = make_backup(
+        backup_root / "pre_restore" / "pre-restore.zip",
+        "pre_restore",
+        datetime(2026, 11, 8, tzinfo=timezone.utc),
+    )
+    pre_restore_hash = sha256_file(pre_restore_archive)
+    selected_hash = sha256_file(selected_archive)
+
+    with factory.begin() as db:
+        db.add(SystemSetting(
+            key="backup_root",
+            value=str(backup_root),
+            updated_by="synthetic-admin",
+        ))
+
+    def record_pre_restore_backup(db, backup_type, actor):
+        assert backup_type == "pre_restore"
+        run = BackupRun(
+            backup_type="pre_restore",
+            status="success",
+            archive_path=str(pre_restore_archive),
+            sha256=pre_restore_hash,
+            size_bytes=pre_restore_archive.stat().st_size,
+            created_at=datetime(2026, 11, 8, tzinfo=timezone.utc),
+            verified_at=datetime(2026, 11, 8, tzinfo=timezone.utc),
+            initiated_by=actor,
+        )
+        db.add(run)
+        db.flush()
+        return run
+
+    restore_calls = []
+
+    def restore_archive(path, root, expected_sha256=None):
+        path = Path(path)
+        restore_calls.append(path)
+        if fail_selected_restore and path == selected_archive:
+            raise RuntimeError("synthetic selected restore failure")
+        assert root == backup_root
+        if path == pre_restore_archive:
+            assert expected_sha256 == pre_restore_hash
+
+    monkeypatch.setattr(db_module, "SessionLocal", factory)
+    monkeypatch.setattr(backup_workflow, "create_backup", record_pre_restore_backup)
+    monkeypatch.setattr(backup_workflow, "_restore_archive_contents", restore_archive)
+
+    return {
+        "engine": engine,
+        "factory": factory,
+        "backup_root": backup_root,
+        "selected_archive": selected_archive,
+        "selected_hash": selected_hash,
+        "pre_restore_archive": pre_restore_archive,
+        "restore_calls": restore_calls,
+        "AuditLog": AuditLog,
+    }
+
+
+def test_restore_backup_records_audit_and_history_after_success(monkeypatch, tmp_path):
+    context = _prepare_restore_test_environment(monkeypatch, tmp_path)
+    try:
+        result = restore_backup(
+            context["selected_archive"],
+            context["selected_hash"],
+            actor="synthetic-admin",
+            reason="Synthetic successful restore test",
+        )
+
+        assert context["restore_calls"] == [context["selected_archive"]]
+        assert result["archive_path"] == str(context["selected_archive"])
+        assert result["pre_restore_archive"] == str(context["pre_restore_archive"])
+        history = context["backup_root"] / "restore_history.jsonl"
+        assert history.is_file()
+        assert '"reason": "Synthetic successful restore test"' in history.read_text(encoding="utf-8")
+
+        with context["factory"]() as db:
+            actions = db.scalars(select(context["AuditLog"].action)).all()
+            pre_restore_runs = db.scalars(
+                select(BackupRun).where(BackupRun.backup_type == "pre_restore")
+            ).all()
+        assert actions == ["backup_restored"]
+        assert len(pre_restore_runs) == 1
+    finally:
+        context["engine"].dispose()
+
+
+def test_restore_backup_rolls_back_after_selected_archive_failure(monkeypatch, tmp_path):
+    context = _prepare_restore_test_environment(
+        monkeypatch, tmp_path, fail_selected_restore=True
+    )
+    try:
+        with pytest.raises(RuntimeError, match="previous database was restored"):
+            restore_backup(
+                context["selected_archive"],
+                context["selected_hash"],
+                actor="synthetic-admin",
+                reason="Synthetic rollback test",
+            )
+
+        assert context["restore_calls"] == [
+            context["selected_archive"],
+            context["pre_restore_archive"],
+        ]
+        assert not (context["backup_root"] / "restore_history.jsonl").exists()
+
+        with context["factory"]() as db:
+            actions = db.scalars(select(context["AuditLog"].action)).all()
+            pre_restore_runs = db.scalars(
+                select(BackupRun).where(BackupRun.backup_type == "pre_restore")
+            ).all()
+        assert actions == ["backup_restore_rolled_back"]
+        assert len(pre_restore_runs) == 1
+        assert pre_restore_runs[0].archive_path == str(context["pre_restore_archive"])
+    finally:
+        context["engine"].dispose()
+
