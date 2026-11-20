@@ -430,12 +430,19 @@ def test_complete_synthetic_hr_to_payroll_acceptance_flow(monkeypatch):
                 employee_id=employee.id,
             )
             workbook = load_workbook(BytesIO(report_bytes), read_only=True)
-            assert "Employees" in workbook.sheetnames
-            assert "Attendance" in workbook.sheetnames
-            assert "Advances" in workbook.sheetnames
-            assert "Payroll" in workbook.sheetnames
-            assert "Payments" in workbook.sheetnames
-            assert "Staff actions" in workbook.sheetnames
+            assert {
+                "Employees",
+                "Attendance",
+                "Leave",
+                "Leave balances",
+                "Sanctions rewards",
+                "Advances",
+                "Payroll",
+                "Departments",
+            }.issubset(set(workbook.sheetnames))
+            payroll_headers = [cell.value for cell in workbook["Payroll"][1]]
+            assert "Paid" in payroll_headers
+            assert "Remaining" in payroll_headers
 
             # The evidence and every financial transition are retained in the DB.
             assert db.scalar(
