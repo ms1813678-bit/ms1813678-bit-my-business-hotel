@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+import hashlib
 from decimal import Decimal
 
 from sqlalchemy import create_engine, select, func
@@ -75,6 +76,8 @@ def test_persists_raw_events_and_audit_log_without_approving_daily_attendance(db
     db_session.commit()
 
     assert batch.status == "parsed"
+    assert batch.original_file_bytes == b"synthetic-xlsx"
+    assert batch.file_sha256 == hashlib.sha256(b"synthetic-xlsx").hexdigest()
     assert batch.row_count == 2
     assert db_session.scalar(select(func.count()).select_from(AttendancePunch)) == 2
     assert db_session.scalar(select(func.count()).select_from(AuditLog)) == 1
