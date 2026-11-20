@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}نظام الموارد البشرية — فندق M.Y. Business{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-row">
+          <span class="mark">MY</span>
+          <div>
+            <strong>فندق M.Y. Business</strong>
+            <span>نظام الموارد البشرية والرواتب</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">الرئيسية</div>
+        <a class="nav-link {% if active_nav == 'dashboard' %}active{% endif %}" href="/"><span class="dot"></span>لوحة التحكم</a>
+        <a class="nav-link {% if active_nav == 'ai' %}active{% endif %}" href="/ai"><span class="dot"></span>مساعد الذكاء الاصطناعي</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">الموارد البشرية</div>
+        <a class="nav-link {% if active_nav == 'employees' %}active{% endif %}" href="/employees"><span class="dot"></span>الموظفون</a>
+        <a class="nav-link {% if active_nav == 'attendance' %}active{% endif %}" href="/attendance/import"><span class="dot"></span>الحضور والانصراف</a>
+        <a class="nav-link {% if active_nav == 'leave' %}active{% endif %}" href="/leave"><span class="dot"></span>الإجازات</a>
+        <a class="nav-link {% if active_nav == 'staff_actions' %}active{% endif %}" href="/staff-actions"><span class="dot"></span>الجزاءات والمكافآت</a>
+        <a class="nav-link {% if active_nav == 'security_roster' %}active{% endif %}" href="/security-roster"><span class="dot"></span>جدول الأمن</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">الرواتب والمالية</div>
+        <a class="nav-link {% if active_nav == 'payroll' %}active{% endif %}" href="/payroll"><span class="dot"></span>مسيرات الرواتب</a>
+        <a class="nav-link {% if active_nav == 'advances' %}active{% endif %}" href="/advances"><span class="dot"></span>السلف</a>
+        <a class="nav-link {% if active_nav == 'reports' %}active{% endif %}" href="/reports"><span class="dot"></span>التقارير</a>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">النظام</div>
+        <a class="nav-link {% if active_nav == 'backup' %}active{% endif %}" href="/backup"><span class="dot"></span>النسخ الاحتياطي</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+      <footer>{% block footer %}التطبيق يعمل محليًا على Windows 10 و 11. البيانات لا تُرفع إلى الإنترنت.{% endblock %}</footer>
+    </main>
+  </div>
+</body>
+</html>

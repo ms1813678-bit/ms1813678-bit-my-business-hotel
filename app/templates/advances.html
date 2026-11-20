@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set active_nav = "advances" %}
+{% block title %}السلف | M.Y. Business Hotel{% endblock %}
+{% block content %}
+<header class="topbar">
+    <div><p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>إدارة السلف</h1>
+      <p class="muted">Salary advances · HR administrator only</p></div>
+    <nav><a href="/">الرئيسية</a> · <a href="/employees">الموظفون</a> · <a href="/leave">الإجازات</a></nav>
+  </header>
+
+  {% if error %}
+  <section class="notice error">
+    {% if error == "request" %}تعذر تسجيل السلفة. تحقق من أن تاريخ الطلب بين يوم 15 و22، وأن الموظف نشط، وأن السلفة العادية ضمن حد 25% إذا كانت عادية.
+    {% elif error == "approve" %}تعذر اعتماد السلفة. تحقق من حالتها، ومن عدد الأقساط للسلفة المقسطة، ومن حد 25% إذا كانت عادية.
+    {% elif error == "reject" %}تعذر رفض الطلب. يجب إدخال سبب الرفض وأن تكون الحالة معلقة.
+    {% elif error == "paid" %}لا يمكن تسجيل الصرف إلا بعد اعتماد السلفة.
+    {% else %}السجل المطلوب غير موجود.{% endif %}
+  </section>
+  {% endif %}
+
+  <section class="notice">
+    <h2>تسجيل طلب سلفة / New advance request</h2>
+    <p class="muted">تُقبل الطلبات من يوم 15 إلى يوم 22 من الشهر فقط. السلفة الشهرية العادية فقط تخضع لحد 25% من الراتب الأساسي. السلفة المقسطة مستقلة عن هذا الحد ويمكن أن تتجاوز الراتب الشهري، ويحدد جدولها عدد الأقساط. شهر الاستحقاق المحاسبي هو شهر الطلب، ويُدفع الراتب في اليوم الخامس من الشهر التالي.</p>
+    <form method="post" action="/advances">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>الموظف / Employee
+          <select name="employee_id" required>{% for e in employees %}<option value="{{ e.id }}">{{ e.code }} — {{ e.full_name }} ({{ e.basic_salary }} جنيه)</option>{% endfor %}</select>
+        </label>
+        <label>تاريخ الطلب / Request date<input type="date" name="request_date" max="{{ today }}" required></label>
+        <label>نوع السلفة / Advance type
+          <select name="advance_type" required>
+            <option value="regular">سلفة شهرية عادية — حد 25% من الأساسي</option>
+            <option value="installment">سلفة مقسطة — بدون حد 25%</option>
+          </select>
+        </label>
+        <label>المبلغ بالجنيه / Amount (EGP)<input type="number" name="amount" min="0.01" step="0.01" required></label>
+        <label>السبب / Reason<input name="reason" maxlength="2000" required></label>
+      </div>
+      <button type="submit">تسجيل الطلب / Submit request</button>
+    </form>
+  </section>
+
+  <section class="notice">
+    <h2>ملخص السلف لكل موظف / Employee advance summary</h2>
+    <div class="table-wrap"><table><thead><tr>
+      <th>الموظف</th><th>آخر سلفة</th><th>إجمالي السلف التاريخي</th><th>المخصوم</th><th>قائم عادي</th><th>قائم مقسط</th><th>حد 25% للعادي</th><th>المتاح للعادي</th>
+    </tr></thead><tbody>
+    {% for e in employees %}
+    {% set s = advance_summary.get(e.id) %}
+    <tr>
+      <td>{{ e.code }} — {{ e.full_name }}</td>
+      <td>{% if s.latest %}{{ "%.2f"|format(s.latest.amount) }} ج · {{ s.latest.request_date.strftime("%d/%m/%Y") }}{% else %}—{% endif %}</td>
+      <td>{{ "%.2f"|format(s.total) }} ج</td>
+      <td>{{ "%.2f"|format(s.deducted) }} ج</td>
+      <td>{{ "%.2f"|format(s.regular_outstanding) }} ج</td>
+      <td>{{ "%.2f"|format(s.installment_outstanding) }} ج</td>
+      <td>{{ "%.2f"|format(s.limit) }} ج</td>
+      <td>{{ "%.2f"|format(s.available) }} ج</td>
+    </tr>
+    {% else %}<tr><td colspan="8">لا يوجد موظفون حاليون.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+
+  <section class="notice">
+    <h2>طلبات السلف والسجل / Advances register</h2>
+    <div class="table-wrap"><table><thead><tr>
+      <th>الموظف</th><th>تاريخ الطلب</th><th>النوع</th><th>المبلغ</th><th>أساس الراتب</th><th>حد 25%</th><th>خصم في راتب</th><th>الحالة</th><th>الإجراء</th>
+    </tr></thead><tbody>
+    {% for a in requests %}
+    <tr>
+      <td>{{ employee_codes.get(a.employee_id, "—") }} — {{ employee_names.get(a.employee_id, "—") }}</td>
+      <td>{{ a.request_date.strftime("%d/%m/%Y") }}</td>
+      <td>{% if a.advance_type == "installment" %}مقسطة{% else %}عادية{% endif %}</td>
+      <td>{{ "%.2f"|format(a.amount) }} ج</td>
+      <td>{{ "%.2f"|format(a.salary_basis) }} ج</td>
+      <td>{% if a.advance_type == "installment" %}غير مطبق{% else %}{{ "%.2f"|format(a.salary_basis * 0.25) }} ج{% endif %}</td>
+      <td>{{ a.payroll_month.strftime("%m/%Y") }}</td>
+      <td>{{ a.status }}</td>
+      <td>
+        {% if a.status == "pending" %}
+        <form method="post" action="/advances/{{ a.id }}/approve" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>الأقساط <input type="number" name="installment_count" min="1" max="36" value="1" required></label><button type="submit">اعتماد</button>
+        </form>
+        <form method="post" action="/advances/{{ a.id }}/reject" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input name="reason" placeholder="سبب الرفض" required><button type="submit">رفض</button>
+        </form>
+        {% elif a.status == "approved" %}
+        <form method="post" action="/advances/{{ a.id }}/paid" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">تأكيد الصرف</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    <tr><td colspan="8"><span class="muted">السبب: {{ a.reason }}{% if a.rejection_reason %} · سبب الرفض: {{ a.rejection_reason }}{% endif %}</span></td></tr>
+    {% else %}<tr><td colspan="8">لا توجد طلبات سلف مسجلة.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="notice">
+    <p><strong>ملاحظة:</strong> ملخص السلف يفصل بين الرصيد العادي والرصيد المقسط. الـ25% يطبق على السلفة الشهرية العادية فقط. السلفة المقسطة لا تخضع له، ويمكن أن تتجاوز الراتب، وخصمها يتم حسب جدول الأقساط. هذه الوحدة تسجل السلفة واعتمادها وصرفها وجدول الأقساط والشهر المستحق لكل خصم. الخصم الفعلي لا يُسجل كمخصوم إلا عند إغلاق دورة الرواتب، ويمكن عكسه عند إعادة فتح الدورة.</p>
+  </section>
+{% endblock %}

@@ -1,0 +1,212 @@
+"""Parse the monthly Security roster from an Excel workbook."""
+from datetime import date, datetime, time
+from io import BytesIO
+import re
+import unicodedata
+
+from openpyxl import load_workbook
+
+
+def _norm(value):
+    text = unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+    return re.sub(r"\s+", " ", text)
+
+
+def _cell_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m", "%d-%m"):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                if fmt in ("%d/%m", "%d-%m"):
+                    raise ValueError("date_without_year")
+                return parsed.date()
+            except ValueError:
+                continue
+    return None
+
+
+def _cell_shift(value):
+    if isinstance(value, datetime):
+        return value.time().replace(second=0, microsecond=0)
+    if isinstance(value, time):
+        return value.replace(second=0, microsecond=0)
+    if isinstance(value, (int, float)) and 0 <= value < 1:
+        minutes = round(value * 24 * 60) % (24 * 60)
+        return time(minutes // 60, minutes % 60)
+    if isinstance(value, str):
+        raw = value.strip()
+        if raw.casefold() == "off":
+            return "OFF"
+        try:
+            return time.fromisoformat(raw).replace(second=0, microsecond=0)
+        except ValueError:
+            return None
+    return None
+
+
+def parse_security_roster_xlsx(file_bytes, employee_aliases, sheet_name=None):
+    """Return normalized daily roster rows; never writes or approves assignments.
+
+    employee_aliases maps known spreadsheet employee names to stable employee IDs.
+    The sheet must contain a date/day column and every active security employee
+    exactly once. At least two active employees are required.
+    """
+    if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
+        raise ValueError("empty_excel_file")
+    aliases = {_norm(name): employee_id for name, employee_id in employee_aliases.items()}
+    if len(aliases) != len(employee_aliases):
+        raise ValueError("employee_aliases_contain_normalization_collisions")
+    if len(set(aliases.values())) < 2:
+        raise ValueError("aliases_must_resolve_to_at_least_two_unique_security_employees")
+
+    try:
+        workbook = load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+    except Exception as exc:
+        raise ValueError("invalid_or_unsupported_excel_workbook") from exc
+
+    try:
+        sheets = [workbook[sheet_name]] if sheet_name else workbook.worksheets
+        empty_header_result = None
+        for sheet in sheets:
+            header = None
+            date_col = None
+            employee_cols = {}
+            employee_headers = {}
+            header_row = None
+            for row_idx, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+                normalized = [_norm(v) for v in row]
+                employee_positions = [
+                    (idx, alias) for idx, alias in enumerate(normalized) if alias in aliases
+                ]
+                date_candidates = [
+                    idx for idx, value in enumerate(normalized)
+                    if value in {"date", "day", "التاريخ", "اليوم"}
+                ]
+                if len(date_candidates) != 1:
+                    continue
+                date_column = date_candidates[0]
+                recognized_columns = {idx for idx, _alias in employee_positions}
+                unknown_columns = [
+                    idx for idx, value in enumerate(row)
+                    if idx != date_column and value is not None and str(value).strip()
+                    and idx not in recognized_columns
+                ]
+                if unknown_columns:
+                    return {
+                        "sheet_name": sheet.title,
+                        "employee_headers": {},
+                        "records": [],
+                        "issues": [
+                            {
+                                "row": row_idx, "column": idx + 1,
+                                "employee_header": str(row[idx]).strip(),
+                                "reason": "unknown_security_employee_header",
+                            }
+                            for idx in unknown_columns
+                        ],
+                        "status": "needs_review",
+                    }
+
+                # Do not collapse repeated employee headers into a dict: doing so
+                # silently discards one of the columns and can misassign shifts.
+                positions_by_employee = {}
+                for idx, alias in employee_positions:
+                    positions_by_employee.setdefault(aliases[alias], []).append(idx)
+                duplicate_headers = [
+                    {"row": row_idx, "column": idx + 1,
+                     "employee_header": str(row[idx]).strip(),
+                     "reason": "duplicate_employee_header"}
+                    for employee_id, indexes in positions_by_employee.items()
+                    if len(indexes) > 1
+                    for idx in indexes[1:]
+                ]
+                if duplicate_headers:
+                    return {
+                        "sheet_name": sheet.title,
+                        "employee_headers": {},
+                        "records": [],
+                        "issues": duplicate_headers,
+                        "status": "needs_review",
+                    }
+
+                found = {employee_id: indexes[0] for employee_id, indexes in positions_by_employee.items()}
+                if len(found) == len(set(aliases.values())):
+                    header = row
+                    employee_cols = {
+                        employee_id: idx for employee_id, idx in found.items()
+                    }
+                    employee_headers = {
+                        employee_id: str(row[idx]).strip() for employee_id, idx in found.items()
+                    }
+                    date_col = date_candidates[0]
+                    header_row = row_idx
+                    break
+            if header is None:
+                continue
+
+            records = []
+            issues = []
+            seen_dates = set()
+            for row_idx, row in enumerate(
+                sheet.iter_rows(min_row=header_row + 1, values_only=True),
+                start=header_row + 1,
+            ):
+                if not row or date_col >= len(row):
+                    continue
+                work_date = _cell_date(row[date_col])
+                if work_date is None:
+                    if all(v is None or str(v).strip() == "" for v in row):
+                        continue
+                    issues.append({"row": row_idx, "reason": "invalid_or_missing_date"})
+                    continue
+                if work_date in seen_dates:
+                    issues.append({"row": row_idx, "date": work_date.isoformat(),
+                                   "reason": "duplicate_date"})
+                    continue
+                seen_dates.add(work_date)
+                roster = {}
+                for employee_id, col_idx in employee_cols.items():
+                    value = row[col_idx] if col_idx < len(row) else None
+                    shift = _cell_shift(value)
+                    if shift is None:
+                        issues.append({"row": row_idx, "date": work_date.isoformat(),
+                                       "employee_id": employee_id,
+                                       "reason": "missing_or_invalid_shift_value"})
+                    else:
+                        roster[employee_id] = shift
+                if len(roster) == len(employee_cols):
+                    records.append({"work_date": work_date, "roster": roster})
+            if not records and not issues:
+                empty_header_result = {
+                    "sheet_name": sheet.title,
+                    "employee_headers": employee_headers,
+                    "records": [],
+                    "issues": [{
+                        "row": header_row,
+                        "reason": "no_valid_roster_rows",
+                    }],
+                    "status": "needs_review",
+                }
+                # A header-only worksheet is not necessarily the roster sheet.
+                # When auto-detecting, keep looking for a later worksheet with
+                # actual rows; an explicitly selected worksheet remains final.
+                if sheet_name:
+                    return empty_header_result
+                continue
+            return {
+                "sheet_name": sheet.title,
+                "employee_headers": employee_headers,
+                "records": records,
+                "issues": issues,
+                "status": "needs_review" if issues else "parsed_for_review",
+            }
+        if empty_header_result is not None:
+            return empty_header_result
+        raise ValueError("security_roster_header_not_found")
+    finally:
+        workbook.close()

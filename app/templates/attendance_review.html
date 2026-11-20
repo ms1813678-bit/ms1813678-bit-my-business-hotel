@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% set active_nav = "attendance" %}
+{% block title %}مراجعة واعتماد الحضور{% endblock %}
+{% block content %}
+<header class="topbar">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>مراجعة واعتماد الحضور</h1>
+        <p>المسؤول: {{ admin }}</p>
+      </div>
+      <nav><a href="/attendance/reconcile">مطابقة شهر جديد</a> <a href="/attendance/months">اعتماد الشهور</a></nav>
+    </header>
+
+
+
+    <section class="notice">
+      <h2>إضافة حضور يدوي</h2>
+      <p>هذا الإدخال يسجل كحضور يدوي بواسطة مسؤول HR ولا يغيّر البصمة الأصلية. سيظل اليوم بحاجة إلى المراجعة والاعتماد قبل استخدامه في الرواتب.</p>
+      <form method="post" action="/attendance/manual">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="manual-employee">الموظف</label>
+        <select id="manual-employee" name="employee_id" required>
+          <option value="">اختر الموظف</option>
+          {% for employee in employees %}
+          <option value="{{ employee.id }}">{{ employee.full_name }} — {{ employee.code }}</option>
+          {% endfor %}
+        </select>
+        <label for="manual-date">تاريخ العمل</label>
+        <input id="manual-date" name="work_date" type="date" required>
+        <label for="manual-in">وقت الدخول</label>
+        <input id="manual-in" name="clock_in" type="datetime-local" required>
+        <label for="manual-out">وقت الخروج</label>
+        <input id="manual-out" name="clock_out" type="datetime-local" required>
+        <label for="manual-reason">سبب الإدخال اليدوي</label>
+        <input id="manual-reason" name="reason" type="text" minlength="3" maxlength="500" required>
+        <button type="submit">إضافة الحضور للمراجعة</button>
+      </form>
+    </section>
+    {% if not records %}
+    <section class="notice">
+      <h2>لا توجد سجلات معلقة</h2>
+      <p>بعد إنشاء مسودة المطابقة ستظهر هنا الأيام التي تحتاج مراجعة الموارد البشرية.</p>
+    </section>
+    {% endif %}
+    {% if total_records %}
+    <section class="notice">
+      <p>عرض {{ records|length }} سجلًا من إجمالي {{ total_records }} سجلًا معلقًا — الصفحة {{ page }} من {{ total_pages }}</p>
+      <nav aria-label="صفحات مراجعة الحضور">
+        {% if page > 1 %}<a href="/attendance/review?page={{ page - 1 }}">السابق</a>{% endif %}
+        {% if page < total_pages %}<a href="/attendance/review?page={{ page + 1 }}">التالي</a>{% endif %}
+      </nav>
+    </section>
+    {% endif %}
+    {% for record in records %}
+    <section class="notice">
+      <h2>{{ record.employee }} — {{ record.employee_code }}</h2>
+      <p>تاريخ العمل: {{ record.work_date }} | الحالة: {{ record.status }}</p>
+      <p>الوردية: {{ record.scheduled_start_at or "غير محددة" }} إلى {{ record.scheduled_end_at or "غير محددة" }}</p>
+      <p>تقرير البرنامج: دخول {{ record.program_clock_in or "غير موجود" }} — خروج {{ record.program_clock_out or "غير موجود" }}</p>
+      <p>البصمة: أول حركة {{ record.fingerprint_in or "غير موجودة" }} — آخر حركة {{ record.fingerprint_out or "غير موجودة" }}</p>
+      {% if record.manual_clock_in or record.manual_clock_out %}
+      <p>إدخال HR اليدوي: دخول {{ record.manual_clock_in or "غير مسجل" }} — خروج {{ record.manual_clock_out or "غير مسجل" }}</p>
+      <p>سبب الإدخال: {{ record.manual_entry_reason or "غير مسجل" }} | أدخله: {{ record.manual_entered_by or "غير معروف" }} | وقت التسجيل: {{ record.manual_entered_at or "غير معروف" }}</p>
+      {% endif %}
+      <p>الدقائق المقترحة: {{ record.worked_minutes if record.worked_minutes is not none else "غير محسوبة" }}</p>
+      {% if record.review_notes %}<p>ملاحظات: {{ record.review_notes }}</p>{% endif %}
+      <form method="post" action="/attendance/{{ record.id }}/approve">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="in-{{ record.id }}">وقت الدخول المعتمد بعد المراجعة</label>
+        <input id="in-{{ record.id }}" name="clock_in" type="datetime-local"
+          value="{{ record.suggested_clock_in.strftime('%Y-%m-%dT%H:%M') if record.suggested_clock_in else '' }}" required>
+        <label for="out-{{ record.id }}">وقت الخروج المعتمد بعد المراجعة</label>
+        <input id="out-{{ record.id }}" name="clock_out" type="datetime-local"
+          value="{{ record.suggested_clock_out.strftime('%Y-%m-%dT%H:%M') if record.suggested_clock_out else '' }}" required>
+        <label for="reason-{{ record.id }}">سبب المراجعة والاعتماد</label>
+        <input id="reason-{{ record.id }}" name="reason" type="text" minlength="3" maxlength="500" required>
+        <button type="submit">اعتماد هذا اليوم</button>
+      </form>
+    </section>
+    {% endfor %}
+{% endblock %}

@@ -3,11 +3,54 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime, timezone
-from sqlalchemy import or_, select
+from datetime import date, datetime, timedelta, timezone
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
+from app.models import (AttendanceDailyRecord, AttendanceImportBatch, AttendanceImportIssue, AttendanceMonth, AttendancePunch, AuditLog, Department, Employee, EmployeeChange, EmployeeServicePeriod, LeaveRecord, SecurityShiftAssignment, ShiftPattern)
+
+
+def _department_history_by_date(db, employees, period_start: date, period_end: date):
+    """Resolve each employee's effective department for every day in a period."""
+    employee_ids = [employee.id for employee in employees]
+    changes = db.scalars(
+        select(EmployeeChange).where(
+            EmployeeChange.employee_id.in_(employee_ids),
+            EmployeeChange.field_name == "department_id",
+        ).order_by(
+            EmployeeChange.effective_date.desc(), EmployeeChange.id.desc()
+        )
+    ).all() if employee_ids else []
+    by_employee = {}
+    for change in changes:
+        by_employee.setdefault(change.employee_id, []).append(change)
+
+    result = {}
+    for employee in employees:
+        history = by_employee.get(employee.id, [])
+        daily_departments = {}
+        current = employee.department_id
+        # Include adjacent dates because an overnight shift can use the
+        # previous/next calendar day's department context.
+        work_date = period_start - timedelta(days=1)
+        history_end = period_end + timedelta(days=1)
+        while work_date <= history_end:
+            department_id = current
+            for change in history:
+                if change.effective_date <= work_date:
+                    continue
+                try:
+                    expected_new = int(change.new_value)
+                    previous_department = int(change.old_value)
+                except (TypeError, ValueError):
+                    raise ValueError("employee_department_history_is_incomplete")
+                if department_id != expected_new:
+                    raise ValueError("employee_department_history_is_inconsistent")
+                department_id = previous_department
+            daily_departments[work_date] = department_id
+            work_date += timedelta(days=1)
+        result[employee.id] = daily_departments
+    return result
 
 
 def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: dict, actor: str):
@@ -27,6 +70,24 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
     source_type = parsed.get("source_type")
     if source_type not in {"program_report", "fingerprint"}:
         raise ValueError("unsupported_attendance_source_type")
+
+    # The program report defines the monthly period. A fingerprint export may
+    # contain only dates with recorded punches, so align a contained fingerprint
+    # range to the one already-imported program month instead of treating it as
+    # a shorter, separate month.
+    if source_type == "fingerprint":
+        matching_program_months = db.scalars(
+            select(AttendanceMonth).where(
+                AttendanceMonth.program_import_batch_id.is_not(None),
+                AttendanceMonth.period_start <= period_start,
+                AttendanceMonth.period_end >= period_end,
+            ).with_for_update()
+        ).all()
+        if len(matching_program_months) > 1:
+            raise ValueError("fingerprint_import_period_matches_multiple_program_months")
+        if matching_program_months:
+            period_start = matching_program_months[0].period_start
+            period_end = matching_program_months[0].period_end
 
     digest = hashlib.sha256(file_bytes).hexdigest()
     duplicate = db.scalar(
@@ -74,8 +135,21 @@ def persist_attendance_import(db, *, file_bytes: bytes, filename: str, parsed: d
         "program_import_batch_id" if source_type == "program_report"
         else "fingerprint_import_batch_id"
     )
-    if getattr(month, batch_field) is not None:
-        raise ValueError("attendance_month_source_already_imported")
+    previous_batch_id = getattr(month, batch_field)
+    if previous_batch_id is not None:
+        previous_batch = db.get(AttendanceImportBatch, previous_batch_id)
+        if previous_batch is None or previous_batch.status != "needs_review":
+            raise ValueError("attendance_month_source_already_imported")
+        previous_batch.status = "rejected"
+        db.add(AuditLog(
+            actor=actor,
+            action="attendance_import_batch_replaced",
+            entity_type="attendance_import_batch",
+            entity_id=str(previous_batch.id),
+            old_value=f"status=needs_review; source={source_type}",
+            new_value=f"status=rejected; replacement_batch={batch.id}",
+            reason="HR replaced an unresolved source import before monthly reconciliation",
+        ))
     setattr(month, batch_field, batch.id)
 
     for event in events:
@@ -169,6 +243,147 @@ def persist_daily_attendance_proposal(
 
 
 
+def validate_security_roster(db, *, period_start: date, period_end: date) -> None:
+    """Validate daily Security coverage before attendance reconciliation."""
+    security_department = db.scalar(
+        select(Department).where(
+            Department.name == "Security",
+            Department.active.is_(True),
+        )
+    )
+    if security_department is None:
+        raise ValueError("security_department_not_configured")
+
+    employees = db.scalars(select(Employee).order_by(Employee.id)).all()
+    service_rows = db.scalars(
+        select(EmployeeServicePeriod).order_by(
+            EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date
+        )
+    ).all()
+    service_by_employee = {}
+    for row in service_rows:
+        service_by_employee.setdefault(row.employee_id, []).append(row)
+
+    changes = db.scalars(
+        select(EmployeeChange).where(
+            EmployeeChange.field_name == "department_id"
+        ).order_by(EmployeeChange.effective_date.desc(), EmployeeChange.id.desc())
+    ).all()
+    changes_by_employee = {}
+    for row in changes:
+        changes_by_employee.setdefault(row.employee_id, []).append(row)
+
+    def department_on(employee, work_date):
+        department_id = employee.department_id
+        for change in changes_by_employee.get(employee.id, []):
+            if change.effective_date > work_date:
+                continue
+            try:
+                department_id = int(change.new_value)
+            except (TypeError, ValueError):
+                raise ValueError("employee_department_history_is_inconsistent")
+            # Changes are ordered newest-first; the first effective change is
+            # authoritative for this work date.
+            break
+        return department_id
+
+    patterns = {
+        item.id: item
+        for item in db.scalars(select(ShiftPattern).where(ShiftPattern.active.is_(True))).all()
+    }
+    assignments = db.scalars(
+        select(SecurityShiftAssignment).where(
+            SecurityShiftAssignment.work_date >= period_start,
+            SecurityShiftAssignment.work_date <= period_end,
+        )
+    ).all()
+    by_day = {}
+    for assignment in assignments:
+        by_day.setdefault(assignment.work_date, []).append(assignment)
+
+    current = period_start
+    while current <= period_end:
+        active_guards = [
+            employee for employee in employees
+            if department_on(employee, current) == security_department.id
+            and any(
+                period.start_date <= current
+                and (period.end_date is None or period.end_date >= current)
+                for period in service_by_employee.get(employee.id, [])
+            )
+        ]
+        if len(active_guards) < 2:
+            raise ValueError(f"security_roster_requires_at_least_two_guards:{current.isoformat()}")
+
+        rows = by_day.get(current, [])
+        active_ids = {employee.id for employee in active_guards}
+        if len({row.employee_id for row in rows}) != len(rows):
+            raise ValueError(f"security_roster_duplicate_employee:{current.isoformat()}")
+        if any(row.employee_id not in active_ids for row in rows):
+            raise ValueError(f"security_roster_employee_not_active:{current.isoformat()}")
+
+        # The shift model is based on employees actually assigned to work
+        # after OFF entries have been excluded, not the total active headcount.
+        # Several guards may share one of the required shift windows.
+        working_count = len(rows)
+        if working_count < 2:
+            raise ValueError(
+                f"security_roster_shift_count_invalid:{current.isoformat()}:"
+                f"expected_at_least=2:actual={working_count}"
+            )
+        required_shifts = 2 if working_count == 2 else 3
+        expected_hours = 12 if working_count == 2 else 8
+        unique_pattern_ids = {row.shift_pattern_id for row in rows}
+        if len(unique_pattern_ids) != required_shifts:
+            raise ValueError(
+                f"security_roster_shift_count_invalid:{current.isoformat()}:"
+                f"expected_unique={required_shifts}:actual={len(unique_pattern_ids)}"
+            )
+
+        # Validate each distinct coverage window once. Duplicate assignments
+        # to the same pattern represent guards sharing a shift, not overlap.
+        intervals = []
+        for pattern_id in sorted(unique_pattern_ids):
+            pattern = patterns.get(pattern_id)
+            if pattern is None:
+                raise ValueError(f"security_roster_shift_pattern_missing:{current.isoformat()}")
+            if pattern.department_id != security_department.id:
+                raise ValueError(f"security_roster_shift_pattern_wrong_department:{current.isoformat()}")
+            start = pattern.start_time.hour * 60 + pattern.start_time.minute
+            end = pattern.end_time.hour * 60 + pattern.end_time.minute
+            duration = (end - start) % 1440
+            if duration == 0:
+                duration = 1440
+            if duration != expected_hours * 60:
+                raise ValueError(
+                    f"security_roster_shift_duration_invalid:{current.isoformat()}:"
+                    f"expected_hours={expected_hours}"
+                )
+            finish = start + duration
+            intervals.append((start, finish))
+        intervals.sort()
+        # Normalize coverage to a 24-hour circle. A valid set of shifts must
+        # cover every minute exactly once, including the midnight boundary.
+        expanded = []
+        for start, finish in intervals:
+            if finish <= 1440:
+                expanded.append((start, finish))
+            else:
+                expanded.append((start, 1440))
+                expanded.append((0, finish - 1440))
+        expanded.sort()
+        cursor = 0
+        for start, finish in expanded:
+            if start != cursor:
+                raise ValueError(f"security_roster_coverage_gap_or_overlap:{current.isoformat()}")
+            if finish <= start:
+                raise ValueError(f"security_roster_invalid_interval:{current.isoformat()}")
+            cursor = finish
+        if cursor != 1440:
+            raise ValueError(f"security_roster_coverage_gap_or_overlap:{current.isoformat()}")
+        current += timedelta(days=1)
+
+
 def prepare_and_persist_monthly_reconciliation(
     db,
     *,
@@ -183,14 +398,18 @@ def prepare_and_persist_monthly_reconciliation(
 
     if period_end < period_start:
         raise ValueError("attendance_period_is_invalid")
+
     program_batch = db.get(AttendanceImportBatch, program_batch_id)
     fingerprint_batch = db.get(AttendanceImportBatch, fingerprint_batch_id)
     if program_batch is None or program_batch.source_type != "program_report":
         raise ValueError("program_report_batch_not_found")
     if fingerprint_batch is None or fingerprint_batch.source_type != "fingerprint":
         raise ValueError("fingerprint_batch_not_found")
-    if program_batch.status not in {"parsed", "needs_review"} or fingerprint_batch.status not in {"parsed", "needs_review"}:
-        raise ValueError("attendance_import_batch_not_ready_for_reconciliation")
+    if (
+        program_batch.status != "parsed" or fingerprint_batch.status != "parsed"
+        or program_batch.issue_count or fingerprint_batch.issue_count
+    ):
+        raise ValueError("attendance_import_batch_has_unresolved_issues")
     if (
         program_batch.period_start != period_start or program_batch.period_end != period_end
         or fingerprint_batch.period_start != period_start or fingerprint_batch.period_end != period_end
@@ -205,6 +424,12 @@ def prepare_and_persist_monthly_reconciliation(
     )
     if existing is not None:
         raise ValueError("attendance_period_already_has_reconciliation_records")
+
+    # Validate the security roster only after the requested source/period checks
+    # above, so HR receives the most specific blocking reason first.
+    validate_security_roster(
+        db, period_start=period_start, period_end=period_end
+    )
 
     month = db.scalar(
         select(AttendanceMonth).where(
@@ -232,13 +457,15 @@ def prepare_and_persist_monthly_reconciliation(
     month.program_import_batch_id = program_batch_id
     month.fingerprint_import_batch_id = fingerprint_batch_id
 
-    all_employees = db.scalars(
-        select(Employee).where(Employee.hire_date <= period_end).order_by(Employee.id)
-    ).all()
+    # Include former employees whose current hire_date reflects a later
+    # rehire; their earlier EmployeeServicePeriod may still overlap this month.
+    all_employees = db.scalars(select(Employee).order_by(Employee.id)).all()
+    # Load the full service history so an employee with only a future
+    # rehire/start period is not incorrectly treated as active in this month.
     service_period_rows = db.scalars(
-        select(EmployeeServicePeriod).where(
-            EmployeeServicePeriod.start_date <= period_end
-        ).order_by(EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date)
+        select(EmployeeServicePeriod).order_by(
+            EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date
+        )
     ).all()
     service_periods_by_employee = {}
     for service_period in service_period_rows:
@@ -260,6 +487,9 @@ def prepare_and_persist_monthly_reconciliation(
     ]
     if not employees:
         raise ValueError("no_employees_in_attendance_service_period")
+    department_history_by_employee = _department_history_by_date(
+        db, employees, period_start, period_end
+    )
 
     security_department = db.scalar(
         select(Department).where(
@@ -332,6 +562,7 @@ def prepare_and_persist_monthly_reconciliation(
             "id": item.id, "department_id": item.department_id,
             "hire_date": item.hire_date,
             "service_periods": service_periods_by_employee.get(item.id, []),
+            "department_by_date": department_history_by_employee[item.id],
         } for item in employees],
         period_start=period_start,
         period_end=period_end,
@@ -344,6 +575,35 @@ def prepare_and_persist_monthly_reconciliation(
     )
     if not proposals:
         raise ValueError("no_attendance_proposals_generated")
+
+    # A confirmed leave is authoritative HR evidence. Attendance evidence or
+    # a rostered shift on that date must be reviewed as a conflict, never
+    # silently accepted as an ordinary attendance day.
+    proposal_employee_ids = {item["employee_id"] for item in proposals}
+    confirmed_leaves = db.scalars(
+        select(LeaveRecord).where(
+            LeaveRecord.status == "confirmed",
+            LeaveRecord.employee_id.in_(proposal_employee_ids or {-1}),
+            LeaveRecord.start_date <= period_end,
+            LeaveRecord.end_date >= period_start,
+        ).order_by(LeaveRecord.employee_id, LeaveRecord.start_date, LeaveRecord.id)
+    ).all()
+    leaves_by_employee = {}
+    for leave in confirmed_leaves:
+        leaves_by_employee.setdefault(leave.employee_id, []).append(leave)
+    for item in proposals:
+        proposal = item["proposal"]
+        work_date = proposal["work_date"]
+        overlaps = [
+            leave for leave in leaves_by_employee.get(item["employee_id"], [])
+            if leave.start_date <= work_date <= leave.end_date
+        ]
+        if overlaps:
+            leave_ids = ",".join(str(leave.id) for leave in overlaps)
+            proposal["status"] = "needs_review"
+            proposal.setdefault("issues", []).append(
+                f"attendance_conflicts_with_confirmed_leave:records={leave_ids}"
+            )
 
     import_issue_count = program_batch.issue_count + fingerprint_batch.issue_count
     if import_issue_count:
@@ -388,6 +648,116 @@ def prepare_and_persist_monthly_reconciliation(
         "period_start": period_start,
         "period_end": period_end,
     }
+
+
+def add_manual_attendance(
+    db,
+    *,
+    employee_id: int,
+    work_date: date,
+    clock_in: datetime,
+    clock_out: datetime,
+    reason: str,
+    actor: str,
+):
+    """Add or correct one attendance day as explicit HR-entered evidence.
+
+    Manual attendance never masquerades as a fingerprint/program event. It is
+    stored separately, remains reviewable, and cannot be entered into an
+    already-approved month.
+    """
+    if not actor or not actor.strip():
+        raise ValueError("attendance_manual_actor_required")
+    if not reason or len(reason.strip()) < 3:
+        raise ValueError("attendance_manual_reason_required")
+    if not isinstance(work_date, date):
+        raise ValueError("attendance_manual_work_date_required")
+    if not isinstance(clock_in, datetime) or not isinstance(clock_out, datetime):
+        raise ValueError("attendance_manual_clock_values_must_be_datetimes")
+    if clock_in.date() != work_date:
+        raise ValueError("attendance_manual_clock_in_must_match_work_date")
+    if clock_out <= clock_in:
+        raise ValueError("attendance_manual_clock_out_must_follow_clock_in")
+
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise ValueError("employee_not_found")
+
+    service_period = db.scalar(
+        select(EmployeeServicePeriod).where(
+            EmployeeServicePeriod.employee_id == employee_id,
+            EmployeeServicePeriod.start_date <= work_date,
+            or_(
+                EmployeeServicePeriod.end_date.is_(None),
+                EmployeeServicePeriod.end_date >= work_date,
+            ),
+        ).order_by(EmployeeServicePeriod.start_date.desc(), EmployeeServicePeriod.id.desc())
+    )
+    if service_period is None:
+        raise ValueError("attendance_employee_not_in_service_on_date")
+
+    month = db.scalar(
+        select(AttendanceMonth).where(
+            AttendanceMonth.period_start <= work_date,
+            AttendanceMonth.period_end >= work_date,
+        ).order_by(AttendanceMonth.period_start.desc(), AttendanceMonth.id.desc()).with_for_update()
+    )
+    if month is None:
+        raise ValueError("attendance_month_not_found_for_manual_entry")
+    if month.status == "approved":
+        raise ValueError("attendance_month_already_approved")
+    if month.status != "under_review":
+        raise ValueError("attendance_month_not_ready_for_manual_entry")
+
+    record = db.scalar(
+        select(AttendanceDailyRecord).where(
+            AttendanceDailyRecord.employee_id == employee_id,
+            AttendanceDailyRecord.work_date == work_date,
+        ).with_for_update()
+    )
+    if record is not None and record.status == "approved":
+        raise ValueError("attendance_daily_record_already_approved")
+
+    if record is None:
+        record = AttendanceDailyRecord(
+            employee_id=employee_id,
+            work_date=work_date,
+            program_import_batch_id=month.program_import_batch_id,
+            fingerprint_import_batch_id=month.fingerprint_import_batch_id,
+            status="needs_review",
+        )
+        db.add(record)
+        db.flush()
+    else:
+        record.program_import_batch_id = month.program_import_batch_id
+        record.fingerprint_import_batch_id = month.fingerprint_import_batch_id
+        record.status = "needs_review"
+
+    record.manual_clock_in = clock_in
+    record.manual_clock_out = clock_out
+    record.manual_entry_reason = reason.strip()
+    record.manual_entered_by = actor.strip()
+    record.manual_entered_at = datetime.now(timezone.utc)
+    record.review_notes = (
+        f"{record.review_notes}; " if record.review_notes else ""
+    ) + "Manual HR attendance entered and awaiting approval."
+    record.worked_minutes = int((clock_out - clock_in).total_seconds() // 60)
+
+    db.add(AuditLog(
+        actor=actor.strip(),
+        action="attendance_manual_entry_created",
+        entity_type="attendance_daily_record",
+        entity_id=str(record.id),
+        old_value=None,
+        new_value=(
+            f"employee_id={employee_id}; work_date={work_date.isoformat()}; "
+            f"clock_in={clock_in.isoformat()}; clock_out={clock_out.isoformat()}; "
+            f"status=needs_review"
+        ),
+        reason=reason.strip(),
+    ))
+    db.flush()
+    return record
 
 
 def approve_attendance_day(
@@ -513,6 +883,7 @@ def approve_attendance_month(
     if any(row.status != "approved" for row in rows):
         raise ValueError("attendance_month_has_unapproved_daily_records")
 
+    coverage_summary = summarize_attendance_month_coverage(db, month)
     old_status = month.status
     month.status = "approved"
     for batch in batches:
@@ -531,9 +902,210 @@ def approve_attendance_month(
         new_value=(
             f"status=approved; daily_records={len(rows)}; "
             f"program_batch={batches[0].id}; fingerprint_batch={batches[1].id}; "
-            "source_batches=approved; coverage_confirmed=true"
+            "source_batches=approved; coverage_confirmed=true; "
+            f"unrepresented_employee_days={coverage_summary['unrepresented_employee_days']}"
         ),
         reason=reason.strip(),
     ))
     db.flush()
     return month
+
+
+
+def resolve_unknown_attendance_employee(
+    db, *, issue_id: int, employee_id: int, actor: str
+):
+    """Resolve one unknown-employee source row without changing its raw evidence."""
+    if not actor or not actor.strip():
+        raise ValueError("attendance_issue_resolving_admin_required")
+    issue = db.scalar(
+        select(AttendanceImportIssue)
+        .where(AttendanceImportIssue.id == issue_id)
+        .with_for_update()
+    )
+    if issue is None:
+        raise ValueError("attendance_import_issue_not_found")
+    if issue.reason != "unknown_employee":
+        raise ValueError("attendance_import_issue_not_identity_resolvable")
+    if issue.resolved_at is not None:
+        raise ValueError("attendance_import_issue_already_resolved")
+    batch = db.get(AttendanceImportBatch, issue.import_batch_id)
+    if batch is None or batch.status != "needs_review":
+        raise ValueError("attendance_import_batch_not_open_for_issue_resolution")
+    employee = db.get(Employee, employee_id)
+    if employee is None:
+        raise ValueError("attendance_employee_not_found")
+
+    source_punches = db.scalars(
+        select(AttendancePunch).where(
+            AttendancePunch.import_batch_id == batch.id,
+            AttendancePunch.source_sheet == issue.source_sheet,
+            AttendancePunch.source_row == issue.source_row,
+            AttendancePunch.employee_id.is_(None),
+        ).with_for_update()
+    ).all()
+    if not source_punches:
+        raise ValueError("attendance_unknown_employee_source_punches_not_found")
+
+    for punch in source_punches:
+        punch.employee_id = employee.id
+    issue.resolved_employee_id = employee.id
+    issue.resolved_by = actor.strip()
+    issue.resolved_at = datetime.now(timezone.utc)
+    # SessionLocal disables autoflush; persist the resolution before counting
+    # remaining unresolved issues in this batch.
+    db.flush()
+
+    unresolved_count = db.scalar(
+        select(func.count()).select_from(AttendanceImportIssue).where(
+            AttendanceImportIssue.import_batch_id == batch.id,
+            AttendanceImportIssue.resolved_at.is_(None),
+        )
+    ) or 0
+    batch.issue_count = unresolved_count
+    batch.status = "parsed" if unresolved_count == 0 else "needs_review"
+    db.add(AuditLog(
+        actor=actor.strip(),
+        action="attendance_import_unknown_employee_resolved",
+        entity_type="attendance_import_issue",
+        entity_id=str(issue.id),
+        old_value=f"raw_value={issue.raw_value}; unresolved_punches={len(source_punches)}",
+        new_value=f"employee_id={employee.id}; unresolved_issues={unresolved_count}",
+        reason="HR explicitly matched an unknown source identity; raw source values retained",
+    ))
+    db.flush()
+    return issue
+
+
+
+def summarize_attendance_month_coverage(db, month: AttendanceMonth):
+    """List employee-days without a generated record or an approved Security roster.
+
+    These are coverage gaps for HR to inspect against both source workbooks. They
+    are never converted to absence or rest-day classifications automatically.
+    """
+    # Do not filter by Employee.hire_date here: re-hire updates that field,
+    # while EmployeeServicePeriod retains earlier historical employment periods.
+    employees = db.scalars(select(Employee).order_by(Employee.id)).all()
+    service_rows = db.scalars(
+        select(EmployeeServicePeriod).order_by(
+            EmployeeServicePeriod.employee_id, EmployeeServicePeriod.start_date
+        )
+    ).all()
+    service_by_employee = {}
+    for row in service_rows:
+        service_by_employee.setdefault(row.employee_id, []).append(row)
+    department_by_employee_date = _department_history_by_date(
+        db, employees, month.period_start, month.period_end
+    )
+
+    daily_rows = db.scalars(
+        select(AttendanceDailyRecord).where(
+            AttendanceDailyRecord.work_date >= month.period_start,
+            AttendanceDailyRecord.work_date <= month.period_end,
+            AttendanceDailyRecord.program_import_batch_id == month.program_import_batch_id,
+            AttendanceDailyRecord.fingerprint_import_batch_id == month.fingerprint_import_batch_id,
+        )
+    ).all()
+    represented = {(row.employee_id, row.work_date) for row in daily_rows}
+
+    security_department = db.scalar(
+        select(Department).where(
+            Department.name == "Security", Department.active.is_(True)
+        )
+    )
+    security_assignments = set()
+    if security_department is not None:
+        security_assignments = {
+            (employee_id, work_date)
+            for employee_id, work_date in db.execute(
+                select(
+                    SecurityShiftAssignment.employee_id,
+                    SecurityShiftAssignment.work_date,
+                ).where(
+                    SecurityShiftAssignment.work_date >= month.period_start,
+                    SecurityShiftAssignment.work_date <= month.period_end,
+                )
+            ).all()
+        }
+
+    confirmed_leaves = db.scalars(
+        select(LeaveRecord).where(
+            LeaveRecord.status == "confirmed",
+            LeaveRecord.start_date <= month.period_end,
+            LeaveRecord.end_date >= month.period_start,
+        )
+    ).all()
+    confirmed_leave_days = set()
+    for leave in confirmed_leaves:
+        first = max(leave.start_date, month.period_start)
+        last = min(leave.end_date, month.period_end)
+        current = first
+        while current <= last:
+            confirmed_leave_days.add((leave.employee_id, current))
+            current += timedelta(days=1)
+
+    security_approved_dates = set()
+    approved_values = db.scalars(
+        select(AuditLog.entity_id).where(
+            AuditLog.action == "security_roster_day_approved",
+            AuditLog.entity_type == "security_roster",
+        )
+    ).all()
+    for raw in approved_values:
+        try:
+            day = date.fromisoformat(raw)
+        except (TypeError, ValueError):
+            continue
+        if month.period_start <= day <= month.period_end:
+            security_approved_dates.add(day)
+
+    gaps = []
+    for employee in employees:
+        periods = service_by_employee.get(employee.id, [])
+        if periods:
+            service_dates = set()
+            for period in periods:
+                first = max(period.start_date, month.period_start)
+                last = min(period.end_date or month.period_end, month.period_end)
+                current = first
+                while current <= last:
+                    service_dates.add(current)
+                    current += timedelta(days=1)
+        elif employee.status == "active":
+            first = max(employee.hire_date, month.period_start)
+            service_dates = set()
+            current = first
+            while current <= month.period_end:
+                service_dates.add(current)
+                current += timedelta(days=1)
+        else:
+            service_dates = set()
+
+        for work_date in sorted(service_dates):
+            if (employee.id, work_date) in represented:
+                continue
+            if (employee.id, work_date) in confirmed_leave_days:
+                # A confirmed HR leave record explains why no attendance row
+                # is expected; it is not an unresolved attendance gap.
+                continue
+            if (
+                security_department is not None
+                and department_by_employee_date[employee.id][work_date] == security_department.id
+                and work_date in security_approved_dates
+                and (employee.id, work_date) not in security_assignments
+            ):
+                # On an approved Security roster, no assignment means OFF.
+                # Employees with an assignment still require attendance review.
+                continue
+            gaps.append({
+                "employee_id": employee.id,
+                "employee_code": employee.code,
+                "employee_name": employee.full_name,
+                "work_date": work_date,
+            })
+
+    return {
+        "unrepresented_employee_days": len(gaps),
+        "coverage_examples": gaps[:20],
+    }

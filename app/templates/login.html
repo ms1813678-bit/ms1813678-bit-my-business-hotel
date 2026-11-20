@@ -1,10 +1,31 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>تسجيل الدخول</title><link rel="stylesheet" href="/static/app.css"></head>
-<body><main class="login-shell"><form class="login-card" method="post" action="/login">
-<p class="eyebrow">M.Y. BUSINESS HOTEL</p><h1>تسجيل دخول الإدارة</h1>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-<label>اسم المستخدم<input name="username" autocomplete="username" required maxlength="80"></label>
-<label>كلمة المرور<input name="password" type="password" autocomplete="current-password" required></label>
-<button type="submit">دخول</button><p class="muted small">حساب واحد مخصص لمسؤول النظام.</p>
-</form></main></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>تسجيل الدخول — نظام الموارد البشرية</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="login-shell">
+    <form class="login-card" method="post" action="/login">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <p class="eyebrow">فندق M.Y. Business</p>
+      <h1>تسجيل دخول الإدارة</h1>
+      <p class="muted small">نظام الموارد البشرية والرواتب المحلي — حساب مسؤول واحد فقط.</p>
+      {% if error %}<p class="error">{{ error }}</p>{% endif %}
+      <label>اسم المستخدم
+        <input name="username" autocomplete="username" required maxlength="80" placeholder="أدخل اسم المستخدم" dir="rtl">
+      </label>
+      <label>كلمة المرور
+        <input name="password" type="password" autocomplete="current-password" required placeholder="أدخل كلمة المرور" dir="rtl">
+      </label>
+      <button type="submit" class="btn-primary">دخول إلى النظام</button>
+      <p class="muted small" style="margin-top:14px">يعمل محليًا على Windows 10 و 11 — ولا يُعرض على الإنترنت.</p>
+    </form>
+  </main>
+</body>
+</html>

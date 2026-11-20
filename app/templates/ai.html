@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% set active_nav = "ai" %}
+{% block title %}مساعد AI المحلي{% endblock %}
+{% block content %}
+<header class="topbar dashboard-header">
+      <div>
+        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+        <h1>مساعد AI المحلي</h1>
+        <p class="muted">مساعد موارد بشرية للمسؤول فقط، يعمل محليًا. أي عملية تعديل تتطلب موافقتك الصريحة قبل التنفيذ.</p>
+      </div>
+      <a class="button-link" href="/">العودة للوحة التحكم</a>
+    </header>
+
+    <section class="ai-status {{ 'ai-ready' if status.available else 'ai-offline' }}">
+      <div>
+        <strong>{{ status.message }}</strong>
+        <p class="muted">النموذج: {{ status.model }} — الاتصال بالنموذج مقصور على الجهاز المحلي.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>اكتب أمرًا أو سؤالًا</h2>
+      <p class="muted">السؤال العادي يُجاب عنه فقط. أي أمر تعديل يُحوَّل أولًا إلى خطة واضحة، ثم تختار أنت الموافقة أو الرفض قبل أي تغيير.</p>
+      <form method="post" action="/ai" class="stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>الأمر أو السؤال
+          <textarea name="question" rows="5" maxlength="2000" required placeholder="مثال: نفذ: اعتمد مسير الرواتب رقم 3"></textarea>
+        </label>
+        <button type="submit">إرسال</button>
+      </form>
+    </section>
+
+    {% if answer %}
+    <section class="card ai-answer">
+      <h2>النتيجة</h2>
+      <p>{{ answer }}</p>
+    </section>
+    {% endif %}
+
+    {% if pending %}
+    <section class="card">
+      <h2>خطة تحتاج موافقتك</h2>
+      <p><strong>{{ pending.summary }}</strong></p>
+      <pre class="ai-plan">{{ pending.plan | tojson(indent=2, ensure_ascii=False) }}</pre>
+      <p class="muted">هذه الخطة محفوظة ببصمة. صلاحيتها محدودة، ولا يمكن إعادة استخدام الموافقة بعد التنفيذ.</p>
+      <div class="actions">
+        <form method="post" action="/ai/approve">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="token" value="{{ pending.token }}">
+          <button type="submit">موافقة وتنفيذ</button>
+        </form>
+        <form method="post" action="/ai/reject">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="token" value="{{ pending.token }}">
+          <button type="submit">رفض العملية</button>
+        </form>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if memory %}
+    <section class="card">
+      <h2>سياق المحادثة المحلي</h2>
+      <ul>
+        {% for item in memory %}
+        <li><strong>{{ item.role }}:</strong> {{ item.content }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    <section class="card">
+      <h2>أمثلة</h2>
+      <ul>
+        <li>كم عدد الموظفين النشطين؟</li>
+        <li>اعتمد الإجازة رقم 12 — للمعاينة.</li>
+        <li>نفذ: اعتمد الإجازة رقم 12.</li>
+        <li>نفذ: اعتمد مسير الرواتب رقم 3.</li>
+      </ul>
+      <p class="muted">المساعد لا يملك SQL أو Shell أو وصولًا حرًا للملفات أو الإنترنت. كل عملية كتابة تمر عبر خطة محفوظة، وموافقة صريحة لمرة واحدة، وقواعد النظام وسجل التدقيق.</p>
+    </section>
+{% endblock %}

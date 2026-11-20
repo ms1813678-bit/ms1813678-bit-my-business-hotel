@@ -1,4 +1,4 @@
-"""Retain original uploaded attendance source files in the database."""
+"""Retain original attendance source workbooks for audit and re-download."""
 from alembic import op
 import sqlalchemy as sa
 

@@ -1,34 +1,80 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ app_name }}</title>
-  <link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-  <main class="shell">
-    <header class="topbar">
-      <div>
-        <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
-        <h1>إدارة الموارد البشرية والرواتب</h1>
-        <p class="muted">نظام محلي لإدارة شؤون العاملين</p>
-      </div>
-      <span class="status">مرحلة التأسيس</span>
-    </header>
-    <section class="notice">
-      <h2>مرحبًا بك</h2>
-      <p>تم تجهيز الواجهة الأساسية. ستظهر هنا مؤشرات الموظفين والحضور والإجازات والرواتب بعد تنفيذ وربط الوحدات.</p>
-    </section>
-    <section class="grid">
-      <article class="tile"><span>01</span><h3>الموظفون</h3><p>البيانات الوظيفية والهيكل الإداري</p></article>
-      <article class="tile"><span>02</span><h3>الحضور والانصراف</h3><p>استيراد البصمة ومراجعة السجلات</p></article>
-      <article class="tile"><span>03</span><h3>الإجازات</h3><p>الأرصدة والطلبات والسجل التاريخي</p></article>
-      <article class="tile"><span>04</span><h3>الرواتب</h3><p>المراجعة والاعتماد وسجل الصرف</p></article>
-      <article class="tile"><span>05</span><h3>السلف والجزاءات</h3><p>المبالغ والخصومات والمكافآت</p></article>
-      <article class="tile"><span>06</span><h3>التقارير والنسخ الاحتياطي</h3><p>التقارير الدورية وحماية البيانات</p></article>
-    </section>
-    <footer>التطبيق يعمل محليًا على جهاز الإدارة فقط.</footer>
-  </main>
-</body>
-</html>
+{% extends "base.html" %}
+{% set active_nav = "dashboard" %}
+{% block title %}{{ app_name }}{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">M.Y. BUSINESS HOTEL</p>
+    <h1>لوحة التحكم</h1>
+    <p class="muted">نظرة سريعة على حالة العمل والمهام التي تحتاج قرار مسؤول الموارد البشرية.</p>
+  </div>
+  <div class="header-actions">
+    <a class="button-link btn-soft" href="/ai">مساعد AI المحلي</a>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">تسجيل الخروج</button>
+    </form>
+  </div>
+</header>
+
+<section class="hero-panel">
+  <div>
+    <span class="section-kicker">الحالة الآن</span>
+    <h2>أهلًا بك، {{ admin }}</h2>
+    <p class="muted">كل الأرقام التالية مأخوذة مباشرة من قاعدة البيانات المحلية.</p>
+  </div>
+  <a class="button-link primary-link" href="/reports">فتح التقارير</a>
+</section>
+
+<section>
+  <div class="section-heading">
+    <div><span class="section-kicker">مؤشرات رئيسية</span><h2>ملخص النظام</h2></div>
+  </div>
+  <div class="metric-grid">
+    <article class="metric-card"><span>الموظفون النشطون</span><strong>{{ metrics.active_employees }}</strong><a href="/employees">إدارة الموظفين ←</a></article>
+    <article class="metric-card"><span>الموظفون السابقون</span><strong>{{ metrics.former_employees }}</strong><a href="/employees">السجل الوظيفي ←</a></article>
+    <article class="metric-card"><span>حضور يحتاج مراجعة</span><strong>{{ metrics.attendance_review }}</strong><a href="/attendance/review">مراجعة الحضور ←</a></article>
+    <article class="metric-card"><span>إجازات غير مؤكدة</span><strong>{{ metrics.leave_drafts }}</strong><a href="/leave">فتح الإجازات ←</a></article>
+    <article class="metric-card"><span>سلف قيد الإجراء</span><strong>{{ metrics.advance_pending }}</strong><a href="/advances">فتح السلف ←</a></article>
+    <article class="metric-card"><span>جزاءات ومكافآت للمراجعة</span><strong>{{ metrics.staff_action_drafts }}</strong><a href="/staff-actions">فتح الإجراءات ←</a></article>
+    <article class="metric-card"><span>مسيرات رواتب مفتوحة</span><strong>{{ metrics.payroll_drafts }}</strong><a href="/payroll">فتح الرواتب ←</a></article>
+  </div>
+</section>
+
+<section>
+  <div class="section-heading">
+    <div><span class="section-kicker">المهام</span><h2>ما يحتاج متابعة</h2></div>
+  </div>
+  <div class="action-grid">
+    <a class="action-card" href="/attendance/import"><span>01</span><h3>استيراد الحضور والبصمة</h3><p>رفع الملفات الأصلية ومراجعة مشاكل الاستيراد.</p></a>
+    <a class="action-card" href="/attendance/reconcile"><span>02</span><h3>مطابقة الحضور الشهرية</h3><p>مراجعة الفجوات والاستثناءات قبل الاعتماد.</p></a>
+    <a class="action-card" href="/payroll"><span>03</span><h3>مراجعة الرواتب</h3><p>معاينة المسير قبل الاعتماد والإغلاق.</p></a>
+    <a class="action-card" href="/backup"><span>04</span><h3>النسخ الاحتياطي</h3><p>حماية البيانات والتحقق من النسخ.</p></a>
+  </div>
+</section>
+
+<section>
+  <div class="section-heading">
+    <div><span class="section-kicker">الوحدات</span><h2>الوصول السريع</h2></div>
+  </div>
+  <div class="module-grid">
+    <a class="module-card" href="/employees"><strong>الموظفون</strong><span>البيانات والهيكل الإداري</span></a>
+    <a class="module-card" href="/attendance/import"><strong>الحضور والانصراف</strong><span>الاستيراد والمراجعة والمطابقة</span></a>
+    <a class="module-card" href="/leave"><strong>الإجازات</strong><span>الأرصدة والطلبات والسجل</span></a>
+    <a class="module-card" href="/payroll"><strong>الرواتب</strong><span>المعاينة والاعتماد والصرف</span></a>
+    <a class="module-card" href="/advances"><strong>السلف</strong><span>الطلبات والأقساط والخصومات</span></a>
+    <a class="module-card" href="/staff-actions"><strong>الجزاءات والمكافآت</strong><span>التسجيل والاعتماد والتاريخ</span></a>
+    <a class="module-card" href="/reports"><strong>التقارير</strong><span>Excel وPDF وفترات مخصصة</span></a>
+    <a class="module-card" href="/security-roster"><strong>جدول الأمن</strong><span>الاستيراد والتحقق اليومي</span></a>
+  </div>
+</section>
+
+<section class="ai-callout">
+  <div>
+    <span class="section-kicker">ذكاء محلي اختياري</span>
+    <h2>مساعد AI للموارد البشرية</h2>
+    <p class="muted">تحليل الأسئلة والبيانات بشكل محلي، مع مراجعة المسؤول قبل أي إجراء مؤثر.</p>
+  </div>
+  <a class="button-link primary-link" href="/ai">فتح المساعد</a>
+</section>
+{% endblock %}

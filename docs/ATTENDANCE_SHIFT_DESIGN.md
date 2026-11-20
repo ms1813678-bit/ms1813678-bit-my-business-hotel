@@ -1,0 +1,71 @@
+# Attendance shift design and implementation notes
+
+## Confirmed operating rules
+
+- Security uses the monthly security roster supplied by HR. Security shifts are not inferred from clock events.
+- Other departments use the first actual clock-in event to identify a shift, but only against that department's configured shift patterns.
+- Matching uses separate before/after margins, each capped at 120 minutes. Effective windows are trimmed around neighboring shift starts to prevent overlap; the exact midpoint minute is deliberately unmatched.
+- Duplicate shift start times remain ambiguous and require the security roster or HR review; the matcher never chooses between two shifts that start at the same time.
+- Overnight shifts remain associated with the work date on which the shift starts.
+- Missing or uncertain fingerprint events are never fabricated.
+
+- Security roster rule: the Excel roster gives every currently active Security employee's configured shift start time or explicit OFF. The roster is not limited to three guards. Exactly two working employees after OFF entries are excluded means 12 hours each; three or more working employees use the three configured 8-hour shifts, with additional guards allowed to share a shift. 00:00 is a valid start time. The end time must resolve to an active configured shift pattern across midnight; it must not be invented. Fewer than two working guards, incomplete 24-hour coverage, missing patterns, and ambiguous pattern definitions require administrator review. Multiple employees sharing one configured shift is allowed.
+
+## Seeded default shift patterns
+
+The following are initial defaults, not a fixed headcount or a license to infer missing times. Security roster validation must use the active configured shift definitions and must require full 24-hour coverage.
+
+| Department | Default shift times |
+|---|---|
+| Administration | 09:00–17:00 |
+| Reception | 07:00–15:00; 15:00–23:00; 23:00–07:00 |
+| Security | 08:00–20:00; 20:00–08:00; 08:00–16:00; 16:00–00:00; 00:00–08:00 |
+| Housekeeping | 08:00–16:00; 16:00–00:00; 09:00–17:00 |
+| Maintenance | 09:00–18:00 |
+
+## Current code scope
+
+- `ShiftPattern` stores department-specific shift definitions, separate before/after matching margins, and the legacy `match_window_minutes` field for migration compatibility. The matcher ignores the legacy field.
+- `SecurityShiftAssignment` stores one security employee's shift per work date.
+- Alembic revision `0007_attendance_shift_foundation` creates the shift foundation; `0008_shift_matching_margins` adds bounded before/after margins and migrates explicitly configured legacy windows.
+- `scripts/seed_shifts.py` inserts the approved shift definitions idempotently. New matching margins default to the approved 120-minute maximum and are trimmed by the matcher to prevent overlap.
+- `app.shift_matching.match_shift_by_clock` is a pure matching helper. It returns matched, unmatched, or ambiguous; it does not alter raw fingerprint timestamps.
+
+## AI-assisted review principle
+
+AI may analyze attendance evidence and prepare shift suggestions with explanations. Clear cases can be prepared under approved rules; uncertain cases are presented to HR with the proposed result and reason. The administrator must confirm before consequential attendance records are approved or saved as final. AI is optional and must not block normal operation.
+
+## Current implementation boundary
+
+The repository now includes the protected Security roster preview/confirmation workflow, both attendance workbook import paths, raw punch preservation, monthly reconciliation, paginated HR daily review/approval, explicit monthly coverage attestation, and a payroll-safe approval state. The detailed acceptance rules are maintained in `docs/PROJECT_SPEC.md`.
+
+The AI-assisted review described above is not yet connected to an AI provider. Current shift matching and reconciliation are deterministic rule-based preparation only; they do not claim to be AI. AI suggestions/explanations remain a separately gated integration (planned with the local AI assistant stage). Human review and approval remain mandatory, and the attendance workflow remains usable without AI.
+
+
+
+## Attendance evidence foundation (revision 0010)
+
+The repository now includes an initial, non-approving evidence layer:
+
+- `AttendanceImportBatch` records source type, period, file hash, uploader, counts, and review status.
+- `AttendancePunch` stores each parsed event with its exact source sheet, row, event index, raw timestamp text, and exact employee mapping when available.
+- `AttendanceDailyRecord` is the future employee/work-date reconciliation record. It defaults to `needs_review`; this table is not a payroll approval.
+- `app.attendance_import.parse_attendance_workbook` reads both legacy `.xls` and modern `.xlsx` files. Program exports contribute separate clock-in/clock-out evidence; fingerprint exports retain every time token in a multi-time cell.
+- Employee matching is exact against configured employee codes, fingerprint IDs, or names. Unknown identities and malformed values become issues, never fuzzy matches.
+- `app.attendance_workflow.persist_attendance_import` stores parsed evidence and an immutable AuditLog event, rejects duplicate source-file hashes, and does not approve daily attendance.
+
+The implementation now includes protected Excel import for both sources, exact employee identity matching, persisted raw punches and import issues, monthly reconciliation proposals, shift-aware overnight pairing, a protected HR review page, and explicit per-day approval with reason and immutable audit entry. Approval writes final HR-approved clock values separately from imported evidence. The month builder does not fabricate absences when there is neither a configured shift nor attendance evidence, and approved Security OFF days do not create attendance rows.
+
+Implementation and automated acceptance coverage now include the program-first/fingerprint-supplement workflow, the actual ZKTeco `Att.log report` day-column structure (including adjacent concatenated time tokens), exact employee mapping, unresolved-identity correction, overnight pairing, duplicate event review, effective-dated department transfers, Security roster rules, daily and monthly approvals, coverage-gap reporting, and concurrent PostgreSQL attendance approval. The current GitHub Actions run on the development branch passed 188 tests on the primary runner and 181 platform-independent tests on Windows; the Windows job intentionally excludes PostgreSQL migration tests.
+
+Remaining acceptance items are deliberately external to this code-only CI result: HR must run the real three-person Security roster workbook through preview and confirmation; the AI-assisted explanation/suggestion integration remains for the local AI stage; and the full Windows installation/database acceptance remains scheduled for the final Windows stage. Payroll must consume only records whose status is approved and the final approved clock values, never raw punches or unapproved proposals.
+
+
+### Reconciliation proposal rules
+
+- The approved program report remains the primary source for clock-in/out. Fingerprint punches fill a missing endpoint; when both sources disagree, both are retained and the day is marked `needs_review`.
+- Fingerprint timestamps are never rewritten. For an overnight shift, the work date is the date on which the shift started, not necessarily the calendar date of every punch.
+- Non-Security shift proposals use the first clock-in and the configured department patterns through `match_shift_by_clock`. An unmatched or ambiguous result remains in review.
+- Security never uses generic clock-in inference: the approved `SecurityShiftAssignment` for that employee and work date is authoritative. A missing or mismatched roster assignment remains in review.
+- Daily reconciliation proposals are saved as `ready_for_review` or `needs_review`; they are not approved records and cannot yet be used for payroll.
+- Individual import issues are retained in `AttendanceImportIssue`, rather than only incrementing a counter.

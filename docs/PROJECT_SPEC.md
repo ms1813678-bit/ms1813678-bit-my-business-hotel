@@ -4,7 +4,7 @@
 A local-first Arabic/English HR and payroll application for M.Y. Business Hotel, Maadi, Cairo. The system is operated by one authorized administrator: the HR Manager. It is not a public website and must not expose its local service to the public internet.
 
 ## Runtime and architecture
-- Target: Windows 11 laptop, 16 GB RAM, approximately 500 GB storage.
+- Target: Windows 10 or Windows 11 laptop, 16 GB RAM recommended, approximately 500 GB storage.
 - Local web application with PostgreSQL as the database and local file storage.
 - Manual launch from a desktop shortcut; do not auto-start with Windows.
 - Arabic is the default language; support English, RTL/LTR, Africa/Cairo timezone, DD/MM/YYYY, 24-hour time, and EGP.
@@ -46,19 +46,33 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Employee requests for personal-data changes are recorded; HR applies changes with old/new history.
 - No employee master Excel file currently exists; initial records are entered manually. Provide an import template later.
 
+## Security roster rules
+- Security coverage is validated by day before attendance can be finalized.
+- Never allow fewer than 2 guards assigned to work on a day, never allow a 1-guard day, and never allow an all-off day.
+- Determine the daily shift model from the number of guards assigned to work after explicit OFF entries are excluded: exactly 2 working guards use two 12-hour shifts; 3 or more working guards use three 8-hour shifts. Additional guards may share one of those shifts.
+- Shift start/end times remain configurable; the system must not invent times.
+- A day must have continuous coverage with no gaps and no overlapping assignments.
+- Overnight shifts and midnight boundaries must be handled explicitly; ambiguous patterns are sent to HR review rather than guessed.
+
 ## Attendance imports and review
-- Monthly inputs: ZKTeco LX50 fingerprint export and a department-prepared attendance Excel file.
-- Preserve original imported files and raw fingerprint events.
-- Fingerprint export may include fingerprint ID, date, time, and entry/exit marker.
-- Department Excel includes employee names, dates, weekly rest, and codes: H=official holiday, W=weekly rest, S=sick, A=annual, U=absence.
-- A blank cell is not proof of presence or absence.
-- Match by fingerprint ID or employee code. Detect missing, duplicate, unknown, and conflicting events.
-- Flag entry-without-exit, exit-without-entry, missing fingerprints, duplicate events, unknown IDs, and conflicts with leave/absence.
-- Never invent missing fingerprint times. Keep source-file references for later retrieval from the device.
+- Monthly inputs: the attendance program's one-sheet report is the primary source; the ZKTeco LX50 fingerprint export supplements missing days/events and is checked across the full month. Preserve the user's source priority: program report first, fingerprint report second. The program report defines the monthly period; when the fingerprint export contains only dates with punches, align its contained date range to that same program month rather than creating a shorter separate month.
+- Preserve the exact original uploaded workbooks, SHA-256 hashes, raw event values, employee identifiers, sheet names, and row positions; authorized HR users can retrieve the original source file later.
+- Fingerprint exports may contain multiple time tokens in one cell; preserve every token and its original cell value. Support the ZKTeco `Att.log report` matrix layout: day numbers are columns, each employee has an `ID:`/`Name:` metadata row followed by that employee's daily punch row, and adjacent time tokens without separators must remain distinct events. Ignore schedule/statistics/exception summary tabs as raw punch sources; retain the original sheet and row for every event.
+- Non-Security departments infer the shift from the first fingerprint within the department's configured shift windows effective on that work date; historical department transfers must not apply the employee's current department retroactively. Security alone uses a separate monthly roster workbook containing every currently active Security employee; the roster is not limited to three employees.
+- A blank cell or missing row is not proof of presence, absence, or a weekly rest day.
+- Match employee identities only by exact registered employee code/fingerprint ID/name aliases. Unknown identities remain unresolved until HR explicitly maps them to an employee; preserve the original identity and audit who resolved it.
+- Flag entry-without-exit, exit-without-entry, missing fingerprints, duplicate events, unknown IDs, and conflicts with leave/absence. Never invent missing fingerprint times.
+- An import batch with unresolved parsing/identity issues cannot enter monthly reconciliation. HR may resolve an unknown identity explicitly; otherwise replace a rejected/unresolved source batch with a corrected workbook before reconciliation. Keep the superseded batch and its source evidence for audit.
 - Monthly status: Imported → Under Review → Approved. Payroll cannot be finalized until attendance is approved.
+- A monthly attendance record is created when the first source file for an exact period is imported; the program and fingerprint batches must both be linked to the same exact period before reconciliation.
+- Reconciliation moves the month to Under Review. Monthly approval is a separate HR action and is blocked while any generated daily record is not approved, either source batch has unresolved import issues, or either source is missing.
+- Monthly approval requires an explicit administrator attestation that all employee/day coverage gaps were checked against both source reports. The review page lists the total gaps and up to 20 examples; the approval audit records the gap count. Historical employee service periods must be considered even after a later rehire updates the employee's current hire date. For Security, an approved roster's explicit OFF cell exempts only that employee-day; every employee assigned to work still needs an attendance record. Because blank source cells are not proof of absence, missing rows must never be silently converted to absences.
 - Unresolved absence is never classified as final absence.
 - No mobile/GPS attendance, no employee self-check-in, and no individual advance shift roster.
 - Support overnight shifts and midnight boundaries. Ambiguous shift patterns must be flagged, not guessed.
+- Shift matching uses separately configurable before/after margins, each capped at 120 minutes; effective windows are reduced as needed so neighboring shift windows never overlap. Exact midpoint minutes between neighboring starts are left unmatched rather than guessed. Duplicate shift start times (including Security's two 08:00 starts) remain ambiguous to clock-based matching and require the applicable roster/administrator input.
+- AI-assisted attendance review is advisory: it analyzes imported records, proposes matches with reasons, and presents exceptions for HR review. Clear cases may be prepared automatically under approved rules, but attendance is not finally approved and consequential records are not saved as approved without the administrator's confirmation. Core attendance workflows remain usable if AI is unavailable.
+- Security monthly roster rule: the uploaded Excel roster must contain one column for every currently active Security employee, each showing that employee's configured shift start time or explicit OFF for each date. The number of active guards is not fixed at three. If exactly two employees are assigned to work after OFF entries are excluded, both work 12 hours; if three or more are assigned to work, they cover the day using the three configured 8-hour shifts, and additional guards may share a shift. 00:00 is a valid shift start, never an OFF marker. End times must come from the matching configured Security shift pattern, including overnight boundaries; the system must not invent a missing end time. Fewer than two working employees, incomplete 24-hour coverage, missing patterns, or ambiguous configured pattern definitions require administrator review. Employees sharing the same configured shift start is allowed and is not itself a duplicate-pattern error. AI may parse and propose the roster, but the administrator confirms before assignments are saved as approved.
 - Configurable shift patterns:
   - Administration: 09:00–17:00
   - Reception: 07:00–15:00, 15:00–23:00, 23:00–07:00
@@ -96,11 +110,12 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - No transport or meal allowances.
 
 ## Advances
-- Requests accepted from the 15th through the 22nd of each month.
-- Maximum outstanding advances after a new advance: 25% of basic salary.
-- New advance is allowed only if total outstanding after it remains within the 25% limit.
-- Entire advance is deducted from the following month's salary, not installments.
-- Show latest advance, date, total, deducted, outstanding, and available limit.
+- Requests are accepted from the 15th through the 22nd of the current month; future-dated and prior-month requests are rejected.
+- Regular monthly advances alone are subject to the 25% of basic salary cap for the relevant accounting month. Pending, approved, and paid regular advances for that same accounting month reserve the cap until deductions are applied.
+- Installment/large advances are a separate type and are not subject to the regular monthly 25% cap. The administrator approves a repayment schedule of 1–36 installments; installment amounts are distributed to cents and sum exactly to the original advance.
+- The first installment belongs to the request month. Each installment is deducted in its accounting payroll month and paid on the 5th of the following month. Example: a request on 19 October for 6,000 over 6 installments is accounted for October–March and paid on 5 November–5 April.
+- Payroll consumes only the installment due for its payroll month, not the full original installment advance. Reopening payroll reverses the installment application without losing its schedule.
+- Show latest advance, date, type, original amount, deducted, outstanding, and regular-advance available limit separately.
 
 ## Sanctions and rewards
 - Sanctions: verbal notice, first warning, final warning, salary deduction, suspension.
@@ -109,16 +124,20 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Rewards: financial reward, certificate, commendation, promotion recommendation, and configurable types. Financial amount is manual. Preserve history.
 
 ## Reports and dashboard
-- Daily, weekly, monthly, and custom-range reports with filters.
+- Reports are generated **manually by the administrator from the Reports module**; there is no automatic monthly report job in the initial release.
+- The administrator selects the report type and an explicit start date and end date.
+- The administrator can select **all employees** or **one specific employee**.
+- Employee selection must be applied consistently to every report type where an employee filter is meaningful; department/branch filters may be offered where supported.
+- Available report periods include daily, weekly, monthly, and arbitrary custom ranges through the same manual date-range controls.
 - Excel and PDF exports.
 - Reports: employee, attendance, leave, sanctions/rewards, payroll, advances, and department comparisons.
-- Prepare previous-month report on day 1 at 09:00 Cairo time and save locally.
-- Intended email recipient: mohamedhassanien398@gmail.com. Email requires internet and configured credentials; never claim delivery unless confirmed.
+- Generated reports are saved locally for download/archival.
+- Intended email recipient is not part of the automatic report workflow; if a future email action is added, it must require an explicit administrator action and configured credentials. Never claim delivery unless confirmed.
 - Dashboard shows counts, attendance, incomplete records, leaves, payroll, alerts, department rankings, and previous-month comparisons.
 - Never present unresolved absence as final.
 
 ## Optional AI assistant
-- Administrator only. Free local model preferred; evaluate compatibility/performance on 16 GB Windows laptop.
+- Administrator only. Free local model preferred; evaluate compatibility/performance on a 16 GB Windows 10 or Windows 11 laptop.
 - Model download may require internet once; offline operation afterward.
 - System must remain fully usable when AI is disabled or unavailable.
 - Natural-language assistance for employee search/analysis, Excel parsing/mapping, leave, payroll preview, advances, sanctions/rewards, and reports.
@@ -137,4 +156,12 @@ Future modules, not part of the initial release: purchasing, inventory, accounti
 - Do not claim a feature is complete until code and tests support that claim.
 - Preserve source imports and historical records; use database migrations for schema changes.
 - Add automated tests for payroll calculations, date boundaries, duplicate imports, permissions, and backup/restore before production use.
-- No production deployment or real employee data until local installation, security, backup, and restore have been tested on the target laptop.
+- No production deployment or real employee data until local installation, security, backup, and restore have been tested on the target Windows 10 or Windows 11 laptop.
+
+
+## Database migration rollback policy
+
+- Production databases must not be downgraded across migration `0009_audit_log_immutability`. Its downgrade removes database-level UPDATE/DELETE triggers from `audit_logs`, weakening tamper protection.
+- For production schema corrections, prefer a forward-only migration that preserves audit immutability.
+- If a rollback is unavoidable for disaster recovery, stop application writes, take and verify a full backup, restore into an isolated environment, and explicitly re-establish and verify the audit-log triggers before reopening the system.
+- Automated migration downgrade tests may exercise rollback in disposable test schemas only; they do not authorize production downgrade.

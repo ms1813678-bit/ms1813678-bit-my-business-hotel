@@ -8,8 +8,8 @@ from sqlalchemy.pool import StaticPool
 import pytest
 
 from app.db import Base
-from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation)
-from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, SecurityShiftAssignment, ShiftPattern)
+from app.attendance_workflow import (approve_attendance_day, approve_attendance_month, _department_history_by_date, persist_attendance_import, persist_daily_attendance_proposal, prepare_and_persist_monthly_reconciliation, resolve_unknown_attendance_employee, summarize_attendance_month_coverage)
+from app.models import (AttendanceImportBatch, AttendanceImportIssue, AttendancePunch, AttendanceDailyRecord, AttendanceMonth, AuditLog, Department, Employee, EmployeeChange, EmployeeServicePeriod, SecurityShiftAssignment, ShiftPattern)
 
 
 @pytest.fixture
@@ -187,6 +187,12 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
         )
         db_session.add(employee)
         db_session.flush()
+        db_session.add(EmployeeServicePeriod(
+            employee_id=employee.id,
+            start_date=date(2024, 1, 1),
+            end_date=(date(2026, 10, 31) if name == "Security C" else None),
+            start_reason="Synthetic security service period",
+        ))
         security_employees.append(employee)
 
     department_pattern = ShiftPattern(
@@ -241,6 +247,35 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
     normal_employee = db_session.scalar(
         select(Employee).where(Employee.code == "ATT-001")
     )
+    from app.models import LeaveRecord, LeaveType
+
+    annual_leave = LeaveType(
+        code="annual", name_ar="إجازة سنوية", name_en="Annual leave",
+        is_paid=True, tracks_balance=True, active=True,
+    )
+    db_session.add(annual_leave)
+    db_session.flush()
+    db_session.add(LeaveRecord(
+        employee_id=normal_employee.id,
+        leave_type_id=annual_leave.id,
+        start_date=work_date, end_date=work_date,
+        calendar_days=1, charged_days=1,
+        reason="Confirmed annual leave overlapping imported attendance",
+        status="confirmed", created_by="hr-admin",
+    ))
+    historical_rehire = Employee(
+        code="ATT-HISTORICAL-REHIRE", full_name="Historical Rehire",
+        department_id=attendance_department.id, position="Test",
+        hire_date=date(2026, 12, 1), status="active",
+        basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+    )
+    db_session.add(historical_rehire)
+    db_session.flush()
+    db_session.add(EmployeeServicePeriod(
+        employee_id=historical_rehire.id,
+        start_date=work_date, end_date=work_date,
+        start_reason="Original employment", end_reason="Left before rehire",
+    ))
     db_session.add_all([
         AttendancePunch(
             import_batch_id=program_batch.id, employee_id=normal_employee.id,
@@ -254,9 +289,22 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
             punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
             event_type="OUT", source_sheet="Sheet1", source_row=2, event_index=1,
         ),
+        AttendancePunch(
+            import_batch_id=program_batch.id, employee_id=historical_rehire.id,
+            raw_employee_code=historical_rehire.code, raw_employee_name=historical_rehire.full_name,
+            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
+            event_type="IN", source_sheet="Sheet1", source_row=3, event_index=0,
+        ),
+        AttendancePunch(
+            import_batch_id=program_batch.id, employee_id=historical_rehire.id,
+            raw_employee_code=historical_rehire.code, raw_employee_name=historical_rehire.full_name,
+            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
+            event_type="OUT", source_sheet="Sheet1", source_row=3, event_index=1,
+        ),
     ])
     for employee_index, (employee, start, end) in enumerate((
         (normal_employee, datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 16, 0)),
+        (historical_rehire, datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 16, 0)),
         (security_employees[0], datetime(2026, 11, 1, 20, 0), datetime(2026, 11, 2, 8, 0)),
         (security_employees[1], datetime(2026, 11, 1, 8, 0), datetime(2026, 11, 1, 20, 0)),
     )):
@@ -280,14 +328,18 @@ def test_monthly_reconciliation_persists_review_records_and_respects_security_of
     db_session.commit()
 
     assert summary == {
-        "total": 3, "ready_for_review": 3, "needs_review": 0,
+        "total": 4, "ready_for_review": 3, "needs_review": 1,
         "import_issue_count": 0,
         "period_start": work_date, "period_end": work_date,
     }
     records = db_session.scalars(select(AttendanceDailyRecord)).all()
-    assert len(records) == 3
-    assert all(item.status == "ready_for_review" for item in records)
+    assert len(records) == 4
+    normal_record = next(item for item in records if item.employee_id == normal_employee.id)
+    assert normal_record.status == "needs_review"
+    assert "attendance_conflicts_with_confirmed_leave" in (normal_record.review_notes or "")
+    assert sum(item.status == "ready_for_review" for item in records) == 3
     assert all(item.approved_by is None and item.approved_at is None for item in records)
+    assert historical_rehire.id in {item.employee_id for item in records}
     assert security_employees[2].id not in {item.employee_id for item in records}
 
 
@@ -318,24 +370,8 @@ def test_monthly_reconciliation_refuses_duplicate_period_records(db_session):
         )
 
 
-def test_monthly_reconciliation_with_import_issues_forces_review(db_session):
+def test_monthly_reconciliation_is_blocked_until_both_source_imports_are_clean(db_session):
     work_date = date(2026, 11, 1)
-    department = db_session.scalar(select(Department).where(Department.name == "Attendance Test"))
-    db_session.add(ShiftPattern(
-        department_id=department.id, code="DAY", name="Day",
-        start_time=time(8, 0), end_time=time(16, 0),
-        match_before_minutes=60, match_after_minutes=60, active=True,
-    ))
-    security = Department(name="Security", active=True)
-    db_session.add(security)
-    db_session.flush()
-    for index in range(3):
-        db_session.add(Employee(
-            code=f"SEC-ISSUE-{index}", full_name=f"Security Issue {index}",
-            department_id=security.id, position="Security",
-            hire_date=date(2024, 1, 1), status="active",
-            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
-        ))
     program = AttendanceImportBatch(
         source_type="program_report", period_start=work_date, period_end=work_date,
         original_filename="program.xlsx", file_sha256="e" * 64,
@@ -348,40 +384,62 @@ def test_monthly_reconciliation_with_import_issues_forces_review(db_session):
     )
     db_session.add_all([program, fingerprint])
     db_session.flush()
-    normal = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
-    db_session.add_all([
-        AttendancePunch(
-            import_batch_id=program.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
-            event_type="IN", source_sheet="Sheet1", source_row=2, event_index=0,
-        ),
-        AttendancePunch(
-            import_batch_id=program.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
-            event_type="OUT", source_sheet="Sheet1", source_row=2, event_index=1,
-        ),
-        AttendancePunch(
-            import_batch_id=fingerprint.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 8, 0), raw_timestamp="08:00",
-            event_type="PUNCH", source_sheet="Att.log report", source_row=2, event_index=0,
-        ),
-        AttendancePunch(
-            import_batch_id=fingerprint.id, employee_id=normal.id,
-            raw_employee_code="ATT-001", raw_employee_name="Test Employee",
-            punch_at=datetime(2026, 11, 1, 16, 0), raw_timestamp="16:00",
-            event_type="PUNCH", source_sheet="Att.log report", source_row=3, event_index=0,
-        ),
-    ])
-    summary = prepare_and_persist_monthly_reconciliation(
-        db_session, program_batch_id=program.id, fingerprint_batch_id=fingerprint.id,
-        period_start=work_date, period_end=work_date, actor="hr-admin",
+
+    with pytest.raises(ValueError, match="attendance_import_batch_has_unresolved_issues"):
+        prepare_and_persist_monthly_reconciliation(
+            db_session, program_batch_id=program.id, fingerprint_batch_id=fingerprint.id,
+            period_start=work_date, period_end=work_date, actor="hr-admin",
+        )
+    assert db_session.scalar(select(func.count()).select_from(AttendanceDailyRecord)) == 0
+
+
+def test_partial_fingerprint_date_range_joins_the_program_month(db_session):
+    program_payload = parsed_payload()
+    program_payload["source_type"] = "program_report"
+    program_payload["period_start"] = date(2026, 11, 1)
+    program_payload["period_end"] = date(2026, 11, 30)
+    program = persist_attendance_import(
+        db_session, file_bytes=b"program-whole-month",
+        filename="program.xlsx", parsed=program_payload, actor="hr-admin",
     )
-    assert summary["import_issue_count"] == 1
-    assert summary["ready_for_review"] == 0
-    assert summary["needs_review"] == summary["total"]
+
+    fingerprint_payload = parsed_payload()
+    fingerprint_payload["period_start"] = date(2026, 11, 3)
+    fingerprint_payload["period_end"] = date(2026, 11, 28)
+    fingerprint = persist_attendance_import(
+        db_session, file_bytes=b"fingerprint-punch-days-only",
+        filename="fingerprint.xlsx", parsed=fingerprint_payload, actor="hr-admin",
+    )
+
+    assert fingerprint.period_start == date(2026, 11, 1)
+    assert fingerprint.period_end == date(2026, 11, 30)
+    month = db_session.scalar(select(AttendanceMonth))
+    assert month.period_start == program.period_start
+    assert month.period_end == program.period_end
+    assert month.program_import_batch_id == program.id
+    assert month.fingerprint_import_batch_id == fingerprint.id
+
+
+def test_unresolved_source_batch_can_be_replaced_before_reconciliation(db_session):
+    payload = parsed_payload()
+    payload["issues"] = [{"sheet": "Sheet1", "row": 2, "reason": "invalid_time_value", "value": "bad"}]
+    old_batch = persist_attendance_import(
+        db_session, file_bytes=b"bad-source-version", filename="program.xlsx",
+        parsed={**payload, "source_type": "program_report"}, actor="hr-admin",
+    )
+    new_payload = {**parsed_payload(), "source_type": "program_report"}
+    new_batch = persist_attendance_import(
+        db_session, file_bytes=b"corrected-source-version", filename="program-corrected.xlsx",
+        parsed=new_payload, actor="hr-admin",
+    )
+
+    month = db_session.scalar(select(AttendanceMonth))
+    assert old_batch.status == "rejected"
+    assert new_batch.status == "parsed"
+    assert month.program_import_batch_id == new_batch.id
+    assert db_session.scalar(select(func.count()).select_from(AuditLog).where(
+        AuditLog.action == "attendance_import_batch_replaced"
+    )) == 1
 
 
 def test_hr_approval_preserves_source_evidence_and_writes_audit(db_session):
@@ -514,6 +572,22 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     )
     db_session.add_all([program, fingerprint])
     db_session.flush()
+    future_rehire = Employee(
+        code="ATT-FUTURE-REHIRE", full_name="Future Rehire",
+        department_id=db_session.scalar(
+            select(Department.id).where(Department.name == "Attendance Test")
+        ),
+        position="Test", hire_date=date(2020, 1, 1), status="active",
+        basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+    )
+    db_session.add(future_rehire)
+    db_session.flush()
+    db_session.add(EmployeeServicePeriod(
+        employee_id=future_rehire.id,
+        start_date=date(2026, 12, 1),
+        end_date=None,
+        start_reason="Future rehire",
+    ))
     month = AttendanceMonth(
         period_start=work_date, period_end=work_date,
         program_import_batch_id=program.id,
@@ -578,3 +652,492 @@ def test_month_approval_requires_daily_approval_and_explicit_coverage(db_session
     )
     assert audit is not None
     assert audit.entity_id == str(month.id)
+    assert "coverage_confirmed=true" in audit.new_value
+    # The unrelated active employee has no record for this date and remains a
+    # visible coverage gap even though HR explicitly attested to reviewing it.
+    assert "unrepresented_employee_days=1" in audit.new_value
+
+
+
+def test_monthly_coverage_summary_surfaces_blank_employee_days_without_marking_absence(db_session):
+    work_date = date(2026, 11, 1)
+    security = Department(name="Security", active=True)
+    db_session.add(security)
+    db_session.flush()
+    security_employees = []
+    for index in range(3):
+        employee = Employee(
+            code=f"SEC-COVER-{index}", full_name=f"Security Cover {index}",
+            department_id=security.id, position="Security",
+            hire_date=date(2024, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        security_employees.append(employee)
+        db_session.add(employee)
+    program = AttendanceImportBatch(
+        source_type="program_report", period_start=work_date, period_end=work_date,
+        original_filename="program.xlsx", file_sha256="1" * 64,
+        uploaded_by="hr-admin", status="parsed", row_count=1, issue_count=0,
+    )
+    fingerprint = AttendanceImportBatch(
+        source_type="fingerprint", period_start=work_date, period_end=work_date,
+        original_filename="fingerprint.xlsx", file_sha256="2" * 64,
+        uploaded_by="hr-admin", status="parsed", row_count=1, issue_count=0,
+    )
+    db_session.add_all([program, fingerprint])
+    db_session.flush()
+    month = AttendanceMonth(
+        period_start=work_date, period_end=work_date,
+        program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
+        status="under_review", created_by="hr-admin",
+    )
+    db_session.add(month)
+    from app.models import LeaveRecord, LeaveType
+
+    annual_leave = LeaveType(
+        code="annual", name_ar="إجازة سنوية", name_en="Annual leave",
+        is_paid=True, tracks_balance=True, active=True,
+    )
+    db_session.add(annual_leave)
+    db_session.flush()
+    db_session.add(LeaveRecord(
+        employee_id=db_session.scalar(select(Employee).where(Employee.code == "ATT-001")).id,
+        leave_type_id=annual_leave.id,
+        start_date=work_date, end_date=work_date,
+        calendar_days=1, charged_days=1,
+        reason="Confirmed leave explains missing attendance",
+        status="confirmed", created_by="hr-admin",
+    ))
+    pattern = ShiftPattern(
+        department_id=security.id, code="SEC-08-20", name="Security 08-20",
+        start_time=time(8, 0), end_time=time(20, 0),
+        match_before_minutes=60, match_after_minutes=60, active=True,
+    )
+    db_session.add(pattern)
+    db_session.flush()
+    # Two employees are rostered to work and one is explicitly OFF.
+    for employee in security_employees[:2]:
+        db_session.add(SecurityShiftAssignment(
+            employee_id=employee.id, work_date=work_date,
+            shift_pattern_id=pattern.id, notes="Approved security roster assignment",
+        ))
+    db_session.add(AttendanceDailyRecord(
+        employee_id=security_employees[1].id, work_date=work_date,
+        status="ready_for_review", program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
+    ))
+    db_session.add(AuditLog(
+        actor="hr-admin", action="security_roster_day_approved",
+        entity_type="security_roster", entity_id=work_date.isoformat(),
+        new_value=(
+            f"{security_employees[0].id}:08:00; "
+            f"{security_employees[1].id}:08:00; "
+            f"{security_employees[2].id}:OFF"
+        ),
+        reason="Approved roster; two 12-hour shifts and one OFF",
+    ))
+    db_session.flush()
+
+    summary = summarize_attendance_month_coverage(db_session, month)
+    assert summary["unrepresented_employee_days"] == 1
+    assert {
+        (gap["employee_code"], gap["work_date"])
+        for gap in summary["coverage_examples"]
+    } == {("SEC-COVER-0", work_date)}
+
+
+def test_monthly_coverage_includes_historical_service_period_after_rehire(db_session):
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    employee.hire_date = date(2026, 11, 1)
+    employee.status = "active"
+    db_session.add(EmployeeServicePeriod(
+        employee_id=employee.id,
+        start_date=date(2025, 1, 1),
+        end_date=date(2025, 1, 31),
+        start_reason="Original employment",
+        end_reason="Archived before later rehire",
+    ))
+    program = AttendanceImportBatch(
+        source_type="program_report", period_start=date(2025, 1, 15),
+        period_end=date(2025, 1, 15), original_filename="program-old.xlsx",
+        file_sha256="a" * 64, uploaded_by="hr-admin", status="parsed",
+        row_count=1, issue_count=0,
+    )
+    fingerprint = AttendanceImportBatch(
+        source_type="fingerprint", period_start=date(2025, 1, 15),
+        period_end=date(2025, 1, 15), original_filename="fingerprint-old.xlsx",
+        file_sha256="b" * 64, uploaded_by="hr-admin", status="parsed",
+        row_count=1, issue_count=0,
+    )
+    db_session.add_all([program, fingerprint])
+    db_session.flush()
+    month = AttendanceMonth(
+        period_start=date(2025, 1, 15), period_end=date(2025, 1, 15),
+        program_import_batch_id=program.id,
+        fingerprint_import_batch_id=fingerprint.id,
+        status="under_review", created_by="hr-admin",
+    )
+    db_session.add(month)
+    db_session.flush()
+
+    summary = summarize_attendance_month_coverage(db_session, month)
+    assert summary["unrepresented_employee_days"] == 1
+    assert summary["coverage_examples"][0]["employee_code"] == "ATT-001"
+
+
+def test_unknown_employee_resolution_links_raw_punches_and_recalculates_batch_status(db_session):
+    payload = parsed_payload()
+    payload["events"] = [{
+        "employee_id": None,
+        "raw_employee_code": "FP-UNKNOWN",
+        "raw_employee_name": "Unmatched Name",
+        "punch_at": datetime(2026, 11, 1, 7, 50),
+        "raw_timestamp": "07:50",
+        "event_type": "PUNCH",
+        "source_sheet": "Att.log report",
+        "source_row": 9,
+        "event_index": 0,
+    }, {
+        "employee_id": None,
+        "raw_employee_code": "FP-UNKNOWN",
+        "raw_employee_name": "Unmatched Name",
+        "punch_at": datetime(2026, 11, 1, 16, 9),
+        "raw_timestamp": "07:50 16:09",
+        "event_type": "PUNCH",
+        "source_sheet": "Att.log report",
+        "source_row": 9,
+        "event_index": 1,
+    }]
+    payload["issues"] = [{
+        "sheet": "Att.log report", "row": 9,
+        "reason": "unknown_employee", "value": "FP-UNKNOWN",
+    }]
+    batch = persist_attendance_import(
+        db_session, file_bytes=b"unknown-identity-file",
+        filename="fingerprint.xlsx", parsed=payload, actor="hr-admin",
+    )
+    issue = db_session.scalar(select(AttendanceImportIssue).where(
+        AttendanceImportIssue.import_batch_id == batch.id
+    ))
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+
+    resolved = resolve_unknown_attendance_employee(
+        db_session, issue_id=issue.id, employee_id=employee.id, actor="hr-admin"
+    )
+    db_session.flush()
+
+    punches = db_session.scalars(select(AttendancePunch).where(
+        AttendancePunch.import_batch_id == batch.id
+    ).order_by(AttendancePunch.event_index)).all()
+    assert len(punches) == 2
+    assert all(punch.employee_id == employee.id for punch in punches)
+    assert all(punch.raw_employee_code == "FP-UNKNOWN" for punch in punches)
+    assert punches[0].raw_timestamp == "07:50"
+    assert punches[1].raw_timestamp == "07:50 16:09"
+    assert resolved.resolved_employee_id == employee.id
+    assert resolved.resolved_by == "hr-admin"
+    assert resolved.resolved_at is not None
+    assert batch.issue_count == 0
+    assert batch.status == "parsed"
+    audit = db_session.scalar(select(AuditLog).where(
+        AuditLog.action == "attendance_import_unknown_employee_resolved"
+    ))
+    assert audit is not None
+    assert audit.actor == "hr-admin"
+
+
+def test_unknown_employee_resolution_rejects_reassignment_and_wrong_issue_type(db_session):
+    payload = parsed_payload()
+    payload["events"] = [{
+        "employee_id": None, "raw_employee_code": "FP-UNKNOWN",
+        "raw_employee_name": "Unknown", "punch_at": datetime(2026, 11, 1, 7, 50),
+        "raw_timestamp": "07:50", "event_type": "PUNCH",
+        "source_sheet": "Att.log report", "source_row": 4, "event_index": 0,
+    }]
+    payload["issues"] = [{
+        "sheet": "Att.log report", "row": 4,
+        "reason": "unknown_employee", "value": "FP-UNKNOWN",
+    }]
+    batch = persist_attendance_import(
+        db_session, file_bytes=b"unknown-identity-file-2",
+        filename="fingerprint.xlsx", parsed=payload, actor="hr-admin",
+    )
+    issue = db_session.scalar(select(AttendanceImportIssue).where(
+        AttendanceImportIssue.import_batch_id == batch.id
+    ))
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    resolve_unknown_attendance_employee(
+        db_session, issue_id=issue.id, employee_id=employee.id, actor="hr-admin"
+    )
+    with pytest.raises(ValueError, match="attendance_import_issue_already_resolved"):
+        resolve_unknown_attendance_employee(
+            db_session, issue_id=issue.id, employee_id=employee.id, actor="hr-admin"
+        )
+    invalid_issue = AttendanceImportIssue(
+        import_batch_id=batch.id, source_sheet="Att.log report",
+        source_row=10, reason="invalid_time_value",
+    )
+    db_session.add(invalid_issue)
+    db_session.flush()
+    with pytest.raises(ValueError, match="attendance_import_issue_not_identity_resolvable"):
+        resolve_unknown_attendance_employee(
+            db_session, issue_id=invalid_issue.id, employee_id=employee.id, actor="hr-admin"
+        )
+
+
+def test_department_history_uses_effective_date_for_each_attendance_day(db_session):
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    old_department_id = employee.department_id
+    new_department = Department(name="Transferred Department", active=True)
+    db_session.add(new_department)
+    db_session.flush()
+    employee.department_id = new_department.id
+    db_session.add(EmployeeChange(
+        employee_id=employee.id, field_name="department_id",
+        old_value=str(old_department_id), new_value=str(new_department.id),
+        effective_date=date(2026, 11, 2), reason="Department transfer",
+    ))
+    db_session.flush()
+
+    history = _department_history_by_date(
+        db_session, [employee], date(2026, 11, 1), date(2026, 11, 3)
+    )
+
+    assert history[employee.id][date(2026, 11, 1)] == old_department_id
+    assert history[employee.id][date(2026, 11, 2)] == new_department.id
+    assert history[employee.id][date(2026, 11, 3)] == new_department.id
+    assert history[employee.id][date(2026, 10, 31)] == old_department_id
+
+
+def test_security_roster_requires_two_guards_and_full_coverage(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security", active=True)
+    db_session.add(security)
+    db_session.flush()
+    guards = []
+    for index in range(2):
+        guard = Employee(
+            code=f"SEC-{index+1}", full_name=f"Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(
+            employee_id=guard.id, start_date=date(2026, 1, 1)
+        ))
+    db_session.flush()
+    day = date(2026, 11, 2)
+    p1 = ShiftPattern(department_id=security.id, code="SEC12A", name="12h A",
+                      start_time=time(0,0), end_time=time(12,0),
+                      match_before_minutes=0, match_after_minutes=0, active=True)
+    p2 = ShiftPattern(department_id=security.id, code="SEC12B", name="12h B",
+                      start_time=time(12,0), end_time=time(0,0),
+                      match_before_minutes=0, match_after_minutes=0, active=True)
+    db_session.add_all([p1,p2]); db_session.flush()
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=p1.id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=p2.id),
+    ])
+    db_session.flush()
+    validate_security_roster(db_session, period_start=day, period_end=day)
+
+    db_session.query(SecurityShiftAssignment).delete()
+    db_session.flush()
+    with pytest.raises(ValueError, match="security_roster_shift_count_invalid"):
+        validate_security_roster(db_session, period_start=day, period_end=day)
+
+
+def test_security_roster_validator_allows_multiple_guards_to_share_a_shift(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security", active=True)
+    db_session.add(security)
+    db_session.flush()
+    guards = []
+    for index in range(4):
+        guard = Employee(
+            code=f"SEC-SHARE-{index+1}", full_name=f"Shared Shift Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(employee_id=guard.id, start_date=date(2026, 1, 1)))
+    db_session.flush()
+
+    patterns = [
+        ShiftPattern(department_id=security.id, code="SHARE-A", name="08-16",
+                     start_time=time(8, 0), end_time=time(16, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=security.id, code="SHARE-B", name="16-00",
+                     start_time=time(16, 0), end_time=time(0, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=security.id, code="SHARE-C", name="00-08",
+                     start_time=time(0, 0), end_time=time(8, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+    ]
+    db_session.add_all(patterns)
+    db_session.flush()
+
+    day = date(2026, 11, 3)
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[2].id, work_date=day, shift_pattern_id=patterns[1].id),
+        SecurityShiftAssignment(employee_id=guards[3].id, work_date=day, shift_pattern_id=patterns[2].id),
+    ])
+    db_session.flush()
+
+    validate_security_roster(db_session, period_start=day, period_end=day)
+
+
+def test_security_roster_validator_uses_twelve_hour_model_for_two_working_guards(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security", active=True)
+    db_session.add(security)
+    db_session.flush()
+    guards = []
+    for index in range(5):
+        guard = Employee(
+            code=f"SEC-TWO-{index+1}", full_name=f"Two Working Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(employee_id=guard.id, start_date=date(2026, 1, 1)))
+    db_session.flush()
+
+    patterns = [
+        ShiftPattern(department_id=security.id, code="TWO-A", name="08-20",
+                     start_time=time(8, 0), end_time=time(20, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=security.id, code="TWO-B", name="20-08",
+                     start_time=time(20, 0), end_time=time(8, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+    ]
+    db_session.add_all(patterns)
+    db_session.flush()
+
+    day = date(2026, 11, 4)
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=patterns[1].id),
+    ])
+    db_session.flush()
+
+    # The other three active guards are explicitly OFF for this day.
+    validate_security_roster(db_session, period_start=day, period_end=day)
+
+
+def test_security_roster_validator_rejects_shift_patterns_from_other_departments(db_session):
+    from app.attendance_workflow import validate_security_roster
+
+    security = Department(name="Security", active=True)
+    unrelated = Department(name="Unrelated", active=True)
+    db_session.add_all([security, unrelated])
+    db_session.flush()
+    guards = []
+    for index in range(2):
+        guard = Employee(
+            code=f"SEC-WRONG-DEPT-{index+1}", full_name=f"Wrong Department Guard {index+1}",
+            department_id=security.id, position="Guard",
+            hire_date=date(2026, 1, 1), status="active",
+            basic_salary=Decimal("5000"), daily_hours=Decimal("8"),
+        )
+        guards.append(guard)
+    db_session.add_all(guards)
+    db_session.flush()
+    for guard in guards:
+        db_session.add(EmployeeServicePeriod(employee_id=guard.id, start_date=date(2026, 1, 1)))
+    db_session.flush()
+
+    patterns = [
+        ShiftPattern(department_id=unrelated.id, code="OTHER-08-20", name="Wrong 08-20",
+                     start_time=time(8, 0), end_time=time(20, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+        ShiftPattern(department_id=unrelated.id, code="OTHER-20-08", name="Wrong 20-08",
+                     start_time=time(20, 0), end_time=time(8, 0),
+                     match_before_minutes=0, match_after_minutes=0, active=True),
+    ]
+    db_session.add_all(patterns)
+    db_session.flush()
+
+    day = date(2026, 11, 5)
+    db_session.add_all([
+        SecurityShiftAssignment(employee_id=guards[0].id, work_date=day, shift_pattern_id=patterns[0].id),
+        SecurityShiftAssignment(employee_id=guards[1].id, work_date=day, shift_pattern_id=patterns[1].id),
+    ])
+    db_session.flush()
+
+    with pytest.raises(ValueError, match="security_roster_shift_pattern_wrong_department"):
+        validate_security_roster(db_session, period_start=day, period_end=day)
+
+
+def test_add_manual_attendance_requires_existing_under_review_month_and_preserves_source(db_session):
+    from app.attendance_workflow import add_manual_attendance
+    from app.models import AttendanceMonth
+
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    db_session.add(EmployeeServicePeriod(employee_id=employee.id, start_date=date(2026, 11, 1)))
+    month = AttendanceMonth(
+        period_start=date(2026, 11, 1), period_end=date(2026, 11, 30),
+        status="under_review",
+        created_by="hr-admin",
+    )
+    db_session.add(month)
+    db_session.flush()
+
+    record = add_manual_attendance(
+        db_session,
+        employee_id=employee.id,
+        work_date=date(2026, 11, 5),
+        clock_in=datetime(2026, 11, 5, 8, 0),
+        clock_out=datetime(2026, 11, 5, 16, 0),
+        reason="Employee forgot fingerprint card",
+        actor="admin",
+    )
+    assert record.status == "needs_review"
+    assert record.manual_entered_by == "admin"
+    assert record.manual_entry_reason == "Employee forgot fingerprint card"
+    assert record.program_clock_in is None
+    assert record.first_clock_in is None
+    assert record.worked_minutes == 480
+
+
+def test_add_manual_attendance_rejects_approved_month(db_session):
+    from app.attendance_workflow import add_manual_attendance
+    from app.models import AttendanceMonth
+
+    employee = db_session.scalar(select(Employee).where(Employee.code == "ATT-001"))
+    db_session.add(EmployeeServicePeriod(employee_id=employee.id, start_date=date(2026, 11, 1)))
+    db_session.add(AttendanceMonth(
+        period_start=date(2026, 11, 1), period_end=date(2026, 11, 30),
+        status="approved",
+        created_by="hr-admin",
+    ))
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="attendance_month_already_approved"):
+        add_manual_attendance(
+            db_session,
+            employee_id=employee.id,
+            work_date=date(2026, 11, 5),
+            clock_in=datetime(2026, 11, 5, 8, 0),
+            clock_out=datetime(2026, 11, 5, 16, 0),
+            reason="Late fingerprint",
+            actor="admin",
+        )
