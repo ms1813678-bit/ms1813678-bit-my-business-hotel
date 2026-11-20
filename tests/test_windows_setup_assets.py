@@ -6,7 +6,6 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_windows_setup_assets_exist():
     assert (ROOT / "scripts" / "windows" / "setup.ps1").is_file()
     assert (ROOT / "scripts" / "windows" / "start.ps1").is_file()
-    assert (ROOT / "scripts" / "windows" / "register_monthly_report_task.ps1").is_file()
     assert (ROOT / "scripts" / "generate_monthly_report.py").is_file()
     assert (ROOT / "docs" / "WINDOWS_INSTALL.md").is_file()
 
@@ -41,3 +40,14 @@ def test_windows_setup_has_balanced_powershell_blocks():
     assert '$EnvContent = @"' in setup
     assert setup.count('$EnvContent = @"') == 1
     assert setup.count('"@') == 1
+
+
+def test_monthly_reports_remain_manual_and_no_scheduled_report_task_is_installed():
+    setup = (ROOT / "scripts" / "windows" / "setup.ps1").read_text(encoding="utf-8")
+    docs = (ROOT / "docs" / "WINDOWS_INSTALL.md").read_text(encoding="utf-8")
+    task_scripts = list((ROOT / "scripts" / "windows").glob("*report*task*.ps1"))
+
+    assert not task_scripts
+    assert "generated manually by the administrator" in setup
+    assert "no automatic report email or scheduled report job" in docs.lower()
+    assert "register_monthly_report_task.ps1" not in setup
